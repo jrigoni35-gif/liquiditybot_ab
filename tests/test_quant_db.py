@@ -12,6 +12,7 @@ from pathlib import Path  # noqa: E402
 from scripts.quant_db import (  # noqa: E402
     REFUSAL_AUDIT_MISSING,
     REFUSAL_DUCKDB_MISSING,
+    REFUSAL_EXTERNAL_DB_INVALID,
     QuantDbRefusal,
     connect,
     crosscheck,
@@ -88,12 +89,13 @@ def test_missing_duckdb_refuses(monkeypatch):
     assert exc.value.code == REFUSAL_DUCKDB_MISSING
 
 
-def test_main_exit_codes(desk, monkeypatch, capsys):
+def test_main_exit_codes(desk, monkeypatch, capsys, tmp_path):
     import scripts.quant_db as qdb  # noqa: E402,PLC0415
 
     monkeypatch.setattr(qdb, "AUDIT", desk["audit"])
     monkeypatch.setattr(qdb, "CORPUS_DIR", desk["corpus"])
     monkeypatch.setattr(qdb, "OPTIONAL_CSVS", desk["csvs"])
+    monkeypatch.setattr(qdb, "EXTERNAL_DBS", tmp_path / "no_registry.json")
     assert main() == 0
     out = capsys.readouterr().out
     assert "DE-010 captured arrivals: 3" in out
@@ -102,3 +104,103 @@ def test_main_exit_codes(desk, monkeypatch, capsys):
     monkeypatch.setattr(qdb, "AUDIT", desk["audit"].parent / "gone.jsonl")
     assert main() == 2
     assert REFUSAL_AUDIT_MISSING in capsys.readouterr().out
+
+
+# --- External read-only mirror attach (session-bus convention) -------------
+
+def _make_mirror(path: Path) -> None:
+    """Create a real .duckdb file with a two-row table (stands in for the
+    sibling session's darkpool.duckdb)."""
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE ats_venue_weekly AS SELECT * FROM (VALUES "
+                "('MSTR', 17698690), ('MSTR', 12000000)) "
+                "AS v(symbol, volume_shares)")
+    con.close()
+
+
+def _registry(tmp_path: Path, spec: dict) -> Path:
+    reg = tmp_path / "external_dbs.json"
+    reg.write_text(json.dumps(spec), encoding="utf-8")
+    return reg
+
+
+def test_external_attach_views(desk, tmp_path):
+    mirror = tmp_path / "darkpool.duckdb"
+    _make_mirror(mirror)
+    reg = _registry(tmp_path, {"darkpool": {
+        "path": str(mirror), "tables": ["ats_venue_weekly"]}})
+    con = connect()
+    inv = register_views(con, audit_path=desk["audit"],
+                         corpus_dir=desk["corpus"], optional_csvs={},
+                         external_dbs_path=reg)
+    assert "ext_darkpool_ats_venue_weekly" in inv["registered"]
+    assert inv["external"] == {"darkpool": ["ext_darkpool_ats_venue_weekly"]}
+    cc = crosscheck(con)
+    assert cc["external_rows"] == {"ext_darkpool_ats_venue_weekly": 2}
+
+
+def test_external_attach_is_read_only(desk, tmp_path):
+    mirror = tmp_path / "darkpool.duckdb"
+    _make_mirror(mirror)
+    reg = _registry(tmp_path, {"darkpool": {
+        "path": str(mirror), "tables": ["ats_venue_weekly"]}})
+    con = connect()
+    register_views(con, audit_path=desk["audit"], corpus_dir=desk["corpus"],
+                   optional_csvs={}, external_dbs_path=reg)
+    with pytest.raises(duckdb.Error):  # read-only transaction refuses writes
+        con.execute("CREATE TABLE darkpool.evil(i INTEGER)")
+
+
+def test_external_registry_absent_is_noop(desk, tmp_path):
+    con = connect()
+    inv = register_views(con, audit_path=desk["audit"],
+                         corpus_dir=desk["corpus"], optional_csvs={},
+                         external_dbs_path=tmp_path / "no_registry.json")
+    assert "external" not in inv
+    assert not any(v.startswith("ext_") for v in inv["registered"])
+
+
+def test_external_missing_db_skipped(desk, tmp_path):
+    reg = _registry(tmp_path, {"darkpool": {
+        "path": str(tmp_path / "not_there.duckdb"),
+        "tables": ["ats_venue_weekly"]}})
+    con = connect()
+    inv = register_views(con, audit_path=desk["audit"],
+                         corpus_dir=desk["corpus"], optional_csvs={},
+                         external_dbs_path=reg)
+    assert "ext_darkpool(db absent)" in inv["skipped"]
+    assert "external" not in inv
+
+
+def test_external_malformed_json_refuses(desk, tmp_path):
+    reg = tmp_path / "external_dbs.json"
+    reg.write_text("{not json", encoding="utf-8")
+    con = connect()
+    with pytest.raises(QuantDbRefusal) as exc:
+        register_views(con, audit_path=desk["audit"],
+                       corpus_dir=desk["corpus"], optional_csvs={},
+                       external_dbs_path=reg)
+    assert exc.value.code == REFUSAL_EXTERNAL_DB_INVALID
+
+
+def test_external_bad_identifier_refuses(desk, tmp_path):
+    mirror = tmp_path / "darkpool.duckdb"
+    _make_mirror(mirror)
+    reg = _registry(tmp_path, {"darkpool; DROP TABLE audit": {
+        "path": str(mirror), "tables": ["ats_venue_weekly"]}})
+    con = connect()
+    with pytest.raises(QuantDbRefusal) as exc:
+        register_views(con, audit_path=desk["audit"],
+                       corpus_dir=desk["corpus"], optional_csvs={},
+                       external_dbs_path=reg)
+    assert exc.value.code == REFUSAL_EXTERNAL_DB_INVALID
+
+
+def test_external_bad_spec_shape_refuses(desk, tmp_path):
+    reg = _registry(tmp_path, {"darkpool": {"path": 42}})
+    con = connect()
+    with pytest.raises(QuantDbRefusal) as exc:
+        register_views(con, audit_path=desk["audit"],
+                       corpus_dir=desk["corpus"], optional_csvs={},
+                       external_dbs_path=reg)
+    assert exc.value.code == REFUSAL_EXTERNAL_DB_INVALID

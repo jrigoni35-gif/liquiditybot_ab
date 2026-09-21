@@ -24,15 +24,26 @@ cross-check report (exit 2 with a refusal banner on any inconsistency).
 """
 from __future__ import annotations
 
+import json
+import re
 import sys
 from pathlib import Path
 
 REFUSAL_DUCKDB_MISSING = "QUANTDB_DUCKDB_MISSING"
 REFUSAL_AUDIT_MISSING = "QUANTDB_AUDIT_MISSING"
+REFUSAL_EXTERNAL_DB_INVALID = "QUANTDB_EXTERNAL_DB_INVALID"
 
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT = ROOT / "outputs" / "audit.jsonl"
 CORPUS_DIR = ROOT / "research" / "corpus" / "binance_vision"
+# External read-only mirror registry (session-bus convention, 2026-09-21):
+# {"<name>": {"path": "<abs path to .duckdb>", "tables": ["<table>", ...]}}
+# Authored by sibling sessions; this module attaches each entry READ_ONLY
+# and exposes `ext_<name>_<table>` views. Absent file = skipped; malformed
+# content = refusal (the registry is explicitly authored, so fail loud).
+EXTERNAL_DBS = ROOT / "research" / "corpus" / "external_dbs.json"
+
+_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 # Optional ledgers: registered when present, reported skipped otherwise.
 OPTIONAL_CSVS = {
@@ -68,9 +79,72 @@ def _q(path: Path) -> str:
     return "'" + str(path).replace("'", "''").replace("\\", "/") + "'"
 
 
+def _ident(raw: str, *, what: str) -> str:
+    """Validate a SQL identifier from the external registry.
+
+    Identifiers come from a JSON file, not from this module's fixed dicts,
+    so they are restricted to a safe charset rather than quoted — an
+    identifier that cannot be expressed in [A-Za-z0-9_] is refused, never
+    escaped into validity.
+    """
+    if not isinstance(raw, str) or not _IDENT_RE.match(raw):
+        raise QuantDbRefusal(
+            REFUSAL_EXTERNAL_DB_INVALID,
+            f"{what} {raw!r} is not a safe SQL identifier "
+            "(expected [A-Za-z_][A-Za-z0-9_]*)")
+    return raw
+
+
+def _attach_external(con, registry_path: Path) -> dict:
+    """Attach registry-declared external DuckDB mirrors READ_ONLY.
+
+    Returns {"attached": {name: [views]}, "skipped": [name, ...]}.
+    Missing registry = empty result (optional seam); malformed registry
+    = QuantDbRefusal(QUANTDB_EXTERNAL_DB_INVALID).
+    """
+    out: dict = {"attached": {}, "skipped": []}
+    if not registry_path.exists():
+        return out
+    try:
+        raw = json.loads(registry_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise QuantDbRefusal(
+            REFUSAL_EXTERNAL_DB_INVALID,
+            f"{registry_path} is not valid JSON: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise QuantDbRefusal(
+            REFUSAL_EXTERNAL_DB_INVALID,
+            f"{registry_path} must be a JSON object keyed by db name")
+    for name, spec in raw.items():
+        alias = _ident(name, what="external db name")
+        if (not isinstance(spec, dict) or not isinstance(spec.get("path"), str)
+                or not isinstance(spec.get("tables"), list)
+                or not spec["tables"]):
+            raise QuantDbRefusal(
+                REFUSAL_EXTERNAL_DB_INVALID,
+                f"entry {name!r} must be "
+                '{"path": "<abs path>", "tables": ["<table>", ...]}')
+        db_path = Path(spec["path"])
+        if not db_path.exists():
+            out["skipped"].append(alias)
+            continue
+        con.execute(
+            f"ATTACH {_q(db_path)} AS {alias} (READ_ONLY)")  # nosec B608 - path _q()-sanitized; alias _ident()-restricted
+        views = []
+        for table in spec["tables"]:
+            tbl = _ident(table, what=f"table name in {alias}")
+            view = f"ext_{alias}_{tbl}"
+            con.execute(
+                f"CREATE VIEW {view} AS SELECT * FROM {alias}.{tbl}")  # nosec B608 - all identifiers _ident()-restricted
+            views.append(view)
+        out["attached"][alias] = views
+    return out
+
+
 def register_views(con, audit_path: Path | None = None,
                    corpus_dir: Path | None = None,
-                   optional_csvs: dict | None = None) -> dict:
+                   optional_csvs: dict | None = None,
+                   external_dbs_path: Path | None = None) -> dict:
     """Register read-only views. Returns {"registered": [...], "skipped": [...]}.
 
     The audit chain is the one load-bearing input: missing => refusal.
@@ -80,6 +154,8 @@ def register_views(con, audit_path: Path | None = None,
     audit_path = AUDIT if audit_path is None else audit_path
     corpus_dir = CORPUS_DIR if corpus_dir is None else corpus_dir
     optional_csvs = OPTIONAL_CSVS if optional_csvs is None else optional_csvs
+    external_dbs_path = (EXTERNAL_DBS if external_dbs_path is None
+                         else external_dbs_path)
     registered, skipped = [], []
     if not audit_path.exists():
         raise QuantDbRefusal(REFUSAL_AUDIT_MISSING, f"no audit chain at {audit_path}")
@@ -121,7 +197,14 @@ def register_views(con, audit_path: Path | None = None,
                 f"CREATE VIEW corpus_{sym} AS SELECT * FROM parquet_scan("  # nosec B608 - name from corpus glob stem; path _q()-sanitized
                 + _q(pq) + ")")
             registered.append(f"corpus_{sym}")
-    return {"registered": registered, "skipped": skipped}
+    ext = _attach_external(con, external_dbs_path)
+    for views in ext["attached"].values():
+        registered.extend(views)
+    skipped.extend(f"ext_{name}(db absent)" for name in ext["skipped"])
+    out = {"registered": registered, "skipped": skipped}
+    if ext["attached"]:
+        out["external"] = ext["attached"]
+    return out
 
 
 def crosscheck(con) -> dict:
@@ -143,6 +226,10 @@ def crosscheck(con) -> dict:
     out["corpus_rows"] = {
         v: con.execute(f"SELECT count(*) FROM {v}").fetchone()[0]  # nosec B608 - v comes from information_schema over views this module created
         for v in corpus_views}
+    ext_views = sorted(v for v in view_names if v.startswith("ext_"))
+    out["external_rows"] = {
+        v: con.execute(f"SELECT count(*) FROM {v}").fetchone()[0]  # nosec B608 - v comes from information_schema over views this module created
+        for v in ext_views}
     return out
 
 
@@ -174,6 +261,8 @@ def main() -> int:
         print(f"fills rows: {cc['fills_rows']:,}")
     for view, n in cc["corpus_rows"].items():
         print(f"{view}: {n:,} rows")
+    for view, n in cc["external_rows"].items():
+        print(f"{view}: {n:,} rows (external READ_ONLY attach)")
     return 0
 
 
