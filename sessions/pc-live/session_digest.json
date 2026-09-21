@@ -1,40 +1,40 @@
 {
-  "generated_at": 1790018236.5236485,
+  "generated_at": 1790021838.503677,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790018223.0,
-    "duration_h": 1763.39
+    "end": 1790021832.0,
+    "duration_h": 1764.39
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 299,
-      "signal_records": 260,
+      "records": 309,
+      "signal_records": 270,
       "by_src": {
-        "ml_governor": 94,
-        "entry_sweep": 86,
-        "exploration": 56,
+        "ml_governor": 93,
+        "entry_sweep": 89,
+        "exploration": 60,
         "order_manager": 34,
         "exit": 11,
         "long_book": 9,
         "conviction": 6,
-        "startup": 1,
-        "fault": 1,
+        "startup": 3,
+        "fault": 3,
         "engine": 1
       },
       "top_codes": [
         [
           "EN-000",
-          49
+          50
         ],
         [
           "ML-031",
-          47
+          46
         ],
         [
           "DE-010",
-          37
+          39
         ],
         [
           "OM-000",
@@ -50,7 +50,7 @@
         ],
         [
           "SZ-049",
-          15
+          17
         ],
         [
           "ML-016",
@@ -74,17 +74,17 @@
         ]
       ],
       "dominant_code": "EN-000",
-      "dominant_frac": 0.188,
+      "dominant_frac": 0.185,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 14770,
+      "records": 14866,
       "by_level": {
-        "INFO": 14673,
-        "WARNING": 87,
-        "CRITICAL": 8,
-        "ERROR": 2
+        "INFO": 14745,
+        "WARNING": 107,
+        "CRITICAL": 10,
+        "ERROR": 4
       },
       "top_warnings": [
         [
@@ -100,6 +100,10 @@
           5
         ],
         [
+          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
+          4
+        ],
+        [
           "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
           3
         ],
@@ -108,45 +112,41 @@
           3
         ],
         [
-          "ML-031: feature drift 27/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
           3
         ],
         [
-          "ML-031: feature drift 26/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          2
+          "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
+          3
         ],
         [
-          "ML-032 RETRAIN REQUESTED: input drift on 35% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-          2
+          "op-state INIT -> ARMED (startup validation passed)",
+          3
         ],
         [
-          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-          2
-        ],
-        [
-          "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bp",
-          2
+          "ML-031: feature drift 27/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          3
         ]
       ],
       "liquidity_tally": {
-        "thin": 3654,
-        "spoofy": 273
+        "thin": 3649,
+        "spoofy": 241
       },
-      "spoofy_frac": 0.07,
+      "spoofy_frac": 0.062,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1458,
-      "feed_error_events": 2
+      "cycles_estimate": 1465,
+      "feed_error_events": 3
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 769.37,
+    "equity_end": 769.24,
     "equity_min": 767.82,
     "equity_max": 806.91,
     "equity_range": 39.09,
     "capital_epochs": 5,
-    "epoch_samples": 221351,
+    "epoch_samples": 221570,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 767.82,
     "lifetime_equity_max": 100000.03,
@@ -154,27 +154,27 @@
     "realized_pnl_total": -17.98,
     "fees_paid_total": 31.503,
     "open_positions": 2,
-    "samples": 389142
+    "samples": 389361
   },
   "activity": {
-    "signal_rows_total": 31854,
+    "signal_rows_total": 31876,
     "live_labeled_trades": 480,
-    "candidate_rows": 31374
+    "candidate_rows": 31396
   },
   "audit": {
-    "records": 90197,
-    "signal_records": 36456,
+    "records": 90209,
+    "signal_records": 36468,
     "by_src": {
-      "exploration": 76939,
+      "exploration": 76943,
       "long_book": 4135,
       "ml_governor": 3324,
       "order_manager": 2423,
       "conviction": 1261,
-      "startup": 487,
-      "fault": 484,
+      "startup": 489,
+      "fault": 486,
       "exit": 384,
       "firewall": 372,
-      "entry_sweep": 252,
+      "entry_sweep": 256,
       "engine": 66,
       "circuit_breaker": 57,
       "runner": 13
@@ -226,7 +226,7 @@
       ],
       [
         "SZ-049",
-        507
+        509
       ]
     ],
     "dominant_code": "SZ-047",
@@ -340,12 +340,12 @@
     ]
   },
   "events": {
-    "records": 20522,
+    "records": 20872,
     "by_level": {
-      "INFO": 20370,
-      "WARNING": 137,
-      "CRITICAL": 11,
-      "ERROR": 4
+      "INFO": 20695,
+      "WARNING": 158,
+      "CRITICAL": 13,
+      "ERROR": 6
     },
     "top_warnings": [
       [
@@ -361,11 +361,23 @@
         6
       ],
       [
+        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
+        6
+      ],
+      [
         "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         5
       ],
       [
-        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
+        "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
+        4
+      ],
+      [
+        "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
+        4
+      ],
+      [
+        "op-state INIT -> ARMED (startup validation passed)",
         4
       ],
       [
@@ -375,28 +387,16 @@
       [
         "ML-031: feature drift 26/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         3
-      ],
-      [
-        "ML-032 RETRAIN REQUESTED: input drift on 35% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-        3
-      ],
-      [
-        "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bps', 'depth_log",
-        3
-      ],
-      [
-        "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
-        3
       ]
     ],
     "liquidity_tally": {
-      "thin": 5084,
+      "thin": 5139,
       "spoofy": 410
     },
-    "spoofy_frac": 0.075,
+    "spoofy_frac": 0.074,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 2147,
-    "feed_error_events": 5
+    "cycles_estimate": 2178,
+    "feed_error_events": 6
   },
   "model": {
     "monitor_level": 0,
@@ -426,7 +426,7 @@
       "unavailable": "signal_history.csv has no exec_era column (95 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 21482,
+      "triple_barrier_h432": 21504,
       "triple_barrier": 5328,
       "exit_sim": 2804,
       "legacy": 1781,
@@ -446,7 +446,7 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 31854,
+    "corpus_rows": 31876,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
     "corpus_last_ts": "2026-09-21T17:50:00Z",
     "corpus_span_days": 70.22,
