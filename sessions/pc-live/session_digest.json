@@ -1,20 +1,20 @@
 {
-  "generated_at": 1789971418.0424237,
+  "generated_at": 1789975019.609777,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1789971414.0,
-    "duration_h": 1750.39
+    "end": 1789975016.0,
+    "duration_h": 1751.39
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 320,
-      "signal_records": 266,
+      "records": 322,
+      "signal_records": 268,
       "by_src": {
-        "ml_governor": 93,
+        "ml_governor": 94,
         "exploration": 75,
-        "entry_sweep": 73,
+        "entry_sweep": 74,
         "order_manager": 44,
         "exit": 12,
         "long_book": 12,
@@ -37,15 +37,15 @@
           29
         ],
         [
+          "DE-010",
+          25
+        ],
+        [
           "SZ-051",
           24
         ],
         [
           "ML-070",
-          24
-        ],
-        [
-          "DE-010",
           24
         ],
         [
@@ -74,16 +74,16 @@
         ]
       ],
       "dominant_code": "EN-000",
-      "dominant_frac": 0.184,
-      "retrain_requests": 7,
+      "dominant_frac": 0.183,
+      "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 14148,
+      "records": 14218,
       "by_level": {
-        "INFO": 14043,
-        "WARNING": 95,
-        "CRITICAL": 7,
+        "INFO": 14114,
+        "WARNING": 93,
+        "CRITICAL": 8,
         "ERROR": 3
       },
       "top_warnings": [
@@ -96,24 +96,20 @@
           6
         ],
         [
-          "ML-031: feature drift 27/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
           4
         ],
         [
-          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
-          4
+          "ML-032 RETRAIN REQUESTED: input drift on 35% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+          3
         ],
         [
           "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bps', 'depth_log",
           3
         ],
         [
-          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-          2
-        ],
-        [
-          "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-          2
+          "ML-031: feature drift 27/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          3
         ],
         [
           "ML-031: feature drift 25/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -124,29 +120,33 @@
           2
         ],
         [
-          "ML-032 RETRAIN REQUESTED: input drift on 35% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+          "ML-031: feature drift 26/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          2
+        ],
+        [
+          "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
           2
         ]
       ],
       "liquidity_tally": {
-        "thin": 3455,
-        "spoofy": 291
+        "thin": 3471,
+        "spoofy": 278
       },
-      "spoofy_frac": 0.078,
+      "spoofy_frac": 0.074,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1377,
+      "cycles_estimate": 1409,
       "feed_error_events": 4
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 768.27,
+    "equity_end": 768.16,
     "equity_min": 767.82,
     "equity_max": 806.91,
     "equity_range": 39.09,
     "capital_epochs": 5,
-    "epoch_samples": 218280,
+    "epoch_samples": 218518,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 767.82,
     "lifetime_equity_max": 100000.03,
@@ -154,7 +154,7 @@
     "realized_pnl_total": -19.63,
     "fees_paid_total": 31.1274,
     "open_positions": 2,
-    "samples": 386071
+    "samples": 386309
   },
   "activity": {
     "signal_rows_total": 31691,
@@ -162,19 +162,19 @@
     "candidate_rows": 31213
   },
   "audit": {
-    "records": 90123,
-    "signal_records": 36389,
+    "records": 90127,
+    "signal_records": 36393,
     "by_src": {
       "exploration": 76928,
       "long_book": 4134,
-      "ml_governor": 3299,
+      "ml_governor": 3301,
       "order_manager": 2415,
       "conviction": 1260,
       "startup": 487,
       "fault": 484,
       "exit": 382,
       "firewall": 372,
-      "entry_sweep": 226,
+      "entry_sweep": 228,
       "engine": 66,
       "circuit_breaker": 57,
       "runner": 13
@@ -202,7 +202,7 @@
       ],
       [
         "ML-031",
-        1249
+        1250
       ],
       [
         "LB-050",
@@ -231,7 +231,7 @@
     ],
     "dominant_code": "SZ-047",
     "dominant_frac": 0.612,
-    "retrain_requests": 248,
+    "retrain_requests": 249,
     "kill_switch_events": 9,
     "chain_ok": false,
     "chain_first_break": null,
@@ -340,11 +340,11 @@
     ]
   },
   "events": {
-    "records": 16507,
+    "records": 16758,
     "by_level": {
-      "INFO": 16378,
-      "WARNING": 117,
-      "CRITICAL": 8,
+      "INFO": 16627,
+      "WARNING": 118,
+      "CRITICAL": 9,
       "ERROR": 4
     },
     "top_warnings": [
@@ -373,6 +373,10 @@
         3
       ],
       [
+        "ML-032 RETRAIN REQUESTED: input drift on 35% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+        3
+      ],
+      [
         "ML-031: feature drift 20/60 shifted (PSI>=0.25): ['ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bps', 'depth_log",
         3
       ],
@@ -383,19 +387,15 @@
       [
         "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (640 = 64 features x 10 row",
         2
-      ],
-      [
-        "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
-        2
       ]
     ],
     "liquidity_tally": {
-      "thin": 3994,
+      "thin": 4062,
       "spoofy": 349
     },
-    "spoofy_frac": 0.08,
+    "spoofy_frac": 0.079,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1601,
+    "cycles_estimate": 1649,
     "feed_error_events": 5
   },
   "model": {
