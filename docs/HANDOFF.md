@@ -672,6 +672,18 @@ predate stamping and no on-box instrument dates them (the git-pickaxe
 route had already failed). The law's flag stays for 12/37.9; the median
 2.43 is now measured, and the law may cite it as such.
 
+**Instruments added 2026-09-21 (SAFE; record `docs/quant/2026-09-21_lanes_bcg.md`).**
+Lane B `scripts/intake_dataset.py` (research-inbox verification,
+DI-000..DI-050 receipt chain in core/codes.py); Lane C
+`scripts/boundary_payload.py` (one JSON for the sitting —
+`outputs/boundary_payload.json`, all 5 sections ok at 20:15Z); Lane G
+`scripts/gate_shuffle_replay.py` (verdict-level shuffle null on the Lane F
+regime coupling — **live: Δ=−0.716pp, p=0.586, B=2000 seed 20260921: no
+detectable regime coupling at era-9 sample sizes**). Cross-session: the
+dark-pool session's mirror is attached READ_ONLY in quant_db
+(`ext_darkpool_ats_venue_weekly`, 479,291 rows). The parked lanes are
+DONE; nothing in them decides anything.
+
 ---
 
 ## OPEN DOCKET — adjudicate together at the boundary

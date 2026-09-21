@@ -57,11 +57,12 @@ def desk(tmp_path):
     return {"audit": audit, "corpus": corpus, "csvs": csvs}
 
 
-def test_views_and_crosscheck(desk):
+def test_views_and_crosscheck(desk, tmp_path):
     con = connect()
     inv = register_views(con, audit_path=desk["audit"],
                          corpus_dir=desk["corpus"],
-                         optional_csvs=desk["csvs"])
+                         optional_csvs=desk["csvs"],
+                         external_dbs_path=tmp_path / "no_registry.json")
     assert set(inv["registered"]) == {
         "audit", "de010", "fills", "corpus_testusdt"}
     cc = crosscheck(con)

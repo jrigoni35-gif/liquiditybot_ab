@@ -699,6 +699,19 @@ class Code(str, Enum):
     # up to one hour of buffered events - named, accepted.
     DE_DECISION_EVENTS = "DE-010"    # hourly batch of per-arrival decision events
 
+    # ---- dataset intake (DI) — the research-inbox receipt trail ---------
+    # Receipts on the research/corpus/inbox/receipts.jsonl hash chain
+    # (scripts/intake_dataset.py, Lane B 2026-09-21). Verification verdicts
+    # for externally-authored dataset drops (manifest spec on
+    # docs/session-bus.md, 2026-09-21). SAFE-plane: the intake verifies and
+    # receipts; it never promotes data into any engine-visible path.
+    DI_INTAKE_VERIFIED = "DI-000"    # manifest + payload verified, receipted
+    DI_MANIFEST_INVALID = "DI-010"   # manifest unparsable or wrong shape
+    DI_PAYLOAD_MISSING = "DI-020"    # payload file named by manifest absent
+    DI_HASH_MISMATCH = "DI-030"      # payload sha256 != content_sha256
+    DI_ROWS_MISMATCH = "DI-040"      # counted rows != manifest rows
+    DI_SCHEMA_MISMATCH = "DI-050"    # declared columns not all present
+
 
 def tag(code: Code, detail: str) -> str:
     """Canonical 'CODE: detail' string used in reasons lists and audit. Also
