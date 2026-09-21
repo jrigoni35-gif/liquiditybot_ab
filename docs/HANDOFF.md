@@ -564,6 +564,18 @@ documented reds, ruff/pyright/bandit/compileall clean):
   the 36h coverability horizon 2026-09-21 ~19:00Z.
 - Pushed to origin 2026-09-20 (local was 33 ahead — the documented
   auto-updater wedge condition; un-wedged).
+- **DuckDB measurement plane shipped 2026-09-20** (`scripts/quant_db.py`
+  — in-memory, read-only, scripts/-only, lazy optional seam; engine never
+  imports it). Record: `docs/quant/2026-09-20_duckdb_measurement_plane.md`
+  — two-engine cross-check EXACT vs gate_ecology (9,012 captured / 6,739
+  EN-030 / 2,273 passed @ 02:13Z); propensity present on 100% of captured
+  events. Engine-side DuckDB remains a boundary adjudication item.
+- **Claude Bridge plugin shipped 2026-09-20** (personal market, id
+  `claude-bridge`; skill-only shape after the daemon proved to have no
+  stdio MCP support — every local plugin on the box is url-MCP or
+  skill+Bash). Advisory-only per the operator-decreed hierarchy
+  (operator > Kimi > Claude). Update staged in the market; applying it
+  needs the operator's Personal-tab click (no CLI path exists).
 
 **The 09-22 adjudication queue** (generational rule: one boundary, one
 docket — batch these, do not mint seven):
