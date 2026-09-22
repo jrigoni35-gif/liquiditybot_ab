@@ -1,10 +1,10 @@
 {
-  "generated_at": 1790068653.5247836,
+  "generated_at": 1790072254.6412132,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790068638.0,
-    "duration_h": 1777.39
+    "end": 1790072246.0,
+    "duration_h": 1778.4
   },
   "recent": {
     "hours": 48.0,
@@ -79,10 +79,10 @@
       "kill_switch_events": 0
     },
     "events": {
-      "records": 15247,
+      "records": 15352,
       "by_level": {
-        "INFO": 15136,
-        "WARNING": 97,
+        "INFO": 15240,
+        "WARNING": 98,
         "CRITICAL": 10,
         "ERROR": 4
       },
@@ -92,12 +92,12 @@
           5
         ],
         [
-          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
           4
         ],
         [
-          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-          4
+          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          3
         ],
         [
           "ML-031: feature drift 27/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -129,24 +129,24 @@
         ]
       ],
       "liquidity_tally": {
-        "thin": 3509,
-        "spoofy": 222
+        "thin": 3496,
+        "spoofy": 198
       },
-      "spoofy_frac": 0.06,
+      "spoofy_frac": 0.054,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1448,
+      "cycles_estimate": 1457,
       "feed_error_events": 3
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 767.95,
+    "equity_end": 768.09,
     "equity_min": 767.82,
     "equity_max": 806.91,
     "equity_range": 39.09,
     "capital_epochs": 5,
-    "epoch_samples": 224642,
+    "epoch_samples": 224880,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 767.82,
     "lifetime_equity_max": 100000.03,
@@ -154,7 +154,7 @@
     "realized_pnl_total": -18.48,
     "fees_paid_total": 32.042,
     "open_positions": 4,
-    "samples": 392433
+    "samples": 392671
   },
   "activity": {
     "signal_rows_total": 31947,
@@ -162,19 +162,19 @@
     "candidate_rows": 31465
   },
   "audit": {
-    "records": 90297,
-    "signal_records": 36538,
+    "records": 90300,
+    "signal_records": 36541,
     "by_src": {
       "exploration": 76971,
       "long_book": 4136,
-      "ml_governor": 3342,
+      "ml_governor": 3343,
       "order_manager": 2435,
       "conviction": 1262,
       "startup": 489,
       "fault": 486,
       "exit": 386,
       "firewall": 372,
-      "entry_sweep": 282,
+      "entry_sweep": 284,
       "engine": 66,
       "circuit_breaker": 57,
       "runner": 13
@@ -202,7 +202,7 @@
       ],
       [
         "ML-031",
-        1270
+        1271
       ],
       [
         "LB-050",
@@ -230,7 +230,7 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.61,
+    "dominant_frac": 0.609,
     "retrain_requests": 253,
     "kill_switch_events": 9,
     "chain_ok": false,
@@ -340,10 +340,10 @@
     ]
   },
   "events": {
-    "records": 24641,
+    "records": 25029,
     "by_level": {
-      "INFO": 24441,
-      "WARNING": 179,
+      "INFO": 24827,
+      "WARNING": 181,
       "CRITICAL": 15,
       "ERROR": 6
     },
@@ -390,12 +390,12 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 5775,
-      "spoofy": 486
+      "thin": 5844,
+      "spoofy": 488
     },
-    "spoofy_frac": 0.078,
+    "spoofy_frac": 0.077,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 2506,
+    "cycles_estimate": 2550,
     "feed_error_events": 7
   },
   "model": {
@@ -408,9 +408,9 @@
     "cold": false
   },
   "postmortems": {
-    "count": 406,
+    "count": 407,
     "causes": {
-      "underperformance": 261,
+      "underperformance": 262,
       "alpha_wrong": 65,
       "cost_overrun": 41,
       "regime_shift": 36,

@@ -2,13 +2,13 @@
 
 **Verdict: SD-011 audit fork carries divergent payloads**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-09-22 09:17 UTC (1777.39h, ~2506 cycles)
-- Equity (current capital epoch): $800.00 -> $767.95 (range $39.09) | 5 epochs lifetime, range $99,232.21 | realized PnL (post-close-fee) $-18.48 | fees (all legs) $32.04
-- Activity: 4 open | 482 live labeled trades | 31465 candidates | 406 postmortems
+- Window: 2026-07-10 07:53 UTC -> 2026-09-22 10:17 UTC (1778.4h, ~2550 cycles)
+- Equity (current capital epoch): $800.00 -> $768.09 (range $39.09) | 5 epochs lifetime, range $99,232.21 | realized PnL (post-close-fee) $-18.48 | fees (all legs) $32.04
+- Activity: 4 open | 482 live labeled trades | 31465 candidates | 407 postmortems
 - Model: level 0 | use_model=True | brier n/a | history_rows 482 | cold=False
-- Audit: 90297 records (36538 non-routine) | dominant SZ-047 (61% of non-routine) | chain=SEAMS(63, benign) | retrain_requests 253
+- Audit: 90300 records (36541 non-routine) | dominant SZ-047 (61% of non-routine) | chain=SEAMS(63, benign) | retrain_requests 253
 - Liquidity: spoofy 8% of non-liquid cycles | feed errors 7
-- Recent (48h lens): 327 audit records | dominant EN-000 (18% of non-routine) | retrain_requests 8 | spoofy 6% (non-liquid)
+- Recent (48h lens): 327 audit records | dominant EN-000 (18% of non-routine) | retrain_requests 8 | spoofy 5% (non-liquid)
 - Eras: current 12-10d4d0c2 | signal_history exec_era: unavailable (signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)) | fills per exec_era: {'prestamp': 1030, '12-10d4d0c2': 137, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4} (1399 rows) | pooling_hazard=True (source fills.exec_era)
 - RAW signal-file span (signal_ts, all 31947 rows on disk): 2026-07-13T12:35:47Z -> 2026-09-22T04:00:00Z (70.64d) - NOT the TRAINED corpus span: era exclusion + the label_era filter drop rows, so the span the champion is SCORED on is shorter. For that one (the MinBTL / Sharpe-SE denominator) run scripts/champion_skill_report.py --json -> corpus_span_days
 
