@@ -1,21 +1,21 @@
 {
-  "generated_at": 1790072254.6412132,
+  "generated_at": 1790075856.7169623,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790072246.0,
-    "duration_h": 1778.4
+    "end": 1790075852.0,
+    "duration_h": 1779.4
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 327,
-      "signal_records": 280,
+      "records": 331,
+      "signal_records": 281,
       "by_src": {
         "entry_sweep": 98,
         "ml_governor": 88,
-        "exploration": 71,
-        "order_manager": 39,
+        "exploration": 74,
+        "order_manager": 40,
         "long_book": 10,
         "exit": 9,
         "conviction": 7,
@@ -42,6 +42,10 @@
         ],
         [
           "SZ-051",
+          22
+        ],
+        [
+          "ML-070",
           21
         ],
         [
@@ -49,12 +53,8 @@
           20
         ],
         [
-          "ML-070",
-          20
-        ],
-        [
           "OM-040",
-          14
+          15
         ],
         [
           "ML-016",
@@ -74,79 +74,41 @@
         ]
       ],
       "dominant_code": "EN-000",
-      "dominant_frac": 0.175,
+      "dominant_frac": 0.174,
       "retrain_requests": 8,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 15352,
+      "records": 238,
       "by_level": {
-        "INFO": 15240,
-        "WARNING": 98,
-        "CRITICAL": 10,
-        "ERROR": 4
+        "INFO": 237,
+        "WARNING": 1
       },
       "top_warnings": [
         [
-          "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          5
-        ],
-        [
-          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-          4
-        ],
-        [
-          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
-          "ML-031: feature drift 27/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
-          "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
-          "ML-031: feature drift 20/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
-          3
-        ],
-        [
-          "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
-          2
-        ],
-        [
-          "ML-031: feature drift 21/60 shifted (PSI>=0.25): ['ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bp",
-          2
-        ],
-        [
-          "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
-          2
-        ],
-        [
-          "ML-032 RETRAIN REQUESTED: input drift on 40% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-          2
+          "ML-031: feature drift 20/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bps",
+          1
         ]
       ],
       "liquidity_tally": {
-        "thin": 3496,
-        "spoofy": 198
+        "thin": 80,
+        "spoofy": 2
       },
-      "spoofy_frac": 0.054,
+      "spoofy_frac": 0.024,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1457,
-      "feed_error_events": 3
+      "cycles_estimate": 37,
+      "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 768.09,
+    "equity_end": 767.94,
     "equity_min": 767.82,
     "equity_max": 806.91,
     "equity_range": 39.09,
     "capital_epochs": 5,
-    "epoch_samples": 224880,
+    "epoch_samples": 225117,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 767.82,
     "lifetime_equity_max": 100000.03,
@@ -154,27 +116,27 @@
     "realized_pnl_total": -18.48,
     "fees_paid_total": 32.042,
     "open_positions": 4,
-    "samples": 392671
+    "samples": 392908
   },
   "activity": {
-    "signal_rows_total": 31947,
+    "signal_rows_total": 31948,
     "live_labeled_trades": 482,
-    "candidate_rows": 31465
+    "candidate_rows": 31466
   },
   "audit": {
-    "records": 90300,
-    "signal_records": 36541,
+    "records": 90308,
+    "signal_records": 36546,
     "by_src": {
-      "exploration": 76971,
+      "exploration": 76975,
       "long_book": 4136,
-      "ml_governor": 3343,
-      "order_manager": 2435,
+      "ml_governor": 3344,
+      "order_manager": 2436,
       "conviction": 1262,
       "startup": 489,
       "fault": 486,
       "exit": 386,
       "firewall": 372,
-      "entry_sweep": 284,
+      "entry_sweep": 286,
       "engine": 66,
       "circuit_breaker": 57,
       "runner": 13
@@ -182,11 +144,11 @@
     "top_codes": [
       [
         "ML-070",
-        27993
+        27994
       ],
       [
         "SZ-051",
-        25484
+        25485
       ],
       [
         "SZ-047",
@@ -202,7 +164,7 @@
       ],
       [
         "ML-031",
-        1271
+        1272
       ],
       [
         "LB-050",
@@ -210,7 +172,7 @@
       ],
       [
         "OM-040",
-        927
+        928
       ],
       [
         "CV-030",
@@ -226,7 +188,7 @@
       ],
       [
         "SZ-049",
-        517
+        518
       ]
     ],
     "dominant_code": "SZ-047",
@@ -340,63 +302,25 @@
     ]
   },
   "events": {
-    "records": 25029,
+    "records": 238,
     "by_level": {
-      "INFO": 24827,
-      "WARNING": 181,
-      "CRITICAL": 15,
-      "ERROR": 6
+      "INFO": 237,
+      "WARNING": 1
     },
     "top_warnings": [
       [
-        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-        7
-      ],
-      [
-        "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        7
-      ],
-      [
-        "ML-031: feature drift 24/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        7
-      ],
-      [
-        "ML-031: feature drift 27/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        6
-      ],
-      [
-        "ML-031: feature drift 22/60 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        5
-      ],
-      [
-        "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
-        4
-      ],
-      [
-        "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
-        4
-      ],
-      [
-        "op-state INIT -> ARMED (startup validation passed)",
-        4
-      ],
-      [
-        "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-        4
-      ],
-      [
-        "ML-031: feature drift 23/60 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
-        4
+        "ML-031: feature drift 20/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir', 'spread_bps",
+        1
       ]
     ],
     "liquidity_tally": {
-      "thin": 5844,
-      "spoofy": 488
+      "thin": 80,
+      "spoofy": 2
     },
-    "spoofy_frac": 0.077,
+    "spoofy_frac": 0.024,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 2550,
-    "feed_error_events": 7
+    "cycles_estimate": 37,
+    "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
@@ -426,7 +350,7 @@
       "unavailable": "signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 21574,
+      "triple_barrier_h432": 21575,
       "triple_barrier": 5328,
       "exit_sim": 2805,
       "legacy": 1781,
@@ -446,10 +370,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 31947,
+    "corpus_rows": 31948,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-22T04:00:00Z",
-    "corpus_span_days": 70.64,
+    "corpus_last_ts": "2026-09-22T08:45:00Z",
+    "corpus_span_days": 70.84,
     "signal_ts_missing": 0
   },
   "streams_present": {
