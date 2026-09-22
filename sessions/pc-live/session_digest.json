@@ -1,10 +1,10 @@
 {
-  "generated_at": 1790115480.2631478,
+  "generated_at": 1790119081.5724251,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790115472.0,
-    "duration_h": 1790.4
+    "end": 1790119079.917,
+    "duration_h": 1791.41
   },
   "recent": {
     "hours": 48.0,
@@ -79,10 +79,10 @@
       "kill_switch_events": 0
     },
     "events": {
-      "records": 4843,
+      "records": 5331,
       "by_level": {
-        "INFO": 4822,
-        "WARNING": 18,
+        "INFO": 5309,
+        "WARNING": 19,
         "CRITICAL": 2,
         "ERROR": 1
       },
@@ -93,6 +93,10 @@
         ],
         [
           "ML-032 RETRAIN REQUESTED: input drift on 34% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+          2
+        ],
+        [
+          "ML-031: feature drift 21/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           2
         ],
         [
@@ -122,31 +126,27 @@
         [
           "ML-031: feature drift 20/64 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
           1
-        ],
-        [
-          "ML-031: feature drift 21/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          1
         ]
       ],
       "liquidity_tally": {
-        "thin": 836,
+        "thin": 964,
         "spoofy": 80
       },
-      "spoofy_frac": 0.087,
+      "spoofy_frac": 0.077,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 501,
+      "cycles_estimate": 526,
       "feed_error_events": 1
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 768.02,
+    "equity_end": 768.75,
     "equity_min": 767.16,
     "equity_max": 806.91,
     "equity_range": 39.75,
     "capital_epochs": 5,
-    "epoch_samples": 227720,
+    "epoch_samples": 227956,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 767.16,
     "lifetime_equity_max": 100000.03,
@@ -154,27 +154,27 @@
     "realized_pnl_total": -18.47,
     "fees_paid_total": 32.2752,
     "open_positions": 5,
-    "samples": 395511
+    "samples": 395747
   },
   "activity": {
-    "signal_rows_total": 32054,
+    "signal_rows_total": 32073,
     "live_labeled_trades": 482,
-    "candidate_rows": 31572
+    "candidate_rows": 31591
   },
   "audit": {
-    "records": 90396,
-    "signal_records": 36597,
+    "records": 90399,
+    "signal_records": 36600,
     "by_src": {
       "exploration": 77012,
       "long_book": 4139,
-      "ml_governor": 3360,
+      "ml_governor": 3361,
       "order_manager": 2443,
       "conviction": 1264,
       "startup": 489,
       "fault": 486,
       "exit": 387,
       "firewall": 372,
-      "entry_sweep": 308,
+      "entry_sweep": 310,
       "engine": 66,
       "circuit_breaker": 57,
       "runner": 13
@@ -202,7 +202,7 @@
       ],
       [
         "ML-031",
-        1281
+        1282
       ],
       [
         "LB-050",
@@ -230,7 +230,7 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.609,
+    "dominant_frac": 0.608,
     "retrain_requests": 255,
     "kill_switch_events": 9,
     "chain_ok": false,
@@ -340,10 +340,10 @@
     ]
   },
   "events": {
-    "records": 4843,
+    "records": 5331,
     "by_level": {
-      "INFO": 4822,
-      "WARNING": 18,
+      "INFO": 5309,
+      "WARNING": 19,
       "CRITICAL": 2,
       "ERROR": 1
     },
@@ -354,6 +354,10 @@
       ],
       [
         "ML-032 RETRAIN REQUESTED: input drift on 34% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
+        2
+      ],
+      [
+        "ML-031: feature drift 21/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         2
       ],
       [
@@ -383,19 +387,15 @@
       [
         "ML-031: feature drift 20/64 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
         1
-      ],
-      [
-        "ML-031: feature drift 21/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-        1
       ]
     ],
     "liquidity_tally": {
-      "thin": 836,
+      "thin": 964,
       "spoofy": 80
     },
-    "spoofy_frac": 0.087,
+    "spoofy_frac": 0.077,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 501,
+    "cycles_estimate": 526,
     "feed_error_events": 1
   },
   "model": {
@@ -426,7 +426,7 @@
       "unavailable": "signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 21681,
+      "triple_barrier_h432": 21700,
       "triple_barrier": 5328,
       "exit_sim": 2805,
       "legacy": 1781,
@@ -446,10 +446,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 32054,
+    "corpus_rows": 32073,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-22T19:30:00Z",
-    "corpus_span_days": 71.29,
+    "corpus_last_ts": "2026-09-22T22:25:00Z",
+    "corpus_span_days": 71.41,
     "signal_ts_missing": 0
   },
   "streams_present": {
