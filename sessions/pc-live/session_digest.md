@@ -2,17 +2,17 @@
 
 **Verdict: SD-011 audit fork carries divergent payloads**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-09-23 08:18 UTC (1800.41h, ~724 cycles)
-- Equity (current capital epoch): $800.00 -> $767.83 (range $39.75) | 5 epochs lifetime, range $99,232.87 | realized PnL (post-close-fee) $-18.13 | fees (all legs) $33.42
-- Activity: 5 open | 485 live labeled trades | 31670 candidates | 412 postmortems
-- Model: level 0 | use_model=True | brier n/a | history_rows 485 | cold=False
-- Audit: 90513 records (36670 non-routine) | dominant SZ-047 (61% of non-routine) | chain=SEAMS(63, benign) | retrain_requests 256
+- Window: 2026-07-10 07:53 UTC -> 2026-09-23 09:18 UTC (1801.41h, ~733 cycles)
+- Equity (current capital epoch): $800.00 -> $766.96 (range $40.25) | 5 epochs lifetime, range $99,233.37 | realized PnL (post-close-fee) $-19.20 | fees (all legs) $33.59
+- Activity: 4 open | 486 live labeled trades | 31714 candidates | 412 postmortems
+- Model: level 0 | use_model=True | brier n/a | history_rows 486 | cold=False
+- Audit: 90520 records (36677 non-routine) | dominant SZ-047 (61% of non-routine) | chain=SEAMS(63, benign) | retrain_requests 257
 - Liquidity: spoofy 5% of non-liquid cycles | feed errors 1
-- Recent (48h lens): 372 audit records | dominant EN-000 (18% of non-routine) | retrain_requests 7 | spoofy 5% (non-liquid)
-- Eras: current 12-10d4d0c2 | signal_history exec_era: unavailable (signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)) | fills per exec_era: {'prestamp': 1030, '12-10d4d0c2': 149, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4} (1411 rows) | pooling_hazard=True (source fills.exec_era)
-- RAW signal-file span (signal_ts, all 32155 rows on disk): 2026-07-13T12:35:47Z -> 2026-09-23T04:55:00Z (71.68d) - NOT the TRAINED corpus span: era exclusion + the label_era filter drop rows, so the span the champion is SCORED on is shorter. For that one (the MinBTL / Sharpe-SE denominator) run scripts/champion_skill_report.py --json -> corpus_span_days
+- Recent (48h lens): 373 audit records | dominant EN-000 (18% of non-routine) | retrain_requests 8 | spoofy 5% (non-liquid)
+- Eras: current 12-10d4d0c2 | signal_history exec_era: unavailable (signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)) | fills per exec_era: {'prestamp': 1030, '12-10d4d0c2': 150, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4} (1412 rows) | pooling_hazard=True (source fills.exec_era)
+- RAW signal-file span (signal_ts, all 32200 rows on disk): 2026-07-13T12:35:47Z -> 2026-09-23T07:20:00Z (71.78d) - NOT the TRAINED corpus span: era exclusion + the label_era filter drop rows, so the span the champion is SCORED on is shorter. For that one (the MinBTL / Sharpe-SE denominator) run scripts/champion_skill_report.py --json -> corpus_span_days
 
 ## Diagnostics
 - [WARN] **SD-011 audit fork carries divergent payloads**  -  1721 duplicated seq(s) whose rows disagree on (code, hash) - codes riding forks: {'LB-010': 434, 'SZ-051': 402, 'ML-070': 401, 'FW-050': 312, 'OM-040': 307, 'LB-050': 287, 'CX-030': 284, 'CV-010': 244, 'SZ-049': 198, 'FT-020': 164, 'CG-000': 156, 'ML-031': 150, 'OM-000': 93, 'CV-030': 78, 'EN-000': 69, 'SZ-052': 51, 'ML-016': 46, 'ML-042': 44, 'ML-041': 41, 'CV-000': 40, 'PT-061': 32, 'ML-032': 27, 'ML-030': 19, 'LB-000': 16, 'RT-010': 11, 'SZ-053': 11, 'FT-010': 9, 'ML-076': 7, 'ML-050': 6, 'LB-021': 6, 'ML-040': 5, 'SZ-048': 3, 'SZ-047': 2, 'SZ-046': 2, 'LB-020': 2, 'OM-080': 1, 'OM-013': 1, 'RP-070': 1}; first examples: [{'seq': 503, 'codes': ['CG-000', 'RT-010'], 'ts': [1784239154.313, 1784239173.189]}, {'seq': 14864, 'codes': ['CG-000', 'SZ-047'], 'ts': [1785150021.206, 1785150150.318]}, {'seq': 14865, 'codes': ['FT-020', 'SZ-047'], 'ts': [1785150035.288, 1785150150.333]}]. Instruments consuming audit rows must not treat forked-seq rows as unique venue truth; find the writer (an unredirected script/harness - configure_audit exists for exactly this) and quarantine, never delete
-- [WARN] **SD-012 rows from more than one execution era share one file**  -  8 exec_era keys on fills.exec_era: {'prestamp': 1030, '12-10d4d0c2': 149, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4}; current era 12-10d4d0c2. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)
+- [WARN] **SD-012 rows from more than one execution era share one file**  -  8 exec_era keys on fills.exec_era: {'prestamp': 1030, '12-10d4d0c2': 150, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4}; current era 12-10d4d0c2. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)
 - [INFO] **SD-010 audit writer seam(s)**  -  63 hash-valid concurrent-writer fork(s) in the chain - benign (no committed record altered); prevention: runner instance lock + one-bot mode
