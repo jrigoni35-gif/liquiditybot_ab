@@ -124,6 +124,12 @@ def test_history_header_contract_is_stable(tmp_path):
                 "entry_price", "exit_price",
                 "avail_web", "avail_equity", "avail_options",
                 "quotes_frozen",
+                # avail_darkpool joined 2026-09-21 (schema 95->96, same
+                # bump as FEATURE_SCHEMA_VERSION 9->10): the v10 dark-pool
+                # mirror's availability at signal time - bookkeeping only,
+                # same "" = UNKNOWN convention as the other avail_* flags
+                # - appended last so meta order stays stable
+                "avail_darkpool",
                 # label_ret_pct joined 2026-08-24 (schema 94): the labeled
                 # outcome's realized return in percent - before it,
                 # _emit_label computed BarrierOutcome.ret_pct and discarded

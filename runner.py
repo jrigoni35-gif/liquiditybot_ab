@@ -1771,6 +1771,11 @@ class BotRunner:
             # contending with the peer we just conceded to.
             self._stop_heartbeat()
             bot.moomoo.close()
+            # v10: dark-pool mirror connection. Guarded getattr: runner-
+            # state doubles may stub a moomoo-only namespace.
+            dp = getattr(bot, "darkpool", None)
+            if dp is not None and callable(getattr(dp, "close", None)):
+                dp.close()
             ws = getattr(bot, "ws_manager", None)
             if ws is not None:
                 ws.stop()               # join the daemon stream thread

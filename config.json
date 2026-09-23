@@ -1172,6 +1172,31 @@
       }
     ]
   },
+  "darkpool": {
+    "description": "Read-only weekly dark-pool (FINRA ATS) context from the external mirror (darkpool.duckdb, table ats_venue_weekly). SHADOW-FIRST: feeds only the v10 dp_* shadow features + avail_darkpool bookkeeping; no gate/sizer/exit may read it until pre-registered promotion criteria pass. Neutral-on-failure, same contract as moomoo (41a/41c): duckdb missing / DB absent / query error -> neutrals + avail_darkpool=0, ts frozen at last REAL observation. Weekly regulatory data: 6h polling is generous; the freeze gate makes faster polling harmless but pointless. Requires pip install duckdb (present in .venv).",
+    "enabled": true,
+    "duckdb_path": "C:\\Users\\haird\\Documents\\kimi\\tasks\\2026-09-20\\19-59-23-0f9af856\\darkpool_v2.duckdb",
+    "poll_minutes": 360,
+    "min_prior_periods": 2,
+    "z_lookback_polls": 60,
+    "tickers": [
+      {
+        "code": "US.COIN",
+        "symbol": "COIN",
+        "weight": 1.0
+      },
+      {
+        "code": "US.MSTR",
+        "symbol": "MSTR",
+        "weight": 1.0
+      },
+      {
+        "code": "US.QQQ",
+        "symbol": "QQQ",
+        "weight": 0.7
+      }
+    ]
+  },
   "watchdog": {
     "description": "Tail-event sentry: stale-data trips, cross-venue divergence, rolling PnL-velocity circuit breaker, single-tick quarantine, live equity-truth drift. Any trip blocks NEW entries; exits are never touched.",
     "enabled": true,

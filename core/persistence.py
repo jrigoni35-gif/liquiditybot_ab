@@ -542,6 +542,12 @@ class StateStore:
                 "moomoo_state": (bot.moomoo.to_dict() if callable(
                     getattr(getattr(bot, "moomoo", None), "to_dict", None))
                     else {}),
+                # v10: darkpool z-window + freeze-gate state, same 41c
+                # contract and duck-typed guard as moomoo_state (runner-
+                # state doubles may not carry the section).
+                "darkpool_state": (bot.darkpool.to_dict() if callable(
+                    getattr(getattr(bot, "darkpool", None), "to_dict", None))
+                    else {}),
                 # V2 vindication continuity: fired-detector maps for OPEN
                 # positions and the graded reliability ledger. Detector
                 # OBSERVATION state stays un-snapshotted (see NOTE below);
@@ -992,6 +998,15 @@ class StateStore:
                 bot.moomoo.from_dict(ms)
         except Exception:
             log.exception("moomoo section malformed - skipped")
+        # v10: darkpool z-windows/freeze state, same 41c contract and
+        # duck-typed guard as moomoo_state; pre-v10 snapshots lack the key.
+        try:
+            ds = data.get("darkpool_state")
+            if ds and callable(getattr(getattr(bot, "darkpool", None),
+                                       "from_dict", None)):
+                bot.darkpool.from_dict(ds)
+        except Exception:
+            log.exception("darkpool section malformed - skipped")
         try:
             bot._pos_realized.update(data.get("pos_realized", {}))
         except (TypeError, ValueError):

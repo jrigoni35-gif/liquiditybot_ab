@@ -65,6 +65,8 @@ _RANGES = {
     "vol_term": (-2, 2), "mkt_ret_6_dir": (-3, 3),
     "book_touch_share": (0, 1), "flow_tox": (0, 1),
     "ofi_dir": (-3, 3), "basis_mom_dir": (-3, 3),
+    "dp_surge_z": (-4, 4), "dp_vol_z": (-4, 4),
+    "dp_hhi": (0, 1), "avail_dp": (0, 1),
     "direction": (-1, 1), "gate_confidence": (0, 1),
 }
 _TOL = 1e-6

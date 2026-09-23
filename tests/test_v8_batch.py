@@ -38,15 +38,18 @@ IDX = {n: i for i, n in enumerate(FEATURE_NAMES)}
 
 
 # ------------------------------------------------------------ schema pins
-def test_schema_is_64_wide_v9_flow_tox_before_shadow_pair():
+def test_schema_is_68_wide_v10_flow_tox_before_shadow_blocks():
     # deliberate re-pin: v9 adds the ofi_dir/basis_mom_dir shadow pair
-    # after flow_tox (62->64, version 8->9; tests/test_ofi_feature.py)
-    assert len(FEATURE_NAMES) == 64
-    assert FEATURE_SCHEMA_VERSION == 9
-    assert FEATURE_NAMES[-8:] == ["vol_term", "mkt_ret_6_dir",
-                                  "book_touch_share", "flow_tox",
-                                  "ofi_dir", "basis_mom_dir",
-                                  "direction", "gate_confidence"]
+    # after flow_tox (62->64, version 8->9; tests/test_ofi_feature.py);
+    # v10 adds the dp_* dark-pool SHADOW block after that (64->68, 9->10)
+    assert len(FEATURE_NAMES) == 68
+    assert FEATURE_SCHEMA_VERSION == 10
+    assert FEATURE_NAMES[-12:] == ["vol_term", "mkt_ret_6_dir",
+                                   "book_touch_share", "flow_tox",
+                                   "ofi_dir", "basis_mom_dir",
+                                   "dp_surge_z", "dp_vol_z", "dp_hhi",
+                                   "avail_dp",
+                                   "direction", "gate_confidence"]
     assert TOX_NEUTRAL == {"flow_tox": 0.0}
 
 

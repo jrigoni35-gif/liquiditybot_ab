@@ -65,7 +65,8 @@ def test_extras_carry_feed_availability_truth():
                            frozen=True)
     extras = bot._feature_extras("BTC", {}, web, risk, None, 1e9)
     assert extras["avail"] == {"web": True, "equity": False,
-                               "options": True, "frozen": True}
+                               "options": True, "frozen": True,
+                               "darkpool": False}  # shell bot: no mirror
 
 
 def test_extras_default_unavailable_on_flagless_snapshots():
@@ -77,14 +78,17 @@ def test_extras_default_unavailable_on_flagless_snapshots():
                            opt_iv_skew=0.0)
     extras = bot._feature_extras("BTC", {}, web, risk, None, 1e9)
     assert extras["avail"] == {"web": False, "equity": False,
-                               "options": False, "frozen": False}
+                               "options": False, "frozen": False,
+                               "darkpool": False}  # shell bot: no mirror
 
 
 # ------------------------------------------------------------ DF-020 latch
 def test_degradation_logs_df020_once_per_episode(caplog):
     bot = SimpleNamespace()
-    down = {"web": False, "equity": True, "options": True, "frozen": False}
-    up = {"web": True, "equity": True, "options": True, "frozen": False}
+    down = {"web": False, "equity": True, "options": True, "frozen": False,
+            "darkpool": True}
+    up = {"web": True, "equity": True, "options": True, "frozen": False,
+          "darkpool": True}
     with caplog.at_level(logging.INFO, logger="liquiditybot.main"):
         _context_avail_check(bot, down)     # episode begins -> DF-020
         _context_avail_check(bot, down)     # same state -> silent
@@ -133,10 +137,10 @@ def test_live_row_roundtrips_avail_flags(tmp_path):
     hs = HistoryStore(str(tmp_path / "h.csv"))
     hs.log_entry("p1", "BTC", "long", _FEATS,
                  avail={"web": True, "equity": True, "options": False,
-                        "frozen": True})
+                        "frozen": True, "darkpool": True})
     hs.log_close("p1", 5.0)
     row = _rows(hs.path)[0]
-    assert [row[c] for c in AVAIL_COLS] == ["1", "1", "0", "1"]
+    assert [row[c] for c in AVAIL_COLS] == ["1", "1", "0", "1", "1"]
 
 
 def test_uncarried_paths_write_blank_unknown_never_false(tmp_path):
@@ -150,7 +154,7 @@ def test_uncarried_paths_write_blank_unknown_never_false(tmp_path):
                          "", "5m", {})
     hs.log_close("p2", 2.0)
     for row in _rows(hs.path):
-        assert [row[c] for c in AVAIL_COLS] == ["", "", "", ""]
+        assert [row[c] for c in AVAIL_COLS] == ["", "", "", "", ""]
 
 
 def test_candidate_register_stores_avail_for_label_time(tmp_path):

@@ -92,8 +92,8 @@ def test_history_header_ends_with_label_era(tmp_path):
     # tail; label_ret_pct and the avail block each shift one slot earlier.
     assert h[-1] == "control_arm"
     assert h[-2] == "label_ret_pct"
-    assert h[-6:-2] == ["avail_web", "avail_equity", "avail_options",
-                      "quotes_frozen"]
+    assert h[-7:-2] == ["avail_web", "avail_equity", "avail_options",
+                       "quotes_frozen", "avail_darkpool"]  # 96 (09-21, v10)
     assert h.index("entry_price") + 1 == h.index("exit_price")
     assert h.index("exit_price") + 1 == h.index("avail_web")
     assert h.index("book") + 1 == h.index("label_era")
@@ -187,12 +187,13 @@ def test_append_row_book_omitted_is_byte_identical_plus_5m(tmp_path, monkeypatch
                 "1", "12.34", "live",
                 f"{fixed_now:.0f}", "1000", "realized", "1", "entered",
                 "cand-9", "5m", "exit_sim", "0.000000", "0.000000",
-                *(["0.0000"] * 7), "0", "0", "", "", "", "", "",
+                *(["0.0000"] * 7), "0", "0", "", "", "", "", "", "",
                 expected_arm]
     assert row == expected
     assert header[-1] == "control_arm"   # schema 95
     assert header[-2] == "label_ret_pct"
-    assert header[-3] == "quotes_frozen"
+    assert header[-3] == "avail_darkpool"   # schema 96 (2026-09-21, v10)
+    assert header[-4] == "quotes_frozen"
     assert len(row) == len(header)
 
 

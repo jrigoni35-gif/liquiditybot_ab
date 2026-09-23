@@ -64,6 +64,7 @@ from data.ws_feed import (KrakenV2BookStream, LiveMarketCache,
 from data.kraken_feed import KrakenFeed
 from data.webdata_feed import WebDataFeed
 from data.moomoo_feed import MoomooFeed
+from data.darkpool_feed import DarkPoolFeed
 from data.context_engine import ContextFeed
 from strategies.liquidity_model import LiquidityModel, extract_base_asset
 from strategies.signal_gates import (GateStats, SignalGateEngine,
@@ -573,7 +574,8 @@ def _context_avail_check(bot, avail: dict) -> None:
         down = frozenset(k for k, ok in
                          (("web", avail.get("web")),
                           ("equity", avail.get("equity")),
-                          ("options", avail.get("options")))
+                          ("options", avail.get("options")),
+                          ("darkpool", avail.get("darkpool")))
                          if not ok) | (
             frozenset(("frozen",)) if avail.get("frozen") else frozenset())
     except AttributeError:
@@ -640,6 +642,7 @@ def _book_mid(book: dict) -> float:
 class LiquidityBot:
     def __init__(self, config: dict, okx=None, binanceus=None, kraken=None,
                 webdata=None, moomoo=None, sentiment_scanner=None,
+                darkpool=None,
                 resume: bool = True):
         self.config = config
         sys_cfg = config.get("system", {})
@@ -728,6 +731,13 @@ class LiquidityBot:
         self.fg_fear_max = float(wcfg.get("fear_greed_fear_max", 15))
         self.fg_euphoria_min = float(wcfg.get("fear_greed_euphoria_min", 85))
         self.moomoo = moomoo or MoomooFeed(config.get("moomoo", {}))
+        # v10 SHADOW dark-pool context (FINRA ATS weekly mirror, read-only
+        # DuckDB). Same construction contract as moomoo: an injectable
+        # double for tests, else built from config. Data-only by
+        # construction - DarkPoolFeed is in the _readonly deny-list below
+        # and its outputs land ONLY in the v10 dp_* shadow features until
+        # the pre-registered promotion criteria pass (DP_NEUTRAL).
+        self.darkpool = darkpool or DarkPoolFeed(config.get("darkpool", {}))
         # Compounder Phase B (spec §3): telemetry-only cycle/macro context
         # engine. NOT a decision-path input this phase - the ONLY other
         # touch point in this file is the one poll line in slow_cycle's
@@ -859,7 +869,8 @@ class LiquidityBot:
         # what may NEVER reach OrderManager is one of the real read-only
         # venues. FeedRecorder wraps the feed, so unwrap before checking.
         _exec_feed = getattr(self.kraken, "_feed", self.kraken)
-        _readonly = [OKXFeed, BinanceUSFeed, MoomooFeed, WebDataFeed, ContextFeed]
+        _readonly = [OKXFeed, BinanceUSFeed, MoomooFeed, WebDataFeed,
+                     ContextFeed, DarkPoolFeed]
         try:
             from data.ccxt_feed import CCXTFeed as _CCXT
         except Exception:                        # noqa: BLE001 - optional dep
@@ -4571,6 +4582,7 @@ class LiquidityBot:
         sentiment = self.xscan.maybe_poll(now)
         web = self.webdata.maybe_poll(now)
         risk = self.moomoo.maybe_poll(now)
+        self.darkpool.maybe_poll(now)  # v10 shadow weekly mirror (slow, gated)
         self._context_state = self.context.maybe_poll(now)
         # Fear&Greed extremes join fear/euphoria detection (same clamps
         # apply downstream - still a filter, never a trigger)
@@ -6290,10 +6302,20 @@ class LiquidityBot:
         # the flags ride every corpus row as bookkeeping columns - never as
         # features (the DoF ledger is closed). "frozen" is 41a's closed-
         # market signature: the equity quote is real but static.
+        # v10 SHADOW dark-pool snapshot (polled in slow_cycle; read-only
+        # here). dp_live=False (degraded/absent mirror) -> DP_NEUTRAL values
+        # and avail_dp=0.0: build_features gates the three dp_* on avail_dp
+        # at the vector boundary, and the avail dict's "darkpool" flag rides
+        # every corpus row as bookkeeping (avail_darkpool) so offline
+        # consumers can separate "mirror dark" from "genuinely quiet flow".
+        dp_snap = self.darkpool.snapshot() if getattr(self, "darkpool",
+                                                      None) else None
+        dp_live = bool(dp_snap is not None and dp_snap.available)
         avail = {"web": bool(getattr(web, "available", False)),
                  "equity": bool(getattr(risk, "available", False)),
                  "options": bool(getattr(risk, "options_available", False)),
-                 "frozen": bool(getattr(risk, "quotes_frozen", False))}
+                 "frozen": bool(getattr(risk, "quotes_frozen", False)),
+                 "darkpool": dp_live}
         _context_avail_check(self, avail)
         return {"avail": avail,
                 "fear_greed": web.fear_greed,
@@ -6311,7 +6333,18 @@ class LiquidityBot:
                 "opt_iv_skew": risk.opt_iv_skew,
                 "manip_suspect": suspect,
                 "mkt_ret_6": mkt_ret_6,
-                "book_touch_share": touch_share}
+                "book_touch_share": touch_share,
+                # v10 SHADOW dark-pool block (see DP_NEUTRAL): neutrals
+                # unless dp_live; the mirror's own staleness (data_age_days)
+                # is logged by the feed at poll time - weekly regulatory
+                # data is publication-lagged by nature.
+                "dp_surge_z": float(getattr(dp_snap, "dp_surge_z", 0.0))
+                              if dp_live else 0.0,
+                "dp_vol_z": float(getattr(dp_snap, "dp_vol_z", 0.0))
+                            if dp_live else 0.0,
+                "dp_hhi": float(getattr(dp_snap, "dp_hhi", 0.0))
+                          if dp_live else 0.0,
+                "avail_dp": 1.0 if dp_live else 0.0}
 
     def _maybe_unwind_unteachable(self, now: float) -> None:
         """ML-071 anti-wedge (see pick_unteachable_unwind). Dry-run only:

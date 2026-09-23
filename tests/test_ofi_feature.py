@@ -31,8 +31,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from ml.features import (FEATURE_NAMES, FEATURE_SCHEMA_VERSION, V9_NEUTRAL,
-                         build_features)
+from ml.features import (DP_NEUTRAL, FEATURE_NAMES, FEATURE_SCHEMA_VERSION,
+                         V9_NEUTRAL, build_features)
 from strategies.liquidity_model import LiquidityModel, _ofi_event
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -294,20 +294,27 @@ def test_contract_declares_the_v9_ranges():
     assert _RANGES["basis_mom_dir"] == (-3, 3)
 
 
-# --------------------------- 5. schema v9 + v8 pad-migration + load
-def test_schema_is_64_wide_v9_shadow_pair_before_signal_tail():
-    # deliberate re-pin: v9 adds ofi_dir/basis_mom_dir (62->64, 8->9)
-    assert len(FEATURE_NAMES) == 64
-    assert FEATURE_SCHEMA_VERSION == 9
-    assert FEATURE_NAMES[-4:] == ["ofi_dir", "basis_mom_dir",
-                                  "direction", "gate_confidence"]
+# --------------------------- 5. schema v10 + v8 pad-migration + load
+def test_schema_is_68_wide_v10_darkpool_block_before_signal_tail():
+    # deliberate re-pin: v10 adds dp_surge_z/dp_vol_z/dp_hhi/avail_dp
+    # (64->68, 9->10), the same batched-bump law as v9
+    assert len(FEATURE_NAMES) == 68
+    assert FEATURE_SCHEMA_VERSION == 10
+    assert FEATURE_NAMES[-6:] == ["dp_surge_z", "dp_vol_z", "dp_hhi",
+                                  "avail_dp", "direction",
+                                  "gate_confidence"]
     assert V9_NEUTRAL == {"ofi_dir": 0.0, "basis_mom_dir": 0.0}
+    assert DP_NEUTRAL == {"dp_surge_z": 0.0, "dp_vol_z": 0.0,
+                          "dp_hhi": 0.0, "avail_dp": 0.0}
 
 
 def _v8_file(path):
-    """A genuine v8-era corpus: the CURRENT schema minus the v9 pair."""
+    """A genuine v8-era corpus: the CURRENT schema minus the v9 pair and
+    the v10 dark-pool block (both post-date v8, so both pad)."""
     v8_names = [n for n in FEATURE_NAMES
-                if n not in ("ofi_dir", "basis_mom_dir")]
+                if n not in ("ofi_dir", "basis_mom_dir",
+                             "dp_surge_z", "dp_vol_z", "dp_hhi",
+                             "avail_dp")]
     header = ["position_id", "asset", "side", *v8_names,
               "label", "net_pnl_usd", "source", "ts"]
     with open(path, "w", newline="", encoding="utf-8") as f:
@@ -318,18 +325,23 @@ def _v8_file(path):
     return path
 
 
-def test_migration_pads_the_v9_pair_with_documented_neutrals(tmp_path):
+def test_migration_pads_the_v9_pair_and_v10_block_with_documented_neutrals(
+        tmp_path):
     from scripts.migrate_history import migrate_rows
     rows, padded = migrate_rows(str(_v8_file(tmp_path / "v8.csv")))
-    assert set(padded) == {"ofi_dir", "basis_mom_dir"}
+    assert set(padded) == {"ofi_dir", "basis_mom_dir",
+                           "dp_surge_z", "dp_vol_z", "dp_hhi", "avail_dp"}
     assert rows[0][3 + FEATURE_NAMES.index("ofi_dir")] == "0.000000"
     assert rows[0][3 + FEATURE_NAMES.index("basis_mom_dir")] == "0.000000"
+    assert rows[0][3 + FEATURE_NAMES.index("dp_surge_z")] == "0.000000"
+    assert rows[0][3 + FEATURE_NAMES.index("avail_dp")] == "0.000000"
 
 
-def test_migrated_v8_row_loads_under_the_v9_schema(tmp_path):
-    """The explicit v8-row LOAD proof: migrate -> append under the v9
+def test_migrated_v8_row_loads_under_the_v10_schema(tmp_path):
+    """The explicit v8-row LOAD proof: migrate -> append under the v10
     header -> load_training_data returns the row full-width with the
-    neutrals in the new columns and the original values preserved."""
+    neutrals in the new columns (v9 pair AND v10 dark-pool block) and
+    the original values preserved."""
     from ml.history import HistoryStore
     from scripts.migrate_history import migrate_rows
     rows, _ = migrate_rows(str(_v8_file(tmp_path / "v8.csv")))
@@ -341,6 +353,10 @@ def test_migrated_v8_row_loads_under_the_v9_schema(tmp_path):
     assert len(X) == 1 and len(X[0]) == len(FEATURE_NAMES)
     assert X[0][IDX["ofi_dir"]] == 0.0
     assert X[0][IDX["basis_mom_dir"]] == 0.0
+    assert X[0][IDX["dp_surge_z"]] == 0.0
+    assert X[0][IDX["dp_vol_z"]] == 0.0
+    assert X[0][IDX["dp_hhi"]] == 0.0
+    assert X[0][IDX["avail_dp"]] == 0.0
     assert X[0][IDX["flow_tox"]] == pytest.approx(0.1)   # v8 value survives
     assert y[0] == 1
 

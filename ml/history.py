@@ -304,7 +304,7 @@ SG_COMPONENT_KEYS = ("flow", "delta", "accum", "burst", "trend",
 # _N_LEAD: position_id, asset, side. _N_TRAIL: label, net_pnl_usd, source,
 # ts, signal_ts, barrier, probe, disp, candidate_id, book, label_era,
 # pt_frac, sl_frac (13) + the 7 sg_* + entry_price, exit_price
-# + the 4 avail_* flags (AVAIL_COLS) = 26.
+# + the 5 avail_* flags (AVAIL_COLS) = 27.
 # _append_row's width guard AND its warning message both derive from these,
 # so the "expected feature count" they report can never disagree again -
 # tests/test_durable_append.py pins the identity against the live header
@@ -325,7 +325,14 @@ _N_LEAD = 3
 # closed); these exist so a FUTURE training decision can weight or filter
 # degraded-context rows offline, deliberately.
 AVAIL_COLS = ("avail_web", "avail_equity", "avail_options",
-              "quotes_frozen")
+              "quotes_frozen", "avail_darkpool")
+# avail dict keys (main._feature_extras) per bookkeeping column. Appended
+# LAST (2026-09-21, schema 95->96, same bump as FEATURE_SCHEMA_VERSION 9->10):
+# the first four columns keep their positions in already-padded rows; new
+# rows write "1"/"0", migrated/old rows carry "" = UNKNOWN.
+AVAIL_KEY = {"avail_web": "web", "avail_equity": "equity",
+             "avail_options": "options", "quotes_frozen": "frozen",
+             "avail_darkpool": "darkpool"}
 # label_ret_pct (schema 93->94, 2026-08-24): the labeled outcome's REALIZED
 # RETURN in PERCENT, net of the cost basis used AT LABEL TIME. Before this
 # column, _emit_label computed BarrierOutcome.ret and then wrote a literal
@@ -1190,9 +1197,9 @@ class HistoryStore:
                f"{pt_frac:.6f}", f"{sl_frac:.6f}",
                *[f"{sg[k]:.4f}" for k in SG_COMPONENT_KEYS],
                f"{entry_price:.10g}", f"{exit_price:.10g}",
-               *(["", "", "", ""] if not avail else
-                 [str(int(bool(avail.get(k, False))))
-                  for k in ("web", "equity", "options", "frozen")]),
+               *( [""] * len(AVAIL_COLS) if not avail else
+                  [str(int(bool(avail.get(AVAIL_KEY[c], False))))
+                   for c in AVAIL_COLS] ),
                # "" = UNKNOWN, never 0.0 - a zero here would be
                # indistinguishable from a genuine zero-return outcome,
                # which is the exact ambiguity this column exists to end.

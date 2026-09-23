@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ml.features import FEATURE_NAMES  # noqa: E402
 from ml.history import HistoryStore, SG_COMPONENT_KEYS, label_era_of  # noqa: E402
-from ml.features import (CONTEXT_NEUTRAL, PATTERN_NEUTRAL,  # noqa: E402
+from ml.features import (CONTEXT_NEUTRAL, DP_NEUTRAL, PATTERN_NEUTRAL,  # noqa: E402
                          TOX_NEUTRAL, TRIO_NEUTRAL, V9_NEUTRAL)
 from strategies.smc import NEUTRAL as SMC_NEUTRAL  # noqa: E402
 
@@ -54,8 +54,14 @@ DIR_DERIVED = {
 # V9_NEUTRAL: the shadow pair pads 0.0 = "no signed event flow / no
 # basis drift observed" - no unsigned twin ever existed, so old bundles
 # pad rather than derive (the TRIO precedent).
+# DP_NEUTRAL (v10): the dark-pool block pads 0.0 = "no dark-pool
+# observation read" (avail_dp included: a pre-v10 row predates the feed,
+# so UNKNOWN-availability is the honest padding, and 0.0 equals its
+# degraded/neutral state) - no unsigned twin ever existed, same TRIO
+# precedent.
 KNOWN_NEUTRAL = {**SMC_NEUTRAL, **PATTERN_NEUTRAL, **CONTEXT_NEUTRAL,
                  **TRIO_NEUTRAL, **TOX_NEUTRAL, **V9_NEUTRAL,
+                 **DP_NEUTRAL,
                  **{k: 0.0 for k in DIR_DERIVED}}
 
 META_COLS = ("position_id", "asset", "side", "label", "net_pnl_usd",
@@ -187,6 +193,14 @@ def migrate_rows(src_path: str) -> tuple[list, list]:
                     r.get("avail_equity") or "",
                     r.get("avail_options") or "",
                     r.get("quotes_frozen") or "",
+                    # avail_darkpool joined 2026-09-21 (schema 95->96, same
+                    # bump as FEATURE_SCHEMA_VERSION 9->10): the v10 dark-
+                    # pool mirror's availability. Same idempotence precedent
+                    # - a migrated row's real value passes through
+                    # UNCHANGED; a row that predates the column pads "" =
+                    # UNKNOWN, NEVER "0": nothing measured the mirror for a
+                    # legacy row and "0" would claim a measured outage.
+                    r.get("avail_darkpool") or "",
                     # label_ret_pct joined 2026-08-24 (schema 94): the
                     # labeled outcome's realized return in percent. Same
                     # idempotence precedent - a migrated row's real value

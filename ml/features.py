@@ -87,6 +87,22 @@ TOX_NEUTRAL = {"flow_tox": 0.0}
 # exit/execution module reads them.
 V9_NEUTRAL = {"ofi_dir": 0.0, "basis_mom_dir": 0.0}
 
+# migration neutrals for the v10 SHADOW dark-pool block (FINRA ATS weekly
+# mirror, basket COIN/MSTR/QQQ): 0.0 = "no dark-pool observation read" -
+# a dead/absent mirror's zeros are byte-identical to genuine neutral flow,
+# exactly the TOX_NEUTRAL/V9_NEUTRAL convention. dp_hhi's true neutral would
+# be a dispersed-book value, but 0.0 is the documented migration neutral
+# (same trade-off as book_touch_share: padding must never CLAIM structure).
+# avail_dp is the block's own availability feature (1 = real observation,
+# 0 = degraded/neutral) and gates the other three to 0.0 in build_features,
+# so a stale producer can never serve its last-live value as fresh.
+# SHADOW status, same pre-registered promotion law as V9_NEUTRAL: the three
+# dp_* columns feed ONLY the feature vector until the TANK quant-2 criteria
+# (3 stability snapshots out of the OOS-dead set, green OF battery with it
+# in the trained space, non-negative >=200-entry markout delta) all pass.
+DP_NEUTRAL = {"dp_surge_z": 0.0, "dp_vol_z": 0.0, "dp_hhi": 0.0,
+              "avail_dp": 0.0}
+
 # Bumped whenever vectors change MEANING (v2: side-relative encoding;
 # v3: +context/THALES block, 46->53; v4: +options positioning, 53->56;
 # v5: +manip_suspect adversarial-data score, 56->57; v6: +th_barclose
@@ -100,11 +116,18 @@ V9_NEUTRAL = {"ofi_dir": 0.0, "basis_mom_dir": 0.0}
 # basis_mom_dir SHADOW pair, 62->64 - event-based best-level OFI
 # (Cont-Kukanov-Stoikov 2014) and perp-basis momentum, ONE batched bump
 # for both columns (TANK quant-2 K/N; see V9_NEUTRAL above for the
-# pre-registered promotion criteria)).
+# pre-registered promotion criteria);
+# v10: +dp_surge_z/dp_vol_z/dp_hhi/avail_dp SHADOW dark-pool block, 64->68 -
+# FINRA ATS weekly dark-volume context (basket COIN/MSTR/QQQ) mirrored
+# outside the bot into darkpool.duckdb and read read-only by
+# data/darkpool_feed.py; ONE batched bump for all four columns (same
+# TANK quant-2 K/N law; see DP_NEUTRAL above). All four absolute gauges,
+# NOT side-relative - like the opt_* fear gauges, direction is an empirical
+# question for the model, not doctrine.
 # Restore paths must drop pending vectors from other versions - the
 # width guard alone cannot see a semantic change, and versioning also
 # documents additive bumps.
-FEATURE_SCHEMA_VERSION = 9
+FEATURE_SCHEMA_VERSION = 10
 
 # *_dir features are SIDE-RELATIVE: market-absolute signed quantities
 # multiplied by trade direction, so "+" always means "with my trade".
@@ -151,6 +174,17 @@ FEATURE_NAMES = [
                                   # touch-depths/min, with/against trade
     "basis_mom_dir",              # v9 SHADOW: basis drift bps/min /10,
                                   # with/against trade
+    "dp_surge_z",                 # v10 SHADOW: z of basket-mean dark-volume
+                                  # surge ratio (current FINRA period / avg of
+                                  # prior <=4 complete periods) - absolute,
+                                  # clip [-4,4]
+    "dp_vol_z",                   # v10 SHADOW: z of basket-mean log dark
+                                  # volume - absolute, clip [-4,4]
+    "dp_hhi",                     # v10 SHADOW: venue concentration 0..1,
+                                  # low = dispersed institutional flow
+    "avail_dp",                   # v10 SHADOW: 1 = dp_* from a REAL
+                                  # observation, 0 = degraded/neutral
+                                  # (gates the three dp_* to DP_NEUTRAL)
     "direction", "gate_confidence",
 ]
 
@@ -367,6 +401,9 @@ def build_features(asset: str, direction: str, gate_confidence: float,
     sent_score = float(getattr(sentiment, "score", 0.0) or 0.0)
     sent_fear = float(bool(getattr(sentiment, "fear_spike", False)))
 
+    _avail_dp = 1.0 if _finite((extras or {}).get("avail_dp", 0.0)) \
+        >= 0.5 else 0.0
+
     x = np.array([
         dir_sign * _ret(closes, 1, sigma_bar),
         dir_sign * _ret(closes, 6, sigma_bar),
@@ -462,6 +499,23 @@ def build_features(asset: str, direction: str, gate_confidence: float,
                                  -3, 3)),
         dir_sign * float(np.clip(_finite(getattr(fv_state, "basis_mom_bps",
                                                  0.0)), -30, 30)) / 10.0,
+        # v10 SHADOW dark-pool block (see DP_NEUTRAL for the pre-registered
+        # promotion criteria). All four ABSOLUTE gauges, NOT side-relative:
+        # institutional dark-flow accumulation/distribution is symmetric
+        # information, like the opt_* fear gauges - whether it confirms or
+        # fades a side is an empirical question for the model. avail_dp
+        # gates the three dp_* to DP_NEUTRAL here, at the vector boundary,
+        # so a stale/malformed producer can never serve its last-live value
+        # as a fresh observation. _finite: producers document 0.0-on-
+        # missing/stale - enforce it so a legacy stub/NaN can never poison
+        # the vector.
+        float(np.clip(_finite((extras or {}).get("dp_surge_z", 0.0)),
+                      -4, 4)) * _avail_dp,
+        float(np.clip(_finite((extras or {}).get("dp_vol_z", 0.0)),
+                      -4, 4)) * _avail_dp,
+        float(np.clip(_finite((extras or {}).get("dp_hhi", 0.0)),
+                      0, 1)) * _avail_dp,
+        _avail_dp,
         dir_sign,
         float(np.clip(gate_confidence, 0, 1)),
     ], dtype=float)

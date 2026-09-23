@@ -79,15 +79,18 @@ def _candles(rets):
 
 
 # ------------------------------------------------------------ schema pins
-def test_schema_is_64_wide_v9_trio_before_signal_tail():
+def test_schema_is_68_wide_v10_trio_before_signal_tail():
     # deliberate re-pin: v8 adds flow_tox after the trio (61->62, 7->8);
-    # v9 adds the ofi_dir/basis_mom_dir shadow pair (62->64, 8->9)
-    assert len(FEATURE_NAMES) == 64
-    assert FEATURE_SCHEMA_VERSION == 9
-    assert FEATURE_NAMES[-8:] == ["vol_term", "mkt_ret_6_dir",
-                                  "book_touch_share", "flow_tox",
-                                  "ofi_dir", "basis_mom_dir",
-                                  "direction", "gate_confidence"]
+    # v9 adds the ofi_dir/basis_mom_dir shadow pair (62->64, 8->9);
+    # v10 adds the dp_* dark-pool SHADOW block (64->68, 9->10)
+    assert len(FEATURE_NAMES) == 68
+    assert FEATURE_SCHEMA_VERSION == 10
+    assert FEATURE_NAMES[-12:] == ["vol_term", "mkt_ret_6_dir",
+                                   "book_touch_share", "flow_tox",
+                                   "ofi_dir", "basis_mom_dir",
+                                   "dp_surge_z", "dp_vol_z", "dp_hhi",
+                                   "avail_dp",
+                                   "direction", "gate_confidence"]
 
 
 def test_contract_declares_ranges_and_accepts_a_built_vector():

@@ -49,8 +49,9 @@ from ml.walkforward import _COMPLEXITY, _LADDER, evaluate_and_select
 _SHIPPED_CONSTRAINT_INDICES = {
     # deliberate re-pin: v9 shadow pair (ofi_dir/basis_mom_dir) slots
     # before the direction/gate_confidence tail, moving gate_confidence
-    # 61->63; every other constrained feature keeps its index
-    "gate_confidence": 63, "spread_bps": 7, "fv_edge_bps": 9,
+    # 61->63; v10 dark-pool block (dp_surge_z/dp_vol_z/dp_hhi/avail_dp)
+    # moves it 63->67; every other constrained feature keeps its index
+    "gate_confidence": 67, "spread_bps": 7, "fv_edge_bps": 9,
     "flow_tox": 59, "manip_suspect": 52,
 }
 

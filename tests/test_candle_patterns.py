@@ -16,14 +16,17 @@ def _bar(o, h, lo, c):
 
 def test_schema_has_patterns_before_direction():
     # deliberate re-pin: v9 adds the ofi_dir/basis_mom_dir shadow pair
-    # (62->64), widening the tail by two
-    assert len(FEATURE_NAMES) == 64
-    # v7 trio + v8 flow_tox + v9 shadow pair slot between the pattern
-    # block and the tail
-    assert FEATURE_NAMES[-11:] == ["pat_engulf_dir", "pat_hammer_dir",
+    # (62->64), widening the tail by two; v10 adds the dp_* dark-pool
+    # block (64->68), widening it by four more
+    assert len(FEATURE_NAMES) == 68
+    # v7 trio + v8 flow_tox + v9 shadow pair + v10 dark-pool block slot
+    # between the pattern block and the tail
+    assert FEATURE_NAMES[-15:] == ["pat_engulf_dir", "pat_hammer_dir",
                                    "pat_marubozu_dir", "vol_term",
                                    "mkt_ret_6_dir", "book_touch_share",
                                    "flow_tox", "ofi_dir", "basis_mom_dir",
+                                   "dp_surge_z", "dp_vol_z", "dp_hhi",
+                                   "avail_dp",
                                    "direction", "gate_confidence"]
 
 

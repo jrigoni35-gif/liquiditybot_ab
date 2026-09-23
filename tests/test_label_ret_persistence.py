@@ -143,13 +143,15 @@ def test_old_schema_file_rotates_and_recovers_without_row_loss(tmp_path):
     (root / "outputs").mkdir(exist_ok=True)
     p = root / "outputs" / "signal_history.csv"
     probe = HistoryStore(str(p))
-    # exclude BOTH bumps since this fixture: a genuinely pre-94 file
+    # exclude ALL bumps since this fixture: a genuinely pre-94 file
     # predates label_ret_pct AND control_arm (schema 95, 2026-08-27,
-    # sandbox prototype) - filtering only one would leave a phantom
-    # column in old_header that the literal rows below were never written
+    # sandbox prototype) AND avail_darkpool (schema 96, 2026-09-21, v10
+    # dark-pool shadow block) - filtering fewer would leave phantom
+    # columns in old_header that the literal rows below were never written
     # to carry, corrupting the fixture rather than exercising the hazard.
     old_header = [c for c in probe._header
-                 if c not in ("label_ret_pct", "control_arm")]
+                 if c not in ("label_ret_pct", "control_arm",
+                              "avail_darkpool")]
     p.unlink(missing_ok=True)     # probe does not create the file eagerly
     feats = ["0.000000"] * len(FEATURE_NAMES)
     with p.open("w", newline="", encoding="utf-8") as f:

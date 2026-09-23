@@ -276,7 +276,7 @@ def test_mixed_legacy_and_new_rows_load_cleanly(tmp_path):
                      *["0.000000"] * len(FEATURE_NAMES),
                      "0", "-2.00", "live", "1", "1", "tb_sl", "", "",
                      "", "5m", "triple_barrier_h432", "0.02", "0.01",
-                     *["0.0000"] * 7, "0", "0", "", "", "", "", "", ""]
+                     *["0.0000"] * 7, "0", "0", "", "", "", "", "", "", ""]
         assert len(legacy_row) == len(header), (
             "fixture drifted from the live schema width - update it")
         w.writerow(legacy_row)

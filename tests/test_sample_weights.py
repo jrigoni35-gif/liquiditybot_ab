@@ -71,10 +71,10 @@ def test_barrier_column_round_trips(tmp_path, monkeypatch):
     assert row[_ip:_ip + 2] == ["0", "0"]  # candidate path: no price supplied
     assert header[-1] == "control_arm"   # schema 95 (2026-08-27, sandbox)
     assert header[-2] == "label_ret_pct"   # schema 94 (2026-08-24)
-    assert header[-6:-2] == ["avail_web", "avail_equity", "avail_options",
-                           "quotes_frozen"]
-    assert row[-6:-1] == ["", "", "", "", ""]  # unmeasured -> blank UNKNOWN
-    # (4 avail flags + label_ret_pct, all UNKNOWN on this path)
+    assert header[-7:-2] == ["avail_web", "avail_equity", "avail_options",
+                             "quotes_frozen", "avail_darkpool"]  # 96 (v10)
+    assert row[-7:-1] == ["", "", "", "", "", ""]  # unmeasured -> blank
+    # UNKNOWN (5 avail flags + label_ret_pct, all UNKNOWN on this path)
     # control_arm is NEVER blank for a new row (asset + signal_ts=999_000.0
     # are always present) - computed through the real function, not a
     # hardcoded hash literal.

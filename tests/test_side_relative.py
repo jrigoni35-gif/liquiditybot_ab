@@ -54,12 +54,15 @@ def _vector(direction: str) -> np.ndarray:
 
 
 def test_schema_version_current():
-    # deliberate re-pin: v9 shadow pair (ofi_dir/basis_mom_dir ARE in
-    # DIR_FEATURES - signed flow/drift, presented with-my-trade like
-    # imbalance_dir/basis_dir; the stub carries nonzero ofi_event/
-    # basis_mom_bps so the flip test proves it non-vacuously). flow_tox
-    # stays in the must-NOT-flip branch (symmetric information).
-    assert FEATURE_SCHEMA_VERSION == 9
+    # deliberate re-pin: v10 (2026-09-21) adds the dp_surge_z/dp_vol_z/
+    # dp_hhi/avail_dp dark-pool SHADOW block; the v9 shadow pair
+    # (ofi_dir/basis_mom_dir ARE in DIR_FEATURES - signed flow/drift,
+    # presented with-my-trade like imbalance_dir/basis_dir; the stub
+    # carries nonzero ofi_event/basis_mom_bps so the flip test proves it
+    # non-vacuously). flow_tox and the whole dp_* block stay in the
+    # must-NOT-flip branch (symmetric information; avail_dp is a 0/1
+    # availability gauge, not a signed quantity).
+    assert FEATURE_SCHEMA_VERSION == 10
 
 
 def test_flow_tox_is_live_in_the_flip_stub():

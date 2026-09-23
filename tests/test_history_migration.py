@@ -90,8 +90,8 @@ def test_legacy_csv_migrates_pt_sl_frac_with_zero_default(tmp_path):
     assert h[iep:iep + 2] == ["entry_price", "exit_price"]
     assert h[-1] == "control_arm"          # schema 95 (2026-08-27, sandbox)
     assert h[-2] == "label_ret_pct"        # schema 94 (2026-08-24)
-    assert h[-6:-2] == ["avail_web", "avail_equity", "avail_options",
-                      "quotes_frozen"]
+    assert h[-7:-2] == ["avail_web", "avail_equity", "avail_options",
+                       "quotes_frozen", "avail_darkpool"]  # 96 (09-21, v10)
     for row in rows:
         assert len(row) == len(h)                  # full current width
         assert float(row[ipt]) == 0.0               # pt_frac default
@@ -99,7 +99,7 @@ def test_legacy_csv_migrates_pt_sl_frac_with_zero_default(tmp_path):
         assert all(float(v) == 0.0 for v in row[isg:isg + 7])  # sg_*
         assert row[iep:iep + 2] == ["0", "0"]       # price pair: absent
         # migrated legacy rows never measured availability: blank UNKNOWN
-        assert row[-5:-1] == ["", "", "", ""]
+        assert row[-6:-1] == ["", "", "", "", ""]
         # control_arm: a genuinely pre-bump row predates the tag - "" =
         # not-designated, NEVER backfilled (migrate_history.py never
         # computes one for a legacy row; see its own comment for why).
