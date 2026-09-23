@@ -1,27 +1,26 @@
 {
-  "generated_at": 1790119081.5724251,
+  "generated_at": 1790122685.047985,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790119079.917,
-    "duration_h": 1791.41
+    "end": 1790122670.0,
+    "duration_h": 1792.4
   },
   "recent": {
     "hours": 48.0,
     "audit": {
       "records": 320,
-      "signal_records": 253,
+      "signal_records": 251,
       "by_src": {
         "entry_sweep": 98,
-        "exploration": 88,
-        "ml_governor": 79,
-        "order_manager": 33,
+        "exploration": 89,
+        "ml_governor": 78,
+        "order_manager": 34,
         "exit": 8,
         "long_book": 5,
         "conviction": 4,
         "startup": 2,
-        "fault": 2,
-        "engine": 1
+        "fault": 2
       },
       "top_codes": [
         [
@@ -38,19 +37,19 @@
         ],
         [
           "SZ-051",
-          30
+          31
         ],
         [
           "ML-070",
-          29
+          30
         ],
         [
           "OM-000",
-          20
+          21
         ],
         [
           "SZ-049",
-          17
+          16
         ],
         [
           "OM-040",
@@ -66,23 +65,23 @@
         ],
         [
           "ML-041",
-          9
+          8
         ],
         [
-          "ML-032",
+          "PT-061",
           8
         ]
       ],
       "dominant_code": "EN-000",
-      "dominant_frac": 0.194,
-      "retrain_requests": 8,
+      "dominant_frac": 0.195,
+      "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 5331,
+      "records": 5736,
       "by_level": {
-        "INFO": 5309,
-        "WARNING": 19,
+        "INFO": 5709,
+        "WARNING": 24,
         "CRITICAL": 2,
         "ERROR": 1
       },
@@ -90,6 +89,10 @@
         [
           "ML-031: feature drift 22/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           4
+        ],
+        [
+          "auto-retrain DEPLOYED blend (oof brier 0.2409)",
+          2
         ],
         [
           "ML-032 RETRAIN REQUESTED: input drift on 34% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
@@ -116,10 +119,6 @@
           1
         ],
         [
-          "auto-retrain DEPLOYED blend (oof brier 0.2409)",
-          1
-        ],
-        [
           "ML-031: feature drift 22/64 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
           1
         ],
@@ -129,52 +128,52 @@
         ]
       ],
       "liquidity_tally": {
-        "thin": 964,
+        "thin": 1035,
         "spoofy": 80
       },
-      "spoofy_frac": 0.077,
+      "spoofy_frac": 0.072,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 526,
+      "cycles_estimate": 543,
       "feed_error_events": 1
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 768.75,
+    "equity_end": 768.38,
     "equity_min": 767.16,
     "equity_max": 806.91,
     "equity_range": 39.75,
     "capital_epochs": 5,
-    "epoch_samples": 227956,
+    "epoch_samples": 228189,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 767.16,
     "lifetime_equity_max": 100000.03,
     "lifetime_equity_range": 99232.87,
-    "realized_pnl_total": -18.47,
-    "fees_paid_total": 32.2752,
+    "realized_pnl_total": -18.34,
+    "fees_paid_total": 32.5495,
     "open_positions": 5,
-    "samples": 395747
+    "samples": 395980
   },
   "activity": {
-    "signal_rows_total": 32073,
-    "live_labeled_trades": 482,
+    "signal_rows_total": 32074,
+    "live_labeled_trades": 483,
     "candidate_rows": 31591
   },
   "audit": {
-    "records": 90399,
-    "signal_records": 36600,
+    "records": 90410,
+    "signal_records": 36609,
     "by_src": {
-      "exploration": 77012,
+      "exploration": 77014,
       "long_book": 4139,
-      "ml_governor": 3361,
-      "order_manager": 2443,
+      "ml_governor": 3365,
+      "order_manager": 2445,
       "conviction": 1264,
       "startup": 489,
       "fault": 486,
-      "exit": 387,
+      "exit": 388,
       "firewall": 372,
-      "entry_sweep": 310,
+      "entry_sweep": 312,
       "engine": 66,
       "circuit_breaker": 57,
       "runner": 13
@@ -182,11 +181,11 @@
     "top_codes": [
       [
         "ML-070",
-        28011
+        28012
       ],
       [
         "SZ-051",
-        25502
+        25503
       ],
       [
         "SZ-047",
@@ -198,11 +197,11 @@
       ],
       [
         "OM-000",
-        1510
+        1512
       ],
       [
         "ML-031",
-        1282
+        1283
       ],
       [
         "LB-050",
@@ -218,7 +217,7 @@
       ],
       [
         "ML-016",
-        572
+        573
       ],
       [
         "ML-041",
@@ -340,10 +339,10 @@
     ]
   },
   "events": {
-    "records": 5331,
+    "records": 5736,
     "by_level": {
-      "INFO": 5309,
-      "WARNING": 19,
+      "INFO": 5709,
+      "WARNING": 24,
       "CRITICAL": 2,
       "ERROR": 1
     },
@@ -351,6 +350,10 @@
       [
         "ML-031: feature drift 22/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
         4
+      ],
+      [
+        "auto-retrain DEPLOYED blend (oof brier 0.2409)",
+        2
       ],
       [
         "ML-032 RETRAIN REQUESTED: input drift on 34% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
@@ -377,10 +380,6 @@
         1
       ],
       [
-        "auto-retrain DEPLOYED blend (oof brier 0.2409)",
-        1
-      ],
-      [
         "ML-031: feature drift 22/64 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
         1
       ],
@@ -390,27 +389,27 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 964,
+      "thin": 1035,
       "spoofy": 80
     },
-    "spoofy_frac": 0.077,
+    "spoofy_frac": 0.072,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 526,
+    "cycles_estimate": 543,
     "feed_error_events": 1
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.24093365633886848,
+    "champion_brier": 0.24088782885545498,
     "brier": "n/a",
-    "history_rows": 482,
+    "history_rows": 483,
     "cold": false
   },
   "postmortems": {
-    "count": 408,
+    "count": 409,
     "causes": {
-      "underperformance": 262,
+      "underperformance": 263,
       "alpha_wrong": 65,
       "cost_overrun": 41,
       "regime_shift": 37,
@@ -428,15 +427,15 @@
     "rows_per_label_era": {
       "triple_barrier_h432": 21700,
       "triple_barrier": 5328,
-      "exit_sim": 2805,
+      "exit_sim": 2806,
       "legacy": 1781,
       "exit_sim_time_stop": 459
     },
-    "fills_rows": 1402,
+    "fills_rows": 1404,
     "fills_torn_rows": 0,
     "fills_per_era": {
       "prestamp": 1030,
-      "12-10d4d0c2": 140,
+      "12-10d4d0c2": 142,
       "7-e7d5ca1a": 133,
       "9-16ec821e": 68,
       "8-ca55e2ba": 10,
@@ -446,7 +445,7 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 32073,
+    "corpus_rows": 32074,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
     "corpus_last_ts": "2026-09-22T22:25:00Z",
     "corpus_span_days": 71.41,
@@ -472,7 +471,7 @@
       "id": "SD-012",
       "severity": "warn",
       "title": "rows from more than one execution era share one file",
-      "detail": "8 exec_era keys on fills.exec_era: {'prestamp': 1030, '12-10d4d0c2': 140, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4}; current era 12-10d4d0c2. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
+      "detail": "8 exec_era keys on fills.exec_era: {'prestamp': 1030, '12-10d4d0c2': 142, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4}; current era 12-10d4d0c2. Do NOT pool across eras (CLAUDE.md accrual moratorium) - any statistic over this file must segment by exec_era first (signal_history.csv exec_era: ABSENT - segment by ts against the boundary table)"
     },
     {
       "id": "SD-010",
