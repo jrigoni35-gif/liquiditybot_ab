@@ -384,6 +384,37 @@ def leave_one_day_out(trips: list[dict], key: str, reps: int, seed: int) -> dict
             "sign_stable": max(his) < 0 or min(los) > 0}
 
 
+def cohort_cutoff(signal_history: Path) -> dict:
+    """The v10-schema activation moment, DERIVED from the ledger.
+
+    Operator ruling B (2026-09-23): the v10 dark-pool feature block (commit
+    12a164f06) went live mid-era without adjudication; the readout must
+    report the uncontaminated v9 cohort beside the pooled read. The cutoff
+    is the ts of the FIRST signal-history row carrying a non-empty
+    avail_darkpool: pre-v10 code could not write that column ("" =
+    pre-v10, "0"/"1" = v10 code live, mirror dark or lit). Never a
+    hardcoded literal - if the column is absent or all-empty, there is
+    nothing to split and the readout says so.
+    """
+    try:
+        with open(signal_history, newline="", encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                v = r.get("avail_darkpool")
+                if v is None:
+                    return {"available": False,
+                            "reason": "no avail_darkpool column (pre-v10 ledger)"}
+                if v.strip() != "":
+                    ts = float(r["ts"])
+                    return {"available": True, "ts": ts,
+                            "utc": datetime.fromtimestamp(
+                                ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "source": str(signal_history)}
+    except (OSError, ValueError, KeyError) as exc:
+        return {"available": False, "reason": f"{type(exc).__name__}: {exc}"}
+    return {"available": False,
+            "reason": "avail_darkpool present but all empty (pre-v10 ledger)"}
+
+
 def rules(trips: list[dict], fee_null: float, reps: int, seed: int) -> dict:
     """Apply the registered read points to one membership population."""
     n = len(trips)
@@ -628,6 +659,32 @@ def render(res: dict) -> str:
         a(f"  n=50  {blk['lean']}")
         a(f"  n=100 {blk['verdict']}")
         a("")
+    co = res.get("cohorts") or {}
+    a("COHORT SPLIT (operator ruling B, 2026-09-23)")
+    if not co.get("available"):
+        a(f"  NOT APPLICABLE - {co.get('reason', 'unknown')}")
+        a("")
+    else:
+        cut = co["cutoff"]
+        a("  The v10 feature schema (commit 12a164f06) went live mid-era without")
+        a("  adjudication. Ruling B: keep accruing; read the verdict on the")
+        a("  uncontaminated v9 cohort beside the pooled SELECTED row.")
+        a(f"  cutoff {cut['utc']} - first avail_darkpool != '' in {cut['source']}")
+        a("  (DERIVED, not a literal). Cohort follows ENTRY time: the diff changed")
+        a("  the feature space (entry decisioning) but no exit/sizing code.")
+        for name in ("v9", "v10"):
+            blk = co[name]
+            tag = "v9 cohort (UNCONTAMINATED)" if name == "v9" else "v10 cohort"
+            a(f"  --- {tag} ---")
+            if blk["n"] == 0:
+                a("    (empty)")
+                continue
+            net = blk["net"]
+            a(f"    net $/trip mean {net['mean']:+.4f}   95% CI "
+              f"[{net['lo']:+.4f}, {net['hi']:+.4f}]   wins {blk['wins']}/{blk['n']}")
+            a(f"    n=50  {blk['lean']}")
+            a(f"    n=100 {blk['verdict']}")
+        a("")
     a("READ THIS WITH THE VERDICT")
     a("  * The registered 95% PERCENTILE day-block bootstrap under-covers when blocks")
     a("    are few: ~0.85 at 6 blocks, ~0.92 at ~12 (about n=50), ~0.94 at ~24 (about")
@@ -694,7 +751,8 @@ def render(res: dict) -> str:
 
 
 def run(fills: Path, era: str, fee_null: float | None, reps: int = REPS,
-        seed: int = SEED, era_source: str = "operator --era") -> dict:
+        seed: int = SEED, era_source: str = "operator --era",
+        signal_history: Path | None = None) -> dict:
     read_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     mtime = datetime.fromtimestamp(os.path.getmtime(fills), timezone.utc)
     with open(fills, newline="", encoding="utf-8") as fh:
@@ -718,6 +776,25 @@ def run(fills: Path, era: str, fee_null: float | None, reps: int = REPS,
     pops["stamp-pure, long book only (NOT pooled - its own question)"] = rules(
         [t for t in pure if t["book"] == "long"], fee_null, reps, seed)
     proto = next((p["net"]["protocol"] for p in pops.values() if p.get("net")), "n/a")
+    # COHORT SPLIT (operator ruling B, 2026-09-23): the v10 feature schema
+    # went live mid-era; report the uncontaminated v9 cohort beside the
+    # pooled SELECTED read. Cohort follows ENTRY time - commit 12a164f06
+    # touched entry decisioning (feature space) but no exit/sizing code,
+    # so a trip's decision regime is set at t_open. Split over the
+    # SELECTED population only: that is the row the verdict is read from.
+    if signal_history is None:
+        signal_history = ROOT / "outputs" / "signal_history.csv"
+    cut = cohort_cutoff(signal_history)
+    cohorts: dict = {"available": False}
+    if cut.get("available"):
+        sel = [t for t in pure if t["book"] != "long"]
+        v9 = [t for t in sel if t["t_open"] < cut["ts"]]
+        v10 = [t for t in sel if t["t_open"] >= cut["ts"]]
+        cohorts = {"available": True, "cutoff": cut,
+                   "v9": rules(v9, fee_null, reps, seed),
+                   "v10": rules(v10, fee_null, reps, seed)}
+    else:
+        cohorts["reason"] = cut.get("reason", "unknown")
     return {
         "meta": {"fills": str(fills), "read_utc": read_utc,
                  "mtime_utc": mtime.strftime("%Y-%m-%dT%H:%M:%SZ"), "legs": len(rows),
@@ -736,6 +813,7 @@ def run(fills: Path, era: str, fee_null: float | None, reps: int = REPS,
         # one the verdict is read from - not over `pure`, which pools books.
         "what_this_measures": what_this_measures(
             [t for t in pure if t["book"] != "long"]),
+        "cohorts": cohorts,
     }
 
 

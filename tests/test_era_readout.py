@@ -613,3 +613,72 @@ def test_the_disclosure_moves_no_verdict(tmp_path):
     assert before == after
     assert "WHAT THIS COHORT ACTUALLY MEASURES" in er.render(res)
 
+
+
+# --- COHORT SPLIT (operator ruling B, 2026-09-23) -------------------------
+# The v10 feature schema (commit 12a164f06) went live mid-era without
+# adjudication; ruling B keeps accruing but requires the readout to report
+# the uncontaminated v9 cohort beside the pooled read. Cohort follows ENTRY
+# time (the diff touched no exit/sizing code); the cutoff is DERIVED from
+# the first non-empty avail_darkpool row, never a hardcoded literal.
+
+def _write_signal_history(tmp_path, rows, with_col=True) -> Path:
+    p = tmp_path / "signal_history.csv"
+    cols = ["ts", "avail_darkpool"] if with_col else ["ts", "other"]
+    with open(p, "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=cols)
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+    return p
+
+
+def test_cohort_cutoff_first_nonempty(tmp_path):
+    sh = _write_signal_history(tmp_path, [
+        {"ts": "100.0", "avail_darkpool": ""},
+        {"ts": "200.0", "avail_darkpool": ""},
+        {"ts": "300.0", "avail_darkpool": "1"},
+        {"ts": "400.0", "avail_darkpool": "0"},
+    ])
+    cut = er.cohort_cutoff(sh)
+    assert cut["available"] and cut["ts"] == 300.0
+
+
+def test_cohort_cutoff_absent_column_and_empty(tmp_path):
+    no_col = _write_signal_history(tmp_path, [{"ts": "1.0", "other": "x"}],
+                                   with_col=False)
+    assert not er.cohort_cutoff(no_col)["available"]
+    all_empty = _write_signal_history(tmp_path, [{"ts": "1.0", "avail_darkpool": ""}])
+    assert not er.cohort_cutoff(all_empty)["available"]
+    assert not er.cohort_cutoff(tmp_path / "missing.csv")["available"]
+
+
+def test_run_splits_selected_by_entry_time(tmp_path):
+    cutoff = T0 + 3 * DAY + 12 * 3600  # mid day-3
+    rows, i = [], 0
+    for day in range(3):               # 3 trips opening before cutoff
+        _trip(rows, i, day=day, net_target=-0.30)
+        i += 1
+    for day in (4, 5):                 # 2 trips opening after cutoff
+        _trip(rows, i, day=day, net_target=-0.30)
+        i += 1
+    # straddler: opened pre-cutoff, closed post-cutoff -> v9 (entry rule)
+    _trip(rows, i, day=3, net_target=-0.30, t_open=cutoff - 3600,
+          t_close=cutoff + 3600)
+    fills = _write(tmp_path, rows)
+    sh = _write_signal_history(tmp_path, [{"ts": f"{cutoff}", "avail_darkpool": "1"}])
+    res = er.run(fills, ERA, -0.27, reps=200, seed=7, signal_history=sh)
+    co = res["cohorts"]
+    assert co["available"] and co["cutoff"]["ts"] == cutoff
+    assert co["v9"]["n"] == 4 and co["v10"]["n"] == 2
+    assert co["v9"]["n"] + co["v10"]["n"] == res["populations"][HYPOTH]["n"]
+
+
+def test_run_without_signal_history_is_back_compatible(tmp_path):
+    rows = []
+    for i in range(3):
+        _trip(rows, i, day=i, net_target=-0.30)
+    res = er.run(_write(tmp_path, rows), ERA, -0.27, reps=200, seed=7,
+                 signal_history=tmp_path / "no_such_file.csv")
+    assert not res["cohorts"]["available"]
+    assert res["populations"][HYPOTH]["n"] == 3  # populations untouched
