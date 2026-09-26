@@ -1,30 +1,30 @@
 {
-  "generated_at": 1790407235.198535,
+  "generated_at": 1790410835.036918,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790407231.0,
-    "duration_h": 1871.45
+    "end": 1790410822.0,
+    "duration_h": 1872.45
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 511,
-      "signal_records": 440,
+      "records": 510,
+      "signal_records": 439,
       "by_src": {
-        "long_book": 150,
+        "long_book": 148,
+        "ml_governor": 94,
         "entry_sweep": 94,
-        "ml_governor": 92,
         "exploration": 89,
         "conviction": 48,
-        "order_manager": 29,
+        "order_manager": 28,
         "exit": 8,
         "circuit_breaker": 1
       },
       "top_codes": [
         [
           "LB-010",
-          89
+          91
         ],
         [
           "CV-030",
@@ -44,7 +44,7 @@
         ],
         [
           "ML-031",
-          38
+          39
         ],
         [
           "SZ-051",
@@ -56,7 +56,7 @@
         ],
         [
           "OM-000",
-          22
+          21
         ],
         [
           "ML-016",
@@ -72,16 +72,16 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.202,
-      "retrain_requests": 6,
+      "dominant_frac": 0.207,
+      "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 7621,
+      "records": 8011,
       "by_level": {
-        "INFO": 7592,
-        "WARNING": 27,
-        "CRITICAL": 2
+        "INFO": 7980,
+        "WARNING": 28,
+        "CRITICAL": 3
       },
       "top_warnings": [
         [
@@ -89,11 +89,11 @@
           4
         ],
         [
-          "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-          2
+          "ML-031: feature drift 23/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          3
         ],
         [
-          "ML-031: feature drift 23/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
           2
         ],
         [
@@ -126,24 +126,24 @@
         ]
       ],
       "liquidity_tally": {
-        "thin": 921,
-        "spoofy": 139
+        "thin": 1002,
+        "spoofy": 154
       },
-      "spoofy_frac": 0.131,
+      "spoofy_frac": 0.133,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 545,
+      "cycles_estimate": 589,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 762.79,
+    "equity_end": 762.76,
     "equity_min": 761.98,
     "equity_max": 806.91,
     "equity_range": 44.93,
     "capital_epochs": 5,
-    "epoch_samples": 246831,
+    "epoch_samples": 247067,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 761.98,
     "lifetime_equity_max": 100000.03,
@@ -151,25 +151,25 @@
     "realized_pnl_total": -22.18,
     "fees_paid_total": 37.1417,
     "open_positions": 4,
-    "samples": 414622
+    "samples": 414858
   },
   "activity": {
-    "signal_rows_total": 33317,
+    "signal_rows_total": 33320,
     "live_labeled_trades": 500,
-    "candidate_rows": 32817
+    "candidate_rows": 32820
   },
   "audit": {
-    "records": 91218,
-    "signal_records": 37244,
+    "records": 91226,
+    "signal_records": 37252,
     "by_src": {
       "exploration": 77218,
-      "long_book": 4307,
-      "ml_governor": 3499,
+      "long_book": 4309,
+      "ml_governor": 3501,
       "order_manager": 2504,
-      "conviction": 1330,
+      "conviction": 1332,
       "startup": 490,
       "fault": 487,
-      "entry_sweep": 468,
+      "entry_sweep": 470,
       "exit": 406,
       "firewall": 372,
       "engine": 66,
@@ -191,7 +191,7 @@
       ],
       [
         "LB-010",
-        2507
+        2509
       ],
       [
         "OM-000",
@@ -199,7 +199,7 @@
       ],
       [
         "ML-031",
-        1345
+        1346
       ],
       [
         "LB-050",
@@ -211,7 +211,7 @@
       ],
       [
         "CV-030",
-        852
+        854
       ],
       [
         "ML-016",
@@ -228,7 +228,7 @@
     ],
     "dominant_code": "SZ-047",
     "dominant_frac": 0.598,
-    "retrain_requests": 266,
+    "retrain_requests": 267,
     "kill_switch_events": 9,
     "chain_ok": false,
     "chain_first_break": null,
@@ -337,11 +337,11 @@
     ]
   },
   "events": {
-    "records": 7621,
+    "records": 8011,
     "by_level": {
-      "INFO": 7592,
-      "WARNING": 27,
-      "CRITICAL": 2
+      "INFO": 7980,
+      "WARNING": 28,
+      "CRITICAL": 3
     },
     "top_warnings": [
       [
@@ -349,11 +349,11 @@
         4
       ],
       [
-        "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
-        2
+        "ML-031: feature drift 23/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        3
       ],
       [
-        "ML-031: feature drift 23/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+        "DF-020: building feature rows with degraded context (frozen) - the affected features read neutral; rows carry avail_* flags",
         2
       ],
       [
@@ -386,12 +386,12 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 921,
-      "spoofy": 139
+      "thin": 1002,
+      "spoofy": 154
     },
-    "spoofy_frac": 0.131,
+    "spoofy_frac": 0.133,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 545,
+    "cycles_estimate": 589,
     "feed_error_events": 0
   },
   "model": {
@@ -422,7 +422,7 @@
       "unavailable": "signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 22932,
+      "triple_barrier_h432": 22935,
       "triple_barrier": 5328,
       "exit_sim": 2817,
       "legacy": 1781,
@@ -442,7 +442,7 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 33317,
+    "corpus_rows": 33320,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
     "corpus_last_ts": "2026-09-26T02:20:00Z",
     "corpus_span_days": 74.57,
