@@ -38,6 +38,10 @@ def test_signature_index_lists_classes_and_defs_with_docstrings(tmp_path):
     assert "def helper(x) — Long docstring." in idx      # first line only
     assert "Second paragraph." not in idx                # no essay bodies
     assert "pass" not in idx                             # no code bodies
+    # line RANGES turn the map into exact Read(offset, limit) targets
+    assert "L4-9 class Engine" in idx
+    assert "L7-9   def cycle" in idx
+    assert "L12-17 def helper" in idx
 
 
 def test_signature_index_is_small_fraction_of_source(tmp_path):

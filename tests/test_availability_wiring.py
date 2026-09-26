@@ -113,6 +113,23 @@ def test_degradation_composition_change_relogs(caplog):
     assert "options" in msgs[-1]
 
 
+def test_disabled_darkpool_is_off_not_an_outage(caplog):
+    """darkpool.enabled:false makes avail_dp 0 by design - that is OFF, not
+    a degraded source. Counting it latched DF-020 'degraded (darkpool)'
+    forever and DF-021 could never fire (review 2026-09-26, F9). An ENABLED
+    feed that is dark must still report."""
+    ok = {"web": True, "equity": True, "options": True, "frozen": False,
+          "darkpool": False}
+    off = SimpleNamespace(darkpool=SimpleNamespace(enabled=False))
+    on = SimpleNamespace(darkpool=SimpleNamespace(enabled=True))
+    with caplog.at_level(logging.WARNING, logger="liquiditybot.main"):
+        _context_avail_check(off, ok)
+        assert not any("DF-020" in r.getMessage() for r in caplog.records)
+        _context_avail_check(on, ok)
+    assert any("DF-020" in r.getMessage() and "darkpool" in r.getMessage()
+               for r in caplog.records)
+
+
 def test_frozen_counts_as_degraded(caplog):
     bot = SimpleNamespace()
     with caplog.at_level(logging.WARNING, logger="liquiditybot.main"):

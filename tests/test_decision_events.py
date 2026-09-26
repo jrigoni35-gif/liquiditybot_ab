@@ -1,5 +1,6 @@
 # tests/test_decision_events.py
 """DE-010 pins: capture shape, absorb tagging, hourly batch, EN-000 recon."""
+import pytest
 import json
 from types import SimpleNamespace
 from pathlib import Path
@@ -91,3 +92,75 @@ def test_en020_open_entry_absorb_tag(tmp_path):
     bot.slow_cycle(1_700_000_000.0)
     assert bot._de_events, "open-entry arrivals must buffer a DE-010 event"
     assert all(e["absorb"] == "EN-020" for e in bot._de_events)
+
+
+# --- review 2026-09-26 (C1/C2): propensity honesty + counted drops -------
+
+def test_explored_arrival_is_marked_not_claimed_deterministic(tmp_path,
+                                                              monkeypatch):
+    """A probe is admitted by an epsilon roll (ML-070/072): its DE-010 event
+    must not claim the deterministic propensity 1.0 (reject-inference
+    weights read it as 1/p)."""
+    from types import SimpleNamespace
+    monkeypatch.chdir(tmp_path)
+    bot = _bot(tmp_path)
+    bot.gate_stats.enabled = False
+    bot.gates.evaluate_asset = lambda asset, v: SimpleNamespace(
+        direction="long", all_confirmed=True, confidence=0.61,
+        gates_passed={"rsi": True, "mom": True}, urgency=0.0,
+        evidence_concentration=0.0, components={})
+    monkeypatch.setattr(bot, "_probe_admission_decision",
+                        lambda now, asset, regime_label=None: True)
+    bot.slow_cycle(1_700_000_000.0)
+    recs = [json.loads(x) for x in
+            (tmp_path / "audit.jsonl").read_text().splitlines()]
+    explored = {r["msg"].split()[3] for r in recs
+                if r["code"] in ("ML-070", "ML-072")}
+    assert explored, "harness did not reach the exploration branch"
+    ev = [e for e in bot._de_events if e["asset"] in explored]
+    assert ev and all(e["explored"] is True and e["propensity"] == ""
+                      for e in ev)
+
+
+def test_failed_de_write_is_counted_not_silent(tmp_path):
+    from types import SimpleNamespace
+    from core.audit import configure_audit
+    from main import LiquidityBot
+    bad = tmp_path / "isdir"
+    bad.mkdir()                     # audit path is a DIRECTORY -> log() == 0
+    configure_audit(bad)
+    s = SimpleNamespace(_de_events=[{"asset": "ETH"}] * 5, _de_emitted=0.0)
+    LiquidityBot._flush_decision_events(s, 10_000.0)
+    configure_audit(tmp_path / "audit.jsonl")
+    assert getattr(s, "_de_dropped", 0) == 5 and s._de_events == []
+
+
+@pytest.mark.parametrize("fault", [None, "macro.update",
+                                   "corr.update_turbulence",
+                                   "_maybe_auto_retrain"])
+def test_hourly_stage_failure_does_not_starve_its_peers(tmp_path, monkeypatch,
+                                                        fault):
+    """C4 (review 2026-09-26): one raise in the regime refresh (a poisoned
+    cached candle in macro.update is a named class) used to skip fee-recon,
+    model adoption, auto-retrain and drift for the whole hour; a raise in
+    auto-retrain skipped drift. Each stage now stands alone."""
+    monkeypatch.chdir(tmp_path)
+    bot = _bot(tmp_path)
+    called = []
+    monkeypatch.setattr(bot.orders, "check_fee_reconciliation",
+                        lambda now: called.append("fee_recon"))
+    monkeypatch.setattr(bot.monitor, "check_drift",
+                        lambda *a, **k: called.append("drift"))
+    monkeypatch.setattr(bot, "_maybe_auto_retrain",
+                        lambda: called.append("retrain"))
+    if fault:
+        obj, _, meth = fault.rpartition(".")
+
+        def boom(*a, **k):
+            if meth == "_maybe_auto_retrain":
+                called.append("retrain")
+            raise RuntimeError("injected")
+        monkeypatch.setattr(getattr(bot, obj) if obj else bot, meth, boom)
+    bot._last_macro = 0.0
+    bot.cycle_once(1_700_000_000.0)
+    assert called == ["fee_recon", "retrain", "drift"]

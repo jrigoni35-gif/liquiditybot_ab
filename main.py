@@ -570,12 +570,15 @@ def _context_avail_check(bot, avail: dict) -> None:
     same fixture reasons. Telemetry only - the per-row truth is the
     avail_* columns; this log exists so the OPERATOR sees the episode
     without diffing the corpus. Never raises."""
+    # a DISABLED feed is off by design, not degraded: counting it latched
+    # DF-020 forever (F9, 2026-09-26). Unknown -> report (fail visible).
+    dp_on = getattr(getattr(bot, "darkpool", None), "enabled", True)
     try:
         down = frozenset(k for k, ok in
                          (("web", avail.get("web")),
                           ("equity", avail.get("equity")),
                           ("options", avail.get("options")),
-                          ("darkpool", avail.get("darkpool")))
+                          ("darkpool", avail.get("darkpool") or not dp_on))
                          if not ok) | (
             frozenset(("frozen",)) if avail.get("frozen") else frozenset())
     except AttributeError:
@@ -1968,8 +1971,12 @@ class LiquidityBot:
             book = (v or {}).get("order_book") or {}
             bids, asks = book.get("bids") or [], book.get("asks") or []
             mid = (bids[0][0] + asks[0][0]) / 2.0 if bids and asks else 0.0
-            # propensity: constant 1.0 - under the current deterministic
-            # policy the taken action's propensity is 1.0. Anti-Zimbardo
+            # propensity: 1.0 is the GATE-STACK verdict's propensity (the
+            # gate evaluation is deterministic). It is NOT the entry
+            # action's propensity: dry-run exploration (ML-070/072) admits
+            # entries by an epsilon roll. An arrival that becomes a probe is
+            # re-stamped explored=True / propensity="" (unknown - the roll's
+            # probability is not logged yet) at the admission site. Anti-Zimbardo
             # rule (spec 2026-09-20 desk-instruments-plan2 §2): propensity
             # logging must PRECEDE any exploration scaling, so the schema
             # is born carrying it.
@@ -1977,13 +1984,13 @@ class LiquidityBot:
                     "decision_mid": f"{mid:.10g}" if mid > 0 else "",
                     "mid_available": bool(mid > 0),
                     "direction": "", "confidence": "", "gates": {},
-                    "absorb": "", "propensity": 1.0}
+                    "absorb": "", "propensity": 1.0, "explored": False}
         except Exception:              # pragma: no cover - defensive only
             log.exception("DE-010 seed build failed")
             return {"asset": asset, "ts": now, "decision_mid": "",
                     "mid_available": False, "direction": "",
                     "confidence": "", "gates": {}, "absorb": "",
-                    "propensity": 1.0}
+                    "propensity": 1.0, "explored": False}
 
     def _de_append(self, ev: dict) -> None:
         """Guarded exactly like _absorb: telemetry never breaks the loop."""
@@ -1995,19 +2002,27 @@ class LiquidityBot:
     def _flush_decision_events(self, now: float) -> None:
         """One DE-010 audit record per hour carrying the arrival vector.
         Same rate-limit discipline as EN-000 (core/codes.py:673-679).
-        _de_emitted stamps only on SUCCESS, so a failed emit keeps the
-        buffer and retries on the NEXT CYCLE (not next hour - the hourly
-        gate re-arms only after a success), while a success re-arms the
-        hourly gate. On process stop up to one hour of buffered events
-        is lost - named, accepted."""
+        AuditTrail.log() NEVER raises: a failed write returns seq 0 and
+        is counted in get_audit().dropped. The buffer is therefore cleared
+        and the hourly gate re-armed on EVERY emit attempt; a dropped
+        batch is counted here (_de_dropped) and logged, never retried
+        (a retry loop over a poison payload would re-serialize an
+        ever-growing buffer every cycle). On process stop up to one hour
+        of buffered events is lost - named, accepted."""
         if not self._de_events:
             return
         if now - self._de_emitted < 3600.0:
             return
         try:
-            get_audit().log("entry_sweep", Code.DE_DECISION_EVENTS,
-                            "per-arrival decision events (hourly batch)",
-                            {"events": list(self._de_events)})
+            seq = get_audit().log("entry_sweep", Code.DE_DECISION_EVENTS,
+                                  "per-arrival decision events (hourly batch)",
+                                  {"events": list(self._de_events)})
+            if not seq:
+                self._de_dropped = (getattr(self, "_de_dropped", 0)
+                                    + len(self._de_events))
+                log.error("DE-010 batch of %d events DROPPED (audit write "
+                          "failed; %d dropped this process)",
+                          len(self._de_events), self._de_dropped)
             self._de_events = []
             self._de_emitted = now
         except Exception:              # pragma: no cover - defensive only
@@ -4818,6 +4833,10 @@ class LiquidityBot:
             if can_enter and self._probe_admission_decision(
                     now, asset, regime_label=macro_state.label):
                 explored = True
+                # DE-010: same dict object already buffered this iteration
+                # (flush runs only at sweep start) - telemetry only
+                _de["explored"] = True
+                _de["propensity"] = ""
                 p_win = max(p_win, self.explore_p_win)
                 explore_scale = self.explore_size_scale
                 # conviction-scaled AGGRESSIVE roll: the model is reasonably
@@ -6494,29 +6513,37 @@ class LiquidityBot:
         # bar can deadlock (bar blocks trades -> no closes -> the causes
         # window that justifies the bar never refreshes)
         self.monitor.decay_stale_causes(now)
-        okx_syms = self.config["exchanges"]["okx"].get("symbols", [])
-        binanceus_syms = self.config["exchanges"]["binanceus"].get("symbols", [])
-        for asset in self.symbol_map:
-            candles = []
-            for s in okx_syms:
-                if self._symbol_base(s) == asset:
-                    candles = self.okx.get_daily_candles(s)
-                    break
-            if not candles:
-                for s in binanceus_syms:
+        # C4 (2026-09-26): the regime refresh stands alone - one raise here
+        # (a poisoned cached candle in macro.update is a named class) used
+        # to skip fee-recon, model adoption, auto-retrain and drift for
+        # the whole hour, visible only as a misattributed counter.
+        try:
+            okx_syms = self.config["exchanges"]["okx"].get("symbols", [])
+            binanceus_syms = self.config["exchanges"]["binanceus"].get("symbols", [])
+            for asset in self.symbol_map:
+                candles = []
+                for s in okx_syms:
                     if self._symbol_base(s) == asset:
-                        candles = self.binanceus.get_daily_candles(s)
+                        candles = self.okx.get_daily_candles(s)
                         break
-            if not candles:
-                candles = self.kraken.get_daily_candles(
-                    self.kraken.kraken_pair(self.symbol_map[asset]))
-            if candles:
-                self.daily_candles[asset] = candles
+                if not candles:
+                    for s in binanceus_syms:
+                        if self._symbol_base(s) == asset:
+                            candles = self.binanceus.get_daily_candles(s)
+                            break
+                if not candles:
+                    candles = self.kraken.get_daily_candles(
+                        self.kraken.kraken_pair(self.symbol_map[asset]))
+                if candles:
+                    self.daily_candles[asset] = candles
 
-        self.corr.update_turbulence(self.daily_candles)
-        for asset in self.symbol_map:
-            self.macro.update(asset, self.daily_candles.get(asset) or [],
-                            self.corr.state.turbulence_pct)
+            self.corr.update_turbulence(self.daily_candles)
+            for asset in self.symbol_map:
+                self.macro.update(asset, self.daily_candles.get(asset) or [],
+                                self.corr.state.turbulence_pct)
+        except Exception:
+            log.exception("hourly regime refresh raised - isolated; "
+                          "fee-recon/retrain/drift still run")
 
         if not self.dry_run and self.lev_gov.use_margin:
             self.margin_level_pct = self.kraken.get_margin_level_pct()
@@ -6575,7 +6602,10 @@ class LiquidityBot:
             # has a backing model.
             self.monitor.reconcile_champion_badge(
                 self.meta.oof_brier, model_loaded=self.meta.trained)
-        self._maybe_auto_retrain()
+        try:
+            self._maybe_auto_retrain()
+        except Exception:
+            log.exception("auto-retrain raised - isolated; drift still runs")
         self.monitor.check_drift(self.meta.feature_deciles, FEATURE_NAMES)
 
         st = self.monitor.status()
