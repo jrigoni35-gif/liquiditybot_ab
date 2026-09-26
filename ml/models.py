@@ -30,6 +30,12 @@ import numpy as np
 log = logging.getLogger("liquiditybot.ml.models")
 
 EPS = 1e-9
+# A column whose training std is at or below this (fitted sd == std + EPS)
+# carried no spread in training: its fitted weight is init noise, and
+# dividing a live departure from the training constant by ~EPS turns it
+# into a ~1e9-sigma input that saturates the model. Numerical tolerance,
+# not a tuned threshold.
+_CONST_SD = 1e-6
 
 
 def auc_score(y_true: np.ndarray, y_prob: np.ndarray) -> float:
@@ -66,7 +72,12 @@ class _Standardizer:
         self.sd = X.std(axis=0) + EPS
 
     def transform(self, X):
-        return (X - self.mu) / self.sd
+        Z = (X - self.mu) / self.sd
+        # training-constant columns read 0 (= "at the training value"),
+        # never +/-1e9 sigma: applies to already-saved artifacts too,
+        # since their sd was persisted as std + EPS
+        const = np.asarray(self.sd) <= _CONST_SD
+        return np.where(const, 0.0, Z) if const.any() else Z
 
 
 class LogisticModel:

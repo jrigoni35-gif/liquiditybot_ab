@@ -128,15 +128,24 @@ def _attach_external(con, registry_path: Path) -> dict:
         if not db_path.exists():
             out["skipped"].append(alias)
             continue
-        con.execute(
-            f"ATTACH {_q(db_path)} AS {alias} (READ_ONLY)")  # nosec B608 - path _q()-sanitized; alias _ident()-restricted
         views = []
-        for table in spec["tables"]:
-            tbl = _ident(table, what=f"table name in {alias}")
-            view = f"ext_{alias}_{tbl}"
+        try:
             con.execute(
-                f"CREATE VIEW {view} AS SELECT * FROM {alias}.{tbl}")  # nosec B608 - all identifiers _ident()-restricted
-            views.append(view)
+                f"ATTACH {_q(db_path)} AS {alias} (READ_ONLY)")  # nosec B608 - path _q()-sanitized; alias _ident()-restricted
+            for table in spec["tables"]:
+                tbl = _ident(table, what=f"table name in {alias}")
+                view = f"ext_{alias}_{tbl}"
+                con.execute(
+                    f"CREATE VIEW {view} AS SELECT * FROM {alias}.{tbl}")  # nosec B608 - all identifiers _ident()-restricted
+                views.append(view)
+        except QuantDbRefusal:
+            raise
+        except Exception as exc:  # noqa: BLE001 - duckdb is a lazy import; any engine error is a refusal
+            # a non-DuckDB file, a missing table, or a reserved alias used
+            # to escape as a raw duckdb exception past main()'s contract
+            raise QuantDbRefusal(
+                REFUSAL_EXTERNAL_DB_INVALID,
+                f"external db {name!r} at {db_path}: {exc}") from exc
         out["attached"][alias] = views
     return out
 

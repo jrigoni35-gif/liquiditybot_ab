@@ -205,3 +205,28 @@ def test_external_bad_spec_shape_refuses(desk, tmp_path):
                        corpus_dir=desk["corpus"], optional_csvs={},
                        external_dbs_path=reg)
     assert exc.value.code == REFUSAL_EXTERNAL_DB_INVALID
+
+
+@pytest.mark.parametrize("case", ["not_a_db", "missing_table", "alias_main"])
+def test_external_duckdb_errors_become_refusals(desk, tmp_path, case):
+    """C8 (review 2026-09-26): a registry naming a non-DuckDB file, a table
+    the mirror lacks, or a reserved alias escaped as a raw duckdb exception;
+    main() catches only QuantDbRefusal."""
+    mirror = tmp_path / "darkpool.duckdb"
+    _make_mirror(mirror)
+    spec = {"darkpool": {"path": str(mirror), "tables": ["ats_venue_weekly"]}}
+    if case == "not_a_db":
+        junk = tmp_path / "junk.duckdb"
+        junk.write_bytes(b"not a duckdb file" * 64)
+        spec = {"darkpool": {"path": str(junk), "tables": ["t"]}}
+    elif case == "missing_table":
+        spec["darkpool"]["tables"] = ["no_such_table"]
+    else:
+        spec = {"main": spec["darkpool"]}
+    reg = _registry(tmp_path, spec)
+    con = connect()
+    with pytest.raises(QuantDbRefusal) as exc:
+        register_views(con, audit_path=desk["audit"],
+                       corpus_dir=desk["corpus"], optional_csvs={},
+                       external_dbs_path=reg)
+    assert exc.value.code == REFUSAL_EXTERNAL_DB_INVALID

@@ -63,8 +63,15 @@ def _stem_match(k: str, sw: str) -> bool:
         or (len(sw) >= 4 and sw in k)
 
 
+def _span(node) -> str:
+    """`L<first>-<last>`: the exact Read(offset, limit) target for the def."""
+    return f"L{node.lineno}-{getattr(node, 'end_lineno', node.lineno)}"
+
+
 def signature_index(path: Path) -> str:
-    """AST signature index: names + one-line docstrings, no bodies."""
+    """AST signature index: line span + names + one-line docstrings, no
+    bodies. The span turns the map into a targeted read instead of a
+    whole-file read."""
     try:
         tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
     except (OSError, SyntaxError, ValueError) as exc:
@@ -72,15 +79,17 @@ def signature_index(path: Path) -> str:
     lines = []
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
-            lines.append(f"class {node.name} — {_doc_first_line(node)}")
+            lines.append(f"{_span(node)} class {node.name} — "
+                         f"{_doc_first_line(node)}")
             for sub in node.body:
                 if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     sig = ast.unparse(sub.args)
-                    lines.append(f"  def {sub.name}({sig}) — "
+                    lines.append(f"{_span(sub)}   def {sub.name}({sig}) — "
                                  f"{_doc_first_line(sub)}")
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             sig = ast.unparse(node.args)
-            lines.append(f"def {node.name}({sig}) — {_doc_first_line(node)}")
+            lines.append(f"{_span(node)} def {node.name}({sig}) — "
+                         f"{_doc_first_line(node)}")
     return "\n".join(lines) or "  [no top-level definitions]"
 
 

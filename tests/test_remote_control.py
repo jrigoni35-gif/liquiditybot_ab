@@ -133,6 +133,8 @@ def test_command_round_trip_exactly_once(repos):
     assert len(cmds) == 1
     body = json.loads(cmds[0].read_text(encoding="utf-8"))
     assert body["cmd"] == "pause"
+    # the remote id rides into the local queue so the runner's ack names it
+    assert body["origin_id"] == cid
     # ledger remembers the id; a second poll forwards nothing
     ledger = json.loads(
         (root / "outputs" / "remote_consumed.json").read_text("utf-8"))
@@ -238,7 +240,7 @@ def test_ledger_written_before_forwarding(repos, monkeypatch):
     rc.send_command("pause", root=root)
     real_send = rc.ControlChannel.send
 
-    def crashing_send(self, cmd, args=None):
+    def crashing_send(self, cmd, args=None, **kw):
         ledger = json.loads(
             (root / "outputs" / "remote_consumed.json").read_text("utf-8"))
         assert ledger and ledger[-1]["result"] == "forwarding"

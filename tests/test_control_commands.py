@@ -24,6 +24,15 @@ def test_force_dry_survives_send_consume_round_trip(tmp_path):
     assert [c["cmd"] for c in cmds] == ["force_dry"]
 
 
+def test_origin_id_rides_the_queue_only_when_given(tmp_path):
+    ch = ControlChannel(str(tmp_path / "control"))
+    ch.send("snapshot", origin_id="R-1")
+    ch.send("snapshot")
+    first, second = ch.consume()
+    assert first["origin_id"] == "R-1"
+    assert "origin_id" not in second, "console payload shape must not change"
+
+
 def test_every_remote_command_is_valid():
     """Every command the remote-control plane can send must be in the runner's
     vocabulary, or ControlChannel.send() raises and consume() drops the file

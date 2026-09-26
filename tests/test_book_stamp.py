@@ -19,10 +19,61 @@ def _fill_book(meta):
     return fill_row(order, event, 0.0, 1_700_000_000.0)["book"]
 
 
+def _entry_sites_missing_book(src: str):
+    """AST, not text (review 2026-09-26, C6): the old pin counted the
+    literal, so a comment satisfied it and a NEW entry site was never
+    checked. Walks every *.submit(..., purpose="entry") and resolves
+    meta from a dict literal or an in-function dict / meta["book"]=."""
+    import ast
+    n, missing = 0, []
+    for fn in ast.walk(ast.parse(src)):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        dicts: dict = {}
+        for nd in ast.walk(fn):
+            if not isinstance(nd, ast.Assign):
+                continue
+            for t in nd.targets:
+                if isinstance(t, ast.Name) and isinstance(nd.value, ast.Dict):
+                    dicts[t.id] = {k.value for k in nd.value.keys
+                                   if isinstance(k, ast.Constant)}
+                elif (isinstance(t, ast.Subscript)
+                      and isinstance(t.value, ast.Name)
+                      and isinstance(t.slice, ast.Constant)
+                      and t.slice.value == "book"):
+                    dicts.setdefault(t.value.id, set()).add("book")
+        for nd in ast.walk(fn):
+            if not (isinstance(nd, ast.Call)
+                    and isinstance(nd.func, ast.Attribute)
+                    and nd.func.attr == "submit"):
+                continue
+            kw = {k.arg: k.value for k in nd.keywords}
+            pur = kw.get("purpose")
+            if not (isinstance(pur, ast.Constant) and pur.value == "entry"):
+                continue
+            n += 1
+            m = kw.get("meta")
+            keys = ({k.value for k in m.keys if isinstance(k, ast.Constant)}
+                    if isinstance(m, ast.Dict)
+                    else dicts.get(m.id, set()) if isinstance(m, ast.Name)
+                    else set())
+            if "book" not in keys:
+                missing.append((fn.name, nd.lineno))
+    return n, missing
+
+
 def test_each_5m_entry_meta_dict_stamps_book():
-    # the three 5m entry submit() sites (algo-child / main / grid rung):
-    # each meta literal must carry "book": "5m" after this task
-    assert _MAIN_SRC.count('"book": "5m"') >= 3
+    n, missing = _entry_sites_missing_book(_MAIN_SRC)
+    assert n >= 3, f"entry submit sites vanished? n={n}"
+    assert missing == [], f"entry submit() without a book stamp: {missing}"
+
+
+def test_book_pin_is_not_satisfied_by_a_comment():
+    first = _MAIN_SRC.index('"book": "5m"')
+    mutant = (_MAIN_SRC[:first] + '"bk": "5m"'
+              + _MAIN_SRC[first + len('"book": "5m"'):]
+              + '\n# "book": "5m"\n')
+    assert _entry_sites_missing_book(mutant)[1], "AST pin went vacuous"
 
 
 def test_fill_row_semantics_unchanged():

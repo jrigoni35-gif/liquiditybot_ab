@@ -114,6 +114,22 @@ def test_a_newly_armed_family_is_green_but_announced():
     assert any("newgate" in s for s in said)
 
 
+@pytest.mark.parametrize("corpus_absent", [True, False])
+def test_newly_armed_on_the_synthetic_fixture_is_NOT_a_ratchet_prompt(
+        corpus_absent):
+    """The synthetic fixture arms every rung (OF-1 gap[...] included) while
+    the live corpus under exploration arms fewer. 'add to EXPECTED_ARMED'
+    printed on a synthetic run is a false instruction: obeying it bricks every
+    live-corpus run with ARMING REGRESSED (exit 3). Seen verbatim on a
+    corpus-less worktree 2026-09-26. The families are still NAMED."""
+    said = []
+    report = _all_armed() + [("PASS", "gap[gbt]: within band", "")]
+    arming_exit_code(report, EXPECTED_ARMED, 0, said.append,
+                     on_synthetic=True, corpus_absent=corpus_absent)
+    assert not any("add to EXPECTED_ARMED" in s for s in said)
+    assert any("gap[gbt]" in s and "SYNTHETIC" in s for s in said)
+
+
 def test_the_regression_message_names_the_dark_family():
     """A code with no name sends the reader back into a 2-minute battery."""
     said = []

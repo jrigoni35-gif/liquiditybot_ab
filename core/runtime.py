@@ -459,15 +459,20 @@ class ControlChannel:
         self.dir = Path(directory)
         self.dir.mkdir(parents=True, exist_ok=True)
 
-    def send(self, cmd: str, args: dict | None = None) -> str:
+    def send(self, cmd: str, args: dict | None = None,
+             origin_id: str | None = None) -> str:
         """Drop one command file (atomic write) into the queue; returns the
-        command id. Raises ValueError on a command not in VALID_COMMANDS."""
+        command id. Raises ValueError on a command not in VALID_COMMANDS.
+        `origin_id` is an upstream sender's id (the git remote plane's) that
+        the runner echoes in its ack; omitted, the payload is unchanged."""
         if cmd not in VALID_COMMANDS:
             raise ValueError(f"unknown command {cmd}")
         cid = f"{time.time():.6f}-{uuid.uuid4().hex[:6]}"
-        atomic_write_json(self.dir / f"cmd_{cid}.json",
-                        {"id": cid, "cmd": cmd, "args": args or {},
-                        "sent_at": time.time()})
+        payload = {"id": cid, "cmd": cmd, "args": args or {},
+                   "sent_at": time.time()}
+        if origin_id is not None:
+            payload["origin_id"] = origin_id
+        atomic_write_json(self.dir / f"cmd_{cid}.json", payload)
         return cid
 
     def consume(self) -> list:

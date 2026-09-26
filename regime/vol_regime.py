@@ -60,10 +60,14 @@ class VolState:
         do arithmetic on the 0.05 placeholder. Centralizing the guard on
         the producer (instead of at every call site, the old
         main._measured_sigma pattern) makes it impossible to consume the
-        placeholder by accident: a raw `sigma_bar_pct` read remains
-        available only for paths that genuinely want the default (venue
-        formatting, telemetry), and every decision-geometry path routes
-        through this property."""
+        placeholder by accident. SCOPE (re-derived 2026-09-26): the exit
+        floor / tier / SCS paths route through this property (via
+        main._measured_sigma); entry sizing and stop placement still read
+        the raw field (e.g. main._stop_price_for). Those are warm by
+        construction (FAST_WARMUP_BARS, config_guard-pinned) and the stop
+        floor is max(stop_loss_pct, stop_vol_mult*sigma), where the 0.05
+        placeholder cannot bind - so they are safe today, but NOT guarded
+        here. Route a new geometry consumer through this property."""
         return self.sigma_bar_pct if self.measured else None
 
 
