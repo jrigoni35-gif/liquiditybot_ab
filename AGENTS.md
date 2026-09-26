@@ -93,16 +93,24 @@ place, size, or exit an order** — the full text carries the cut record, the
 price of a mint, and the four mechanisms the law does not name. The binding
 core:
 
-- **COHORT-RESETTING — forbidden without operator adjudication** (any of
-  these mints the next boundary and restarts accrual): entry decisioning,
-  position sizing, stop/exit geometry (placement, nudges, time limits),
-  the fill simulator, fee booking, the order lifecycle, the universe, the
-  hedger, the probe ticket, or the heat cap. Exactly two exemptions: a
-  **SAFETY INVARIANT** (hard invariants 1–7 above) and a **WRONG VENUE
-  CONSTANT** making the bot trade on a false cost. Nothing else.
-- An era runs a **MINIMUM OF 14 DAYS** before a discretionary boundary may
-  be called; a mint must be justified in writing, in its decision record,
-  against the price enumerated in the full text.
+- **COHORT-FORKING (operator ruling 2026-09-26; REPLACES the old
+  "cohort-resetting — forbidden" rule).** A cohort is the set of trips whose
+  ENTRY leg carries the same **decision fingerprint** (`core/cohort.py`):
+  a hash of the decision-relevant config (fail-closed: unknown keys count)
+  plus the docstring-stripped AST of the decision-path code, derived at
+  boot and stamped on every fill (`fills.csv` `decision_fp`, audit
+  `CG-000`, `status.json`). Changes to entry decisioning, sizing, exits,
+  the fill simulator, fees, the order lifecycle, the universe, the hedger,
+  the probe ticket or the heat cap are ALLOWED under operator direction:
+  they FORK a new cohort automatically and banked trips keep their own
+  read. Each still needs a short decision record in `docs/quant/` (what,
+  why, which lever). A fork is pooled back only by an evidenced entry in
+  `docs/law/cohort_equivalence.json`. **Hard invariants 1–7 are unchanged
+  and outside this rule.**
+- Read points apply PER FINGERPRINT (`scripts/era_readout.py`, section
+  DECISION-FINGERPRINT COHORTS). The 14-day minimum no longer gates a
+  change - a fork discards nothing banked - but each fork restarts ITS OWN
+  count at zero, so batch changes rather than trickle them.
 - **SAFE class** (no adjudication needed): measurement/report tools,
   dashboards, tests, wiki, telemetry export, and bug fixes that do not
   alter which orders are placed or how they fill.

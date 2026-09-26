@@ -27,7 +27,19 @@ log = logging.getLogger("liquiditybot.core.fill_ledger")
 COLS = ["ts", "order_id", "position_id", "purpose", "symbol", "side",
         "ordertype", "post_only", "attempt", "fill_size", "fill_price",
         "arrival_ref", "slip_bps", "fees_delta_usd", "remaining", "reason",
-        "exec_era", "book"]
+        "exec_era", "book", "decision_fp"]
+
+# DECISION-FINGERPRINT COHORT (operator ruling 2026-09-26, core/cohort.py).
+# Set ONCE at engine boot by set_decision_fp(); every fill row carries it.
+# "" = the writer predates the stamp or boot never set it; blank rows are
+# read by exec_era/ts exactly as before.
+DECISION_FP = ""
+
+
+def set_decision_fp(fp: str) -> None:
+    """Boot-time setter (main.LiquidityBot.__init__). Never raises."""
+    global DECISION_FP
+    DECISION_FP = str(fp or "")
 
 # EXECUTION-ERA PROVENANCE (CDO review, 2026-08-10). Which fill-simulator
 # regime produced this row. Era membership used to be derivable only by
@@ -250,7 +262,11 @@ def fill_row(order, event, fees_delta: float, now: float) -> dict:
             # ("writer predates the field") and is distinguishable from ""
             # (writer knew the field, value absent) - the same three-way the
             # exec_era stamp relies on one column to its left.
-            "book": str(order.meta.get("book", "") or "")}
+            "book": str(order.meta.get("book", "") or ""),
+            # cohort key (core/cohort.py): appended at the END per this
+            # file's discipline; an old file keeps its width until
+            # scripts/migrate_fills_schema.py upgrades it.
+            "decision_fp": DECISION_FP}
 
 
 def append_fill(path: Path, row: dict) -> None:

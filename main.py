@@ -55,6 +55,8 @@ from core.runtime import SimOverrides, durable_append
 from core.alerts import AlertSink
 from core.fault import FaultManager, Severity
 from core.config_guard import enforce as enforce_config
+from core.cohort import decision_fingerprint
+from core.fill_ledger import set_decision_fp
 from core.watchdog import Watchdog
 from execution.risk_firewall import RiskFirewall
 from data.okx_feed import OKXFeed
@@ -668,6 +670,12 @@ class LiquidityBot:
         # session fingerprint (Assurance Build): the audit chain's first
         # record pins exactly which configuration this session ran under —
         # the config-side twin of the model registry's artifact hashes.
+        # DECISION-FINGERPRINT COHORT (core/cohort.py, operator ruling
+        # 2026-09-26): derived here, once, from the config and decision-path
+        # code this process actually runs; every fill row carries it. A
+        # change FORKS a cohort instead of resetting accrual. Never raises.
+        self.decision_fp = decision_fingerprint(config)
+        set_decision_fp(self.decision_fp["fp"])
         try:
             cfg_sha = hashlib.sha256(json.dumps(
                 config, sort_keys=True, default=str).encode()).hexdigest()
@@ -675,6 +683,9 @@ class LiquidityBot:
                 "startup", Code.CG_SESSION_START,
                 "session start: config fingerprint",
                 {"config_sha256": cfg_sha[:16], "dry_run": self.dry_run,
+                 "decision_fp": self.decision_fp["fp"],
+                 "decision_cfg_fp": self.decision_fp["cfg_fp"],
+                 "decision_code_fp": self.decision_fp["code_fp"],
                  "maker_fee_bps": config.get("pretrade", {})
                  .get("maker_fee_bps"),
                  "taker_fee_bps": config.get("pretrade", {})

@@ -89,6 +89,7 @@ CI_LO, CI_HI = 2.5, 97.5
 N_LEAN = 50
 N_VERDICT = 100
 SIZE_TOL = 0.02          # cohort_eval's fully-closed tolerance, kept identical
+LEGACY_FP = "legacy"     # cohort of pre-fingerprint (blank decision_fp) trips
 FEE_NULL_CUT11 = -0.33   # cut-#11 registration: 55 bps x $60
 FEE_NULL_CUT12 = -0.27   # CLAUDE.md era-9 block: 45 bps x $60
 # OPERATOR ADJUDICATION 2026-09-15, recorded before the n=50 read point:
@@ -241,6 +242,10 @@ def reconstruct(rows: list[dict], era: str) -> dict:
             "gross_pct": 100.0 * cash / enot, "ticket_usd": enot,
             "t_open": t_open, "t": t_close, "close_day": _utc_day(t_close),
             "legs": len(legs),
+            # decision cohort = the ENTRY leg's fingerprint (core/cohort.py);
+            # blank = pre-stamp, read as the "legacy" cohort
+            "decision_fp": (legs[0].get("decision_fp") or "").strip()
+                           or LEGACY_FP,
         }
         pure = all(e == era for e in eras)
         closes_in_era = eras[-1] == era
@@ -659,6 +664,22 @@ def render(res: dict) -> str:
         a(f"  n=50  {blk['lean']}")
         a(f"  n=100 {blk['verdict']}")
         a("")
+    fps = res.get("fingerprints") or {}
+    a("DECISION-FINGERPRINT COHORTS (core/cohort.py, operator ruling 2026-09-26)")
+    a(f"  registered populations above = the '{LEGACY_FP}' cohort + "
+      f"{res.get('equivalences', 0)} evidenced equivalence(s); forks below "
+      "are read on their own (5m book)")
+    if not fps:
+        a("  (no forked cohort has closed trips yet)")
+    for fp, blk in fps.items():
+        if blk["n"] == 0:
+            a(f"  {fp}  n=0 (5m)")
+            continue
+        net = blk["net"]
+        a(f"  {fp}  n={blk['n']:<4} net $/trip {net['mean']:+.4f}  "
+          f"95% CI [{net['lo']:+.4f}, {net['hi']:+.4f}]  "
+          f"wins {blk['wins']}/{blk['n']}  | n=50 {blk['lean']}")
+    a("")
     co = res.get("cohorts") or {}
     a("COHORT SPLIT (operator ruling B, 2026-09-23)")
     if not co.get("available"):
@@ -758,8 +779,22 @@ def run(fills: Path, era: str, fee_null: float | None, reps: int = REPS,
     with open(fills, newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
     rec = reconstruct(rows, era)
-    pure = rec["members"]
-    anyleg = pure + rec["anyleg_extra"]
+    # DECISION-FINGERPRINT COHORTS (operator ruling 2026-09-26). EXEC_ERA no
+    # longer moves, so trips from a FORKED decision configuration would
+    # otherwise land inside this era's registered population. The registered
+    # read keeps the legacy cohort (+ evidenced equivalents); every other
+    # fingerprint is read on its own, with the same rules().
+    from core.cohort import canonical, load_equivalence
+    equiv = load_equivalence()
+
+    def _legacy(t: dict) -> bool:
+        return canonical(t["decision_fp"], equiv) == LEGACY_FP
+    pure = [t for t in rec["members"] if _legacy(t)]
+    anyleg = pure + [t for t in rec["anyleg_extra"] if _legacy(t)]
+    forks: dict[str, list] = collections.defaultdict(list)
+    for t in rec["members"] + rec["anyleg_extra"]:
+        if not _legacy(t):
+            forks[canonical(t["decision_fp"], equiv)].append(t)
     if pure:
         measured_fee = -sum(t["fees_usd"] for t in pure) / len(pure)
         med_ticket = statistics.median(t["ticket_usd"] for t in pure)
@@ -814,6 +849,10 @@ def run(fills: Path, era: str, fee_null: float | None, reps: int = REPS,
         "what_this_measures": what_this_measures(
             [t for t in pure if t["book"] != "long"]),
         "cohorts": cohorts,
+        "fingerprints": {fp: rules([t for t in ts if t["book"] != "long"],
+                                   fee_null, reps, seed)
+                         for fp, ts in sorted(forks.items())},
+        "equivalences": len(equiv),
     }
 
 

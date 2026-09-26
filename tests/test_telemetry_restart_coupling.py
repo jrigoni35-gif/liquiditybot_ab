@@ -57,16 +57,28 @@ def test_every_pusher_main_loop_carries_the_guard():
 
 # --- auto_update rev-marker bounce -------------------------------------------
 def test_bounce_writes_marker_once_and_short_circuits(tmp_path, monkeypatch):
+    # The bounce is a REAL Stop-Process over every process whose command line
+    # matches the pusher names. Unstubbed, this test killed the LIVE Grafana
+    # pushers on every full-suite run, and killed pytest itself whenever its
+    # argv named a gc_*pusher test file (found 2026-09-26). Never let it reach
+    # the OS: record the attempt instead.
+    kills = []
+    monkeypatch.setattr(au.subprocess, "run",
+                        lambda *a, **k: kills.append(a))
+    monkeypatch.setattr(au, "_git", lambda *a, **k: (0, "abc1234"))
     monkeypatch.setattr(au, "OUT", tmp_path)
     au._ensure_pushers_current()                 # no marker -> bounce + write
     marker = tmp_path / "pushers_code_rev.txt"
     assert marker.exists()
     rev = marker.read_text(encoding="utf-8").strip()
     assert rev                                   # a real short rev
+    if au.os.name == "nt":
+        assert len(kills) == 1                   # bounced exactly once
     # matching marker -> untouched (no re-bounce churn every cadence)
     before = marker.stat().st_mtime_ns
     au._ensure_pushers_current()
     assert marker.stat().st_mtime_ns == before
+    assert len(kills) <= 1                       # no second bounce
 
 
 def test_bounce_never_raises(tmp_path, monkeypatch):
@@ -74,6 +86,8 @@ def test_bounce_never_raises(tmp_path, monkeypatch):
     # into the update outcome
     monkeypatch.setattr(au, "OUT", tmp_path / "missing" / "dir")
     monkeypatch.setattr(au, "_git", lambda *a, **k: (1, "boom"))
+    # a missing marker proceeds to the bounce: never the real Stop-Process
+    monkeypatch.setattr(au.subprocess, "run", lambda *a, **k: None)
     au._ensure_pushers_current()
 
 

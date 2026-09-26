@@ -1225,6 +1225,9 @@ class BotRunner:
         return {
             "ts": now, "cycle": bot._cycle,
             "cycle_lifetime": getattr(bot, "_cycle_lifetime", 0),
+            # which decision cohort this process trades (core/cohort.py)
+            "decision_fp": (getattr(bot, "decision_fp", None)
+                            or {}).get("fp", ""),
             "runner_state": self.state,
             "mode": "DRY_RUN" if bot.dry_run else
                     ("LIVE_ARMED" if bot.live_armed else "LIVE_DISARMED"),

@@ -682,3 +682,41 @@ def test_run_without_signal_history_is_back_compatible(tmp_path):
                  signal_history=tmp_path / "no_such_file.csv")
     assert not res["cohorts"]["available"]
     assert res["populations"][HYPOTH]["n"] == 3  # populations untouched
+
+
+# --- decision-fingerprint cohorts (operator ruling 2026-09-26) -----------
+
+def _write_fp(tmp_path, rows) -> Path:
+    p = tmp_path / "fills.csv"
+    with open(p, "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=COLS + ["decision_fp"])
+        w.writeheader()
+        w.writerows(rows)
+    return p
+
+
+def _fp_ledger(tmp_path):
+    rows = []
+    for i in range(10):                              # legacy (blank fp)
+        _trip(rows, i, day=i % 5, net_target=-0.4 + _noise(i))
+    first_fork = len(rows)
+    for i in range(10, 16):                          # forked cohort "abc"
+        _trip(rows, i, day=i % 5, net_target=+0.3 + _noise(i))
+    for r in rows[first_fork:]:
+        r["decision_fp"] = "abc"
+    return _write_fp(tmp_path, rows)
+
+
+def test_forked_trips_leave_the_registered_population(tmp_path):
+    res = er.run(_fp_ledger(tmp_path), ERA, None, reps=200, seed=7)
+    assert _reg(res)["n"] == 10, "a forked cohort contaminated the era read"
+    assert res["fingerprints"]["abc"]["n"] == 6
+
+
+def test_evidenced_equivalence_pools_a_fork_back(tmp_path, monkeypatch):
+    import core.cohort as cohort_mod
+    monkeypatch.setattr(cohort_mod, "load_equivalence",
+                        lambda *a, **k: {"abc": er.LEGACY_FP})
+    res = er.run(_fp_ledger(tmp_path), ERA, None, reps=200, seed=7)
+    assert _reg(res)["n"] == 16 and res["fingerprints"] == {}
+    assert res["equivalences"] == 1

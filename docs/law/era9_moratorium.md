@@ -1,5 +1,16 @@
 ## Accrual moratorium â€” era-9 (cut #12, FEE-4: the row the account holds, 2026-09-08)
 
+> **SUPERSEDED IN PART - 2026-09-26 (operator ruling).** The rule below
+> that makes decision changes COHORT-RESETTING and forbidden, and the
+> 14-day minimum that gates them, are REPLACED by decision-fingerprint
+> cohorts (`core/cohort.py`; CLAUDE.md "COHORT-FORKING"). A change now
+> forks a new cohort instead of resetting accrual; banked trips keep
+> their own read (`scripts/era_readout.py`, DECISION-FINGERPRINT
+> COHORTS). Everything else here - the cut history, the price of a
+> mint as MEASURED history, the registered read points, the model
+> freeze, the four unnamed mechanisms - stands as written. Hard
+> invariants 1-7 are untouched.
+
 **History in one line each, all citable AS their era, none poolable across a
 cut:** era-4 CLOSED (COST_BOUND n=54); cut #8's 40/80 premise SUPERSEDED;
 cut #9 (`9-16ec821e`) fees 22/38 â€” read from the operator's app and RIGHT;
