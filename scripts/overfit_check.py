@@ -169,7 +169,12 @@ def arming_exit_code(report, expected, fail_n: int, emit=print, *,
     armed = armed_families(report)
     newly_armed = sorted(armed - set(expected))
     went_dark = sorted(set(expected) - armed)
-    if newly_armed:
+    if newly_armed and on_synthetic:
+        # the fixture arms every rung; ratcheting on it would brick the live
+        # corpus with exit 3 - name the families, never prompt the add
+        emit(f"  ^^ ARMED ON THE SYNTHETIC FIXTURE ONLY: {newly_armed} - "
+             f"NOT a ratchet prompt; judge arming on the live corpus")
+    elif newly_armed:
         emit(f"  ^^ NEWLY ARMED: {newly_armed} - add to EXPECTED_ARMED so "
              f"the ratchet holds the new floor")
     if fail_n:
