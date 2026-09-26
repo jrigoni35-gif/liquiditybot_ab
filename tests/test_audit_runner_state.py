@@ -313,6 +313,24 @@ def test_c2_ack_names_the_stranded_positions_and_their_count(tmp_path, caplog):
     assert "deadbeef" in ack[0] and "ETH/USD" in ack[0]
 
 
+def test_ack_carries_local_and_remote_command_ids(tmp_path, caplog):
+    """The ack is the only proof a command EXECUTED (the remote poller's
+    RC-010 only proves it was forwarded). Without the ids, correlating a
+    remote send to its ack was by timestamp alone - two sends close together
+    were indistinguishable (2026-09-26 end-to-end snapshot test)."""
+    r = _stub_runner(bot=_fake_bot(),
+                     _paused_sentinel=tmp_path / "paused.on")
+    with caplog.at_level("WARNING"):
+        r.handle_command({"cmd": "pause", "id": "L-1",
+                          "origin_id": "1790390354-6be212024f"})
+        r.handle_command({"cmd": "start", "id": "L-2"})   # console: no origin
+        r.handle_command({"cmd": "start"})                # hand-dropped: no ids
+    acks = [m.message for m in caplog.records if "control: " in m.message]
+    assert "[id=L-1 origin=1790390354-6be212024f]" in acks[0]
+    assert "[id=L-2]" in acks[1] and "origin=" not in acks[1]
+    assert "[id=" not in acks[2]
+
+
 def test_c2_force_dry_on_a_flat_book_does_not_pause(tmp_path):
     """The guard must be surgical: with nothing open there is no real book to
     protect, so the long-standing behaviour (flip, stay RUNNING) is kept."""

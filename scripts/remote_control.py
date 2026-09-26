@@ -417,7 +417,8 @@ def _poll_locked(root: Path, now: float) -> str:
         consumed.append({"id": fid, "result": "forwarding",
                          "cmd": cmd, "at": now})
         _save_consumed(root, consumed)
-        ControlChannel(str(root / "outputs" / "control")).send(cmd, args)
+        ControlChannel(str(root / "outputs" / "control")).send(
+            cmd, args, origin_id=fid)
         applied += 1
         _log(f"{Code.RC_APPLIED.value}: forwarded '{cmd}' to the "
              f"runner (id {fid})", root=root)

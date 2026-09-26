@@ -704,8 +704,14 @@ class BotRunner:
                 bot.sim.price_shock.clear()
                 bot.sim.force_regime.clear()
                 bot.sim.force_fear = 0
+        # ids make the ack correlatable to its sender (the remote plane's
+        # RC-010 line names origin_id); a hand-dropped file has neither
+        ids = " ".join(f"{k}={c[f]}" for k, f in (("id", "id"),
+                                                  ("origin", "origin_id"))
+                       if c.get(f))
         log.warning(f"control: {cmd} {args or ''} -> "
-                    f"{note or 'ok'} (runner={self.state})")
+                    f"{note or 'ok'} (runner={self.state})"
+                    f"{f' [{ids}]' if ids else ''}")
 
     # ------------------------------------------------------------------
     def _cmd_force_dry(self, bot) -> str:
