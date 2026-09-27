@@ -23,6 +23,7 @@ from typing import Optional
 import requests
 from core.sanitize import (clean_book, clean_candles, drop_forming_candles,
                            safe_float, loads_bounded)
+from core import venue_integrity as _vi  # VG-4/5 telemetry counters only
 from data._http import ThrottledRestClient
 
 BASE_URL = "https://api.kraken.com"
@@ -232,6 +233,7 @@ class KrakenFeed(ThrottledRestClient):
             return None
         if data.get("error"):
             log.warning(f"Kraken public API error on {endpoint}: {data['error']}")
+            _vi.note_venue_errors(data["error"])  # VG-4: counter only, never raises
             return None
         return data.get("result")
 
@@ -278,10 +280,14 @@ class KrakenFeed(ThrottledRestClient):
                 return None
             if result.get("error"):
                 log.warning(f"Kraken private API error on {endpoint}: {result['error']}")
+                _vi.note_venue_errors(result["error"])  # VG-4: counter only
                 return None
+            if endpoint == "QueryOrders":
+                _vi.note_order_query(result.get("result"))  # VG-5: read-only count
             return result.get("result")
         except requests.RequestException as e:
             log.error(f"Kraken private request failed for {endpoint}: {e}")
+            _vi.note_transport_failure()  # VG-4: counter only, never raises
             return None
 
     # --- Public read-only data -------------------------------------------------
