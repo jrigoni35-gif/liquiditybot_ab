@@ -578,3 +578,37 @@ def test_torn_fill_row_is_dropped_and_counted_not_bucketed_absent(tmp_path):
     assert e["fills_rows"] == 2 and e["fills_torn_rows"] == 1
     assert e["fills_per_era"] == {"9-16ec821e": 2}
     assert e["pooling_hazard"] is False
+
+
+# --- main-chain scope (2026-09-27) -----------------------------------------
+# Off-chain rows (a forked writer: harness boot before configure_audit, or a
+# duplicate runner's pre-exit dispositions) stay on disk and still drive the
+# SD-010/SD-011 fork detectors, but every COUNT reads the main chain only.
+
+def test_digest_counts_ignore_fork_records(tmp_path):
+    o = tmp_path / "outputs"
+    o.mkdir()
+    p = o / "audit.jsonl"
+    a = AuditTrail(str(p), fsync=False)
+    for _ in range(3):
+        a.log("long_book", "LB-010", "main")
+    b = AuditTrail(str(p), fsync=False)
+    b.log("dup", "OM-080", "forked fee reading")       # B syncs, chains on A
+    for _ in range(6):
+        a.log("long_book", "LB-010", "main")           # A forks past B
+    b.log("dup", "OM-080", "forked fee reading")
+    b.log("dup", "OM-080", "forked fee reading")
+    d = build_digest(o)
+    aud = d["audit"]
+    codes = dict(aud["top_codes"])
+    assert "OM-080" not in codes, "fork rows must not reach the code tally"
+    assert codes == {"LB-010": 9}
+    assert aud["records"] == 9 and aud["main_chain_records"] == 9
+    assert aud["off_chain_records"] == 3
+    assert aud["off_chain_codes"] == {"OM-080": 3}
+    assert aud["records_all_lines"] == 12
+    # the fork detectors still see every line
+    assert aud["chain_seams"] >= 1 and aud["fork_divergent_seqs"] >= 1
+    ids = _ids(d)
+    assert "SD-010" in ids and "SD-011" in ids
+    assert "off-chain" in render_markdown(d)

@@ -68,9 +68,9 @@ the counter-mechanism. Full state map:
 7. **Conduct boundary stands.** Detect-and-react only (THALES hard
    boundary, docs/THALES_FRAMEWORKS.md): we never place, space, or
    time an order to induce anyone's behavior.
-   `docs/compliance_market_conduct.md` is currently SILENT on trading
-   against predictable naive flow — that governance question is
-   itself registry material and goes to the operator, not to code.
+   `docs/law/conduct_standard.md` lists trading against predictable
+   naive flow as OPERATOR DECIDES row OD-12 (not floor) — that
+   governance question goes to the operator, not to code.
 
 ## Consumers
 

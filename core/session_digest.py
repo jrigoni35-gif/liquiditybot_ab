@@ -189,7 +189,27 @@ def _audit_counts(records: list) -> dict:
     }
 
 
-def _audit_section(records: list, outputs: Path) -> dict:
+def _main_chain(records: list) -> list:
+    """Main-chain subset of the parsed audit rows (core.audit.
+    main_chain_indices: the longest prev->h lineage). Off-chain rows are
+    forked writers - harness boots before configure_audit, duplicate
+    runners' pre-exit dispositions - and must not be pooled into code
+    tallies. Fallback on any failure is the unfiltered list: the digest
+    never raises, and a verifier import failure must not zero the report."""
+    try:
+        from core.audit import main_chain_records
+        return main_chain_records(records)
+    except Exception:  # pragma: no cover - reader must never break the digest
+        return records
+
+
+def _audit_section(records: list, outputs: Path,
+                   all_records: "list | None" = None) -> dict:
+    """`records` feeds every COUNT (pass the main chain); `all_records`
+    (default: `records`) feeds the fork analysis - dup/divergent seqs are,
+    by definition, a property of the rows that are NOT on one chain, so the
+    SD-010/SD-011 inputs must see every line."""
+    all_records = records if all_records is None else all_records
     # chain integrity via the real verifier — and it MUST be verify_chain().
     # Constructing an AuditTrail is a WRITE: its _adopt_tail heals a torn tail
     # by truncating it and appending a newline. This digest runs hourly from
@@ -226,8 +246,20 @@ def _audit_section(records: list, outputs: Path) -> dict:
     # instruments then consumed as venue truth. Divergence is data-driven:
     # a seq is divergent only when its rows DISAGREE on (code, h) - an
     # idempotent double-write of the same record stays SD-010-benign.
+    # MAIN-CHAIN SCOPE (2026-09-27): the counts above are over the main
+    # chain only; these keys say how much was left out and what it was, so
+    # the exclusion is visible rather than silent. Additive keys.
+    main_ids = {id(r) for r in records}
+    off = [r for r in all_records if id(r) not in main_ids]
+    out.update({
+        "records_all_lines": len(all_records),
+        "main_chain_records": len(records),
+        "off_chain_records": len(off),
+        "off_chain_codes": dict(Counter(str(r.get("code"))
+                                        for r in off).most_common()),
+    })
     seq_rows: dict = {}
-    for r in records:
+    for r in all_records:
         s = r.get("seq")
         if s is not None:
             seq_rows.setdefault(s, []).append(r)
@@ -777,7 +809,10 @@ def build_digest(outputs_dir: "str | Path" = "outputs",
     replayed outputs dir windows against its own timeline. <=0 disables the
     lens (detectors fall back to whole-window, the pre-2026-08-18 behavior)."""
     o = Path(outputs_dir)
-    audit = _read_jsonl(o / "audit.jsonl")
+    audit_all = _read_jsonl(o / "audit.jsonl")
+    # every count/window/lens reads the MAIN CHAIN; the fork detectors
+    # (SD-010/SD-011) read audit_all via _audit_section's all_records
+    audit = _main_chain(audit_all)
     events = _read_jsonl(o / "events.jsonl")
     equity_rows = _read_csv(o / "equity.csv")
     state = _read_json(o / "state.json")
@@ -810,13 +845,13 @@ def build_digest(outputs_dir: "str | Path" = "outputs",
             "candidate_rows": sum(1 for r in sig_rows
                                   if r.get("source") == "candidate"),
         },
-        "audit": _audit_section(audit, o),
+        "audit": _audit_section(audit, o, all_records=audit_all),
         "events": _events_section(events),
         "model": _model_section(state, live_rows),
         "postmortems": _postmortem_section(pm_rows),
         "eras": _eras_section(sig_rows, o),
         "streams_present": {
-            "audit.jsonl": bool(audit), "events.jsonl": bool(events),
+            "audit.jsonl": bool(audit_all), "events.jsonl": bool(events),
             "equity.csv": bool(equity_rows), "state.json": bool(state),
             "signal_history.csv": bool(sig_rows),
             "postmortem_summary.csv": bool(pm_rows),
@@ -888,7 +923,10 @@ def render_markdown(d: dict) -> str:
         f"- Model: level {mdl['monitor_level']} | use_model={mdl['use_model']} "
         f"| brier {mdl['brier']} | history_rows {mdl['history_rows']} "
         f"| cold={mdl['cold']}",
-        f"- Audit: {aud['records']} records ({aud['signal_records']} "
+        f"- Audit: {aud['records']} main-chain records"
+        + (f" ({aud['off_chain_records']} off-chain fork rows excluded "
+           "from counts)" if aud.get("off_chain_records") else "")
+        + f" ({aud['signal_records']} "
         f"non-routine) | dominant {aud['dominant_code']} "
         f"({aud['dominant_frac']:.0%} of non-routine) | "
         f"chain={_chain_word(aud)} | "

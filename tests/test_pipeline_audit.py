@@ -54,3 +54,20 @@ def test_verdict_flags_sizing_wall_and_profit():
                      {"monitor": {"level": 2}})
     assert any("PROFIT-POSITIVE" in x for x in finds2)
     assert any("GOVERNOR L2" in x for x in finds2)
+
+
+def test_audit_code_mix_reads_main_chain_only(tmp_path):
+    """Off-chain fork rows (a second writer with a stale prev) must not
+    reach the code mix; main_chain_only=False is the pooled escape hatch."""
+    from core.audit import AuditTrail
+    from scripts.pipeline_audit import audit_code_mix
+    p = tmp_path / "audit.jsonl"
+    a = AuditTrail(str(p), fsync=False)
+    a.log("long_book", "LB-010", "m")
+    b = AuditTrail(str(p), fsync=False)
+    b.log("dup", "CG-000", "harness boot")          # chains on A's tail
+    for _ in range(3):
+        a.log("long_book", "LB-010", "m")           # A forks past B
+    assert dict(audit_code_mix(p, 0.0)) == {"LB-010": 4}
+    assert dict(audit_code_mix(p, 0.0, main_chain_only=False)) == {
+        "LB-010": 4, "CG-000": 1}

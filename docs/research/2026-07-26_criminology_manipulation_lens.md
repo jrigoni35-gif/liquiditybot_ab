@@ -183,7 +183,7 @@ bot is structurally strain-immune by construction regardless of what
 theory is true of its counterparties: `system.dry_run` defaults true
 with a typed `ARM LIVE` ceremony (CLAUDE.md invariant 1), and the
 CVaR/gap/budget/heat protocol stack plus inventory caps
-(`docs/compliance_market_conduct.md:105-111`) mean the bot itself never
+(the deleted 2026-07 market-conduct doc (successor: `docs/law/conduct_standard.md`), OD-8) mean the bot itself never
 needs a "recoup losses fast" strategy â the exact opposite of what ST
 predicts a strained human trader reaches for. Nothing here is a
 detector aimed at strain; it is a design that never puts the bot into
@@ -227,14 +227,14 @@ sentiment score, and no detector in `strategies/thales.py` or
 assessment: nothing here is actionable on the manipulator-facing side,
 and building anything would be mandate creep with no validation path.
 The one place LT actually binds is the bot's *own* legal exposure, which
-`docs/compliance_market_conduct.md` addresses as a mirror-image
+the deleted 2026-07 market-conduct doc (successor: `docs/law/conduct_standard.md`) addresses as a mirror-image
 application of the same theory: under an inferred-intent standard
 (Rule 575's "more likely than not intended"), the bot's defense against
 ever being *labelled* a manipulator is a complete, reconstructable
 record â "the answer is a file, not a recollection"
-(`docs/compliance_market_conduct.md:118-119`; the hash-chained audit
+(the deleted 2026-07 market-conduct doc (successor: `docs/law/conduct_standard.md`); the hash-chained audit
 trail and reason codes are the documented "intent record,"
-`docs/compliance_market_conduct.md:47-50`). LT predicts the
+the deleted 2026-07 market-conduct doc (successor: `docs/law/conduct_standard.md`), FLOOR audit-trail note). LT predicts the
 retail-coordination manipulation layer fades only if "degen" loses
 cultural cachet â a generational/cultural shift, not a response to any
 enforcement action or detector â which is an orthogonal persistence
@@ -330,7 +330,7 @@ protects the *bot* from mislabelling), not manipulator-facing.
   https://europeangaming.eu/portal/latest-news/2025/11/21/196847/the-psychology-of-the-degen-differentiating-compulsive-gambling-from-aggressive-altcoin-speculation/
 - Cong, L.W., Li, X., Tang, K. & Yang, Y. (2023). "Crypto Wash
   Trading." *Management Science* (cited defensively in
-  `ml/features.py:74-83` and `docs/compliance_market_conduct.md:73-75`).
+  `ml/features.py:74-83` and the deleted 2026-07 market-conduct doc (successor: `docs/law/conduct_standard.md`)).
 - Cartea, A., Jaimungal, S. & Wang, J. â spoofing through top-of-book
   imbalance (cited in `strategies/thales.py:129-136`).
 - Stoikov, S. (2018); Cont, R., Kukanov, A. & Stoikov, S. â spoof

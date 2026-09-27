@@ -410,6 +410,92 @@ def verify_chain(path) -> dict:
             "tamper": first_break is not None and not torn}
 
 
+def main_chain_indices(records) -> set:
+    """Indices (into `records`) of the MAIN hash chain: the longest
+    prev->h lineage, tip-to-genesis. Pure, read-only, never raises.
+
+    WHY READERS NEED THIS. verify_chain() classifies a hash-valid fork as a
+    benign WRITER SEAM and keeps going, which is right for integrity - but a
+    report that COUNTS codes over every line then counts both branches of
+    every fork. On the PC trail (91,658 lines, 2026-09-27) 2,241 records sit
+    off the main chain: harness boots that wrote before configure_audit
+    redirected them, and duplicate runners' pre-exit dispositions. Those are
+    real bytes and stay on disk (evidence is never deleted); they are not
+    the bot's decision stream, and code tallies must not pool them in.
+
+    SELECTION RULE. Depth of each record = 1 + depth of the record its
+    `prev` names (records are appended after their parent is read, so a
+    parent always precedes its child in file order). The tip is the deepest
+    record, ties broken toward the LATER line; the chain is the walk from
+    that tip back through prev->h. "Longest" rather than "last line":
+    a losing writer that happens to append the final line would otherwise
+    hijack the walk and drop every main-chain record after its fork point.
+    On the PC trail both rules select the same 89,417 records.
+
+    INPUT. `records` is a list of parsed dicts (None/non-dict entries -
+    torn or unparseable lines - are allowed and are never on the chain).
+    CHAIN-LESS INPUT: if NO record carries an `h`, there is no chain to
+    select on and every dict index is returned (a hand-built fixture or a
+    pre-chain export is not "all off-chain"). Callers get a set so they can
+    filter by index without re-parsing."""
+    idx_of: dict = {}
+    depth: list = [0] * len(records)
+    any_h = False
+    best, best_depth = None, 0
+    for i, rec in enumerate(records):
+        if not isinstance(rec, dict):
+            continue
+        h = rec.get("h")
+        if not isinstance(h, str):
+            continue
+        any_h = True
+        parent = idx_of.get(rec.get("prev"))
+        d = depth[parent] + 1 if parent is not None else 1
+        depth[i] = d
+        # first occurrence wins for the parent map: an idempotent double
+        # write carries the same h twice and must not re-parent children
+        idx_of.setdefault(h, i)
+        if d >= best_depth:
+            best, best_depth = i, d
+    if not any_h:
+        return {i for i, r in enumerate(records) if isinstance(r, dict)}
+    out: set = set()
+    i = best
+    while i is not None and i not in out:
+        out.add(i)
+        i = idx_of.get(records[i].get("prev"))     # cycle-safe: `not in out`
+    return out
+
+
+def main_chain_records(records) -> list:
+    """The main-chain subset of `records`, in file order (see
+    main_chain_indices for the selection rule)."""
+    keep = main_chain_indices(records)
+    return [r for i, r in enumerate(records) if i in keep]
+
+
+def read_main_chain(path) -> tuple:
+    """Read a JSONL audit file and return (all_records, main_indices).
+    `all_records` holds one entry per non-blank line (None for an
+    unparseable one) so indices line up with the file's non-blank lines.
+    Read-only - never constructs an AuditTrail (that would be a write)."""
+    recs: list = []
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip().strip("\x00").strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    rec = None
+                recs.append(rec if isinstance(rec, dict) else None)
+    except OSError:
+        return [], set()
+    return recs, main_chain_indices(recs)
+
+
 _AUDIT = None
 
 
