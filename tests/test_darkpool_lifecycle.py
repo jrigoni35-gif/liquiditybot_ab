@@ -88,3 +88,18 @@ def test_data_age_grows_with_the_poll_clock(tmp_path):
     a1 = f.maybe_poll(end + 10 * 86400).data_age_days
     a2 = f.maybe_poll(end + 40 * 86400).data_age_days
     assert (a1, a2) == (10.0, 40.0)
+
+
+def test_stale_mirror_is_unavailable_when_gate_armed(tmp_path):
+    db = tmp_path / "dp.duckdb"
+    _mk_db(db)
+    end = calendar.timegm(time.strptime("2026-04-24", "%Y-%m-%d"))
+    off = _feed(db)
+    assert off.maybe_poll(end + 151 * 86400).available      # default: no gate
+    armed = DarkPoolFeed({"enabled": True, "poll_minutes": 0,
+                          "duckdb_path": str(db), "max_data_age_days": 35,
+                          "tickers": [{"symbol": "MSTR", "weight": 1.0}]})
+    assert armed.maybe_poll(end + 20 * 86400).available
+    s = armed.maybe_poll(end + 151 * 86400)
+    assert not s.available and s.dp_hhi == 0.0
+    assert len(armed._surge_hist) == 1, "stale poll must not seed z windows"

@@ -913,6 +913,13 @@ class OrderManager:
                 # proposal (see _write_fee_proposal for the contract).
                 self._write_fee_proposal(now, pair_results, mismatched,
                                          volume_30d, volume_currency)
+            else:
+                # a proposal left over from a mismatch the operator has
+                # since resolved must not read as still-open drift
+                try:
+                    os.remove(_FEE_PROPOSAL_REL_PATH)
+                except OSError:
+                    pass
         except Exception:                            # noqa: BLE001
             log.debug("fee reconciliation skipped: unexpected error",
                      exc_info=True)
@@ -957,8 +964,12 @@ class OrderManager:
                 "generated_ts": now,
                 "applied": False,
                 "note": ("PROPOSAL ONLY - never read by any decision path. "
-                         "Review and merge into config.json by hand; "
-                         "config_guard re-validates on next start."),
+                         "Applying it is FEE BOOKING: it forks the "
+                         "decision cohort (core/cohort.py) and needs an "
+                         "operator decision record. All fee-derived "
+                         "keys below move together or not at all - "
+                         "config_guard FATALs a label cost below the "
+                         "booked round trip."),
                 "recon": {"verdict": "mismatch",
                           "mismatched_pairs": mismatched,
                           "volume_30d": volume_30d,
@@ -977,7 +988,12 @@ class OrderManager:
                     "order_manager.maker_fee_bps": prop_maker,
                     "order_manager.taker_fee_bps": prop_taker,
                     "pretrade.maker_fee_bps": prop_maker,
-                    "pretrade.taker_fee_bps": prop_taker},
+                    "pretrade.taker_fee_bps": prop_taker,
+                    # the rest of the cut-12 cascade (scripts/cut12_stage
+                    # invariants): est_fee == taker, label == (m + t)/100.
+                    "profit_taking.est_fee_bps": prop_taker,
+                    "ml.label_round_trip_cost_pct":
+                        (prop_maker + prop_taker) / 100.0},
             }
             path = _FEE_PROPOSAL_REL_PATH
             os.makedirs(os.path.dirname(path), exist_ok=True)

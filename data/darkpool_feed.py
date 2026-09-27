@@ -128,6 +128,11 @@ class DarkPoolFeed:
         # [{"code": "US.COIN", "symbol": "COIN", "weight": 1.0}]
         self.tickers = cfg.get("tickers", [])
         self.min_prior_periods = int(cfg.get("min_prior_periods", 2))
+        # HELD / COHORT-RESETTING when armed: a mirror whose newest period
+        # is older than this is served as UNAVAILABLE (avail_dp=0), not as
+        # a "real observation". None (default) = gate off = today's output.
+        _mx = cfg.get("max_data_age_days")
+        self.max_age_days = float(_mx) if _mx is not None else None
         self._con = con            # injectable for tests
         self._db_ok = con is not None
         # a connection WE opened is released after every poll: a lifetime
@@ -268,6 +273,18 @@ class DarkPoolFeed:
         if not per:
             raise RuntimeError(f"no dark-pool rows for any configured "
                                f"symbol (missing: {missing})")
+
+        # staleness gate (before any z-window append, so a stale mirror
+        # never seeds the windows)
+        _end = max(v["period_end"] for v in per.values())
+        try:
+            _age = (now - calendar.timegm(time.strptime(str(_end)[:10],
+                                                        "%Y-%m-%d"))) / 86400
+        except (TypeError, ValueError, OverflowError):
+            _age = float("inf")
+        if self.max_age_days is not None and _age > self.max_age_days:
+            raise RuntimeError(f"mirror stale: newest period_end {_end} is "
+                               f"{_age:.0f}d old (> {self.max_age_days:.0f}d)")
 
         # freeze gate: weekly rows are identical between publications, so a
         # repeat observation must not re-enter the z windows (DF-010 analog)

@@ -84,3 +84,35 @@ def test_r3_no_mismatch_no_proposal(tmp_path, monkeypatch):
     om = _om(_Feed(40.0, 80.0))          # venue matches config exactly
     om.check_fee_reconciliation(now=1000.0)
     assert not _proposal_path().exists()
+
+
+# --- R3 proposal completeness (review 2026-09-26) ----------------------
+
+def test_r3_applied_proposal_passes_config_guard(tmp_path, monkeypatch):
+    """The dangerous direction (venue tier ABOVE config, same shape as the
+    one real OM-080 row): applying the proposal verbatim must yield a
+    config that boots - four of six fee keys FATALs on the label cost."""
+    import copy
+    from core import config_guard
+    cfg = json.loads((Path(__file__).resolve().parents[1]
+                      / "config.json").read_text(encoding="utf-8"))
+    monkeypatch.chdir(tmp_path)
+    om = _om(_Feed(40.0, 80.0), maker=15.0, taker=30.0)
+    om.check_fee_reconciliation(now=1000.0)
+    prop = json.loads(_proposal_path().read_text())
+    new = copy.deepcopy(cfg)
+    for key, val in prop["proposed_config_values"].items():
+        sec, leaf = key.split(".")
+        new[sec][leaf] = val
+    assert [f for f in config_guard.validate(new) if f[0] == "FATAL"] == []
+
+
+def test_r3_resolved_mismatch_clears_stale_proposal(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    feed = _Feed(25.0, 50.0)
+    om = _om(feed)
+    om.check_fee_reconciliation(now=1000.0)
+    assert _proposal_path().exists()
+    feed._m, feed._t = 40.0, 80.0                     # operator re-booked
+    om.check_fee_reconciliation(now=1000.0 + 2 * 3600.0)
+    assert not _proposal_path().exists()
