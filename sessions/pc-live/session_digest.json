@@ -1,10 +1,10 @@
 {
-  "generated_at": 1790490091.7973132,
+  "generated_at": 1790493693.8188772,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790490077.0,
-    "duration_h": 1894.46
+    "end": 1790493689.0,
+    "duration_h": 1895.46
   },
   "recent": {
     "hours": 48.0,
@@ -77,10 +77,10 @@
       "kill_switch_events": 0
     },
     "events": {
-      "records": 16663,
+      "records": 17049,
       "by_level": {
-        "INFO": 16596,
-        "WARNING": 61,
+        "INFO": 16980,
+        "WARNING": 63,
         "CRITICAL": 6
       },
       "top_warnings": [
@@ -121,29 +121,29 @@
           2
         ],
         [
-          "ML-031: feature drift 25/64 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
+          "ML-031: feature drift 25/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir'",
           2
         ]
       ],
       "liquidity_tally": {
-        "thin": 2357,
+        "thin": 2386,
         "spoofy": 311
       },
-      "spoofy_frac": 0.117,
+      "spoofy_frac": 0.115,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1326,
+      "cycles_estimate": 1328,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 763.77,
+    "equity_end": 763.54,
     "equity_min": 761.98,
     "equity_max": 806.91,
     "equity_range": 44.93,
     "capital_epochs": 5,
-    "epoch_samples": 252261,
+    "epoch_samples": 252498,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 761.98,
     "lifetime_equity_max": 100000.03,
@@ -151,23 +151,23 @@
     "realized_pnl_total": -22.47,
     "fees_paid_total": 37.4516,
     "open_positions": 5,
-    "samples": 420052
+    "samples": 420289
   },
   "activity": {
-    "signal_rows_total": 33637,
+    "signal_rows_total": 33652,
     "live_labeled_trades": 501,
-    "candidate_rows": 33136
+    "candidate_rows": 33151
   },
   "audit": {
-    "records": 91416,
-    "signal_records": 37436,
+    "records": 91426,
+    "signal_records": 37446,
     "by_src": {
       "exploration": 77224,
-      "long_book": 4354,
-      "ml_governor": 3547,
+      "long_book": 4356,
+      "ml_governor": 3551,
       "order_manager": 2508,
-      "conviction": 1376,
-      "entry_sweep": 514,
+      "conviction": 1378,
+      "entry_sweep": 516,
       "startup": 490,
       "fault": 487,
       "exit": 407,
@@ -191,7 +191,7 @@
       ],
       [
         "LB-010",
-        2552
+        2554
       ],
       [
         "OM-000",
@@ -199,7 +199,7 @@
       ],
       [
         "ML-031",
-        1368
+        1369
       ],
       [
         "LB-050",
@@ -211,15 +211,15 @@
       ],
       [
         "CV-030",
-        898
+        900
       ],
       [
         "ML-016",
-        600
+        601
       ],
       [
         "ML-041",
-        566
+        567
       ],
       [
         "SZ-049",
@@ -337,10 +337,10 @@
     ]
   },
   "events": {
-    "records": 16663,
+    "records": 17049,
     "by_level": {
-      "INFO": 16596,
-      "WARNING": 61,
+      "INFO": 16980,
+      "WARNING": 63,
       "CRITICAL": 6
     },
     "top_warnings": [
@@ -381,24 +381,24 @@
         2
       ],
       [
-        "ML-031: feature drift 25/64 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
+        "ML-031: feature drift 25/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir'",
         2
       ]
     ],
     "liquidity_tally": {
-      "thin": 2357,
+      "thin": 2386,
       "spoofy": 311
     },
-    "spoofy_frac": 0.117,
+    "spoofy_frac": 0.115,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1326,
+    "cycles_estimate": 1328,
     "feed_error_events": 0
   },
   "model": {
     "monitor_level": 0,
     "use_model": true,
     "kelly_mult": 1.0,
-    "champion_brier": 0.21743891820495706,
+    "champion_brier": 0.2179562584804037,
     "brier": "n/a",
     "history_rows": 501,
     "cold": false
@@ -422,7 +422,7 @@
       "unavailable": "signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 23252,
+      "triple_barrier_h432": 23267,
       "triple_barrier": 5328,
       "exit_sim": 2817,
       "legacy": 1781,
@@ -442,10 +442,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 33637,
+    "corpus_rows": 33652,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-27T02:40:00Z",
-    "corpus_span_days": 75.59,
+    "corpus_last_ts": "2026-09-27T05:00:00Z",
+    "corpus_span_days": 75.68,
     "signal_ts_missing": 0
   },
   "streams_present": {
