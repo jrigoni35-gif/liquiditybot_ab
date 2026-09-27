@@ -1,5 +1,7 @@
 # Pre-live checklist: venue-integrity items (before `ARM LIVE`)
 
+**Operator sign-off 2026-09-27:** checklist adopted; VG-2 ratified. Items 1 and 3–6 are still to be done before arming.
+
 Written 2026-09-27 under the operator's "build the VG checks" approval. Every
 item is SAFE class: it measures, it never gates. Nothing here is read by the
 engine. This list is the venue-integrity part of going live. It sits
@@ -23,8 +25,8 @@ live in `core/venue_integrity.py`, codes are the `VI-*` family in
    pins it. The key permission is the second, venue-side lock, and only the
    operator can confirm it. Record the date checked: `____`.
 2. **VG-2: ratify the live fill-acceptance registration below.** The values
-   are registered as of 2026-09-27, before any live fill exists. Keep them,
-   or change them now. After the first live fill, a change is a
+   are registered as of 2026-09-27, before any live fill exists.
+   **RATIFIED by the operator 2026-09-27, values unchanged.** After the first live fill, a change is a
    re-registration and must never be a retune (overfit law).
 3. **VG-9: `venue-status --fetch`**. SystemStatus and every traded pair must
    be `online`.
@@ -33,6 +35,8 @@ live in `core/venue_integrity.py`, codes are the `VI-*` family in
 5. **VG-6: `orphans --fetch`**. There should be no orphan or stranded venue
    orders before the first live boot.
 6. **VG-8: read the STP note below**, and rule on OD-9 if you want to.
+   **Operator ruling 2026-09-27: leave `stptype` unset for now and
+   revisit before `ARM LIVE`.** This item stays open until then.
 
 ## VG-2 live fill-acceptance registration (`LIVE_FILL_ACCEPTANCE`)
 

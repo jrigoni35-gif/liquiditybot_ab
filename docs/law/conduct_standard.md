@@ -111,6 +111,13 @@ Keeping a rule is always free.
 | OD-11 | Maker-first and taker allowance | `allow_taker: true`, `taker_at_urgency: 0.88`, `thin_book_maker_only: true` (`execution/tactics.py:55-71`). | Fewer aggressive orders means less ignition-shaped footprint and lower fees. | COHORT-RESETTING |
 | OD-12 | Trading against predictable naive flow | Today the bot only detects it and reacts (THALES boundary). The floor does not forbid it. Raised as a governance question in `docs/thales/README.md` item 7. | A policy choice, not a legal floor. | Operator ruling. Any implementation would be COHORT-RESETTING. |
 
+**Operator ruling 2026-09-27: KEEP ALL (OD-1..OD-12).** Every row stays at
+its current value. OD-2's two knobs stay inert, with no code change. OD-9
+keeps its current scope and no `stptype` is sent; the operator revisits this
+before `ARM LIVE`, informed by VG-8. OD-12 stays detect-and-react only. No
+behavior changed, so era 9 is not reset. Changing any row later needs a new
+ruling.
+
 Not operator-discretionary: CLAUDE.md hard invariants 1-7 (dry-run default,
 one-way `force_dry`, Kraken-only execution, no withdrawals, limit-only
 entries with exits always allowed, the audit trail, stable interfaces). They
