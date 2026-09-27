@@ -69,6 +69,17 @@ class Position:
     bracket_pt_frac: float = 0.0
     bracket_sl_frac: float = 0.0
     bracket_deadline_ts: float = 0.0
+    # decisioning-coupling R2 (2026-09-19): the effective tier trigger for
+    # each NOT-YET-FIRED tier, snapshotted onto the position at the moment
+    # the preceding tier fired (str(tier_index) -> trigger pct). Tiers 2-4
+    # therefore fire on the vol regime that was live when the previous
+    # tier banked, never on a retroactively reclamped number - the same
+    # "no moving targets under an open position" discipline the PT-060
+    # virgin gate documents for the time-stop. Empty dict = live recompute
+    # every cycle, exactly the legacy behavior. Persisted with the position
+    # (core/persistence.py) so the freeze survives restarts; pre-R2
+    # snapshots lack the key and default to empty, legacy-identical.
+    tier_trigger_snapshots: Dict[str, float] = field(default_factory=dict)
 
     def unrealized_pnl_pct(self, current_price: float) -> float:
         """Unrealized PnL in PERCENT of entry price, sign-correct for

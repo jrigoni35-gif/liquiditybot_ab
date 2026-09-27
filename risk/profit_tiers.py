@@ -442,6 +442,41 @@ class ProfitTierEngine:
                 trigger = cost_floor_pct
         return trigger
 
+    @staticmethod
+    def _snapshot_trigger(position, tier_index: int) -> Optional[float]:
+        """Frozen effective trigger for tier `tier_index`, or None when no
+        snapshot exists (position predates the preceding tier's fire, or a
+        synthetic Position without the field). R2 (2026-09-19): tiers 2-4
+        fire on the number frozen when the previous tier banked, never on a
+        retroactively reclamped one; a missing snapshot means live
+        recompute - the exact legacy behavior."""
+        snaps = getattr(position, "tier_trigger_snapshots", None)
+        if not snaps:
+            return None
+        trig = snaps.get(str(tier_index))
+        return _f(trig) if trig is not None else None
+
+    def _snapshot_next_tier_trigger(self, position, fired_index: int,
+                                    sigma_bar_pct) -> None:
+        """At the moment tier `fired_index` fires, freeze the effective
+        trigger for tier `fired_index + 1` onto the position. The tier-1
+        cost floor governs index 0 only, so the snapshot is taken with
+        est_cost_bps=0 (its own discipline; tiers 2-4 were never
+        cost-floored). A non-finite trigger (tier without a configured
+        trigger_pct_gain) is NOT stored - live recompute stays inf and
+        behavior is identical. getattr-tolerant: a synthetic Position
+        without the field simply never freezes (live recompute)."""
+        nxt = fired_index + 1
+        if nxt >= len(self.tiers):
+            return
+        snaps = getattr(position, "tier_trigger_snapshots", None)
+        if snaps is None:
+            return
+        trig = self._tier_trigger_pct(self.tiers[nxt], sigma_bar_pct,
+                                      tier_index=nxt, est_cost_bps=0.0)
+        if math.isfinite(trig):
+            snaps[str(nxt)] = trig
+
     # ---- exit-floor machinery (break-even + chandelier, ratchet-only) ----
     def _update_high_water(self, position, px: float) -> None:
         # entry_price sanitized: NaN wins both max() and min(), so a
@@ -793,11 +828,15 @@ class ProfitTierEngine:
 
         if next_tier_index < len(self.tiers):
             tier = self.tiers[next_tier_index]
-            trigger = self._tier_trigger_pct(
-                tier, sigma_bar_pct, tier_index=next_tier_index,
-                est_cost_bps=_f(getattr(position, "est_cost_bps", 0.0)))
+            trigger = self._snapshot_trigger(position, next_tier_index)
+            if trigger is None:
+                trigger = self._tier_trigger_pct(
+                    tier, sigma_bar_pct, tier_index=next_tier_index,
+                    est_cost_bps=_f(getattr(position, "est_cost_bps", 0.0)))
             close_pct = _f(tier.get("close_pct_of_position", 0.0))
             if close_pct > 0 and gain_pct >= trigger:
+                self._snapshot_next_tier_trigger(position, next_tier_index,
+                                                 sigma_bar_pct)
                 boost_note = ""
                 if self.ic_enabled and inventory_pressure > 0:
                     p = min(max(_f(inventory_pressure), 0.0), 1.0)

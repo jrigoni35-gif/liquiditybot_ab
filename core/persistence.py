@@ -71,6 +71,9 @@ def position_to_dict(pos) -> dict:
         "bracket_pt_frac": pos.bracket_pt_frac,
         "bracket_sl_frac": pos.bracket_sl_frac,
         "bracket_deadline_ts": pos.bracket_deadline_ts,
+        # decisioning-coupling R2: frozen tier triggers survive restarts
+        # (see Position.tier_trigger_snapshots).
+        "tier_trigger_snapshots": dict(pos.tier_trigger_snapshots or {}),
     }
 
 
@@ -108,6 +111,11 @@ def position_from_dict(d: dict):
         bracket_pt_frac=float(d.get("bracket_pt_frac", 0.0)),
         bracket_sl_frac=float(d.get("bracket_sl_frac", 0.0)),
         bracket_deadline_ts=float(d.get("bracket_deadline_ts", 0.0)),
+        # decisioning-coupling R2: pre-R2 snapshots lack this key ->
+        # default empty dict, so a restored legacy position's tiers keep
+        # live-recomputing every cycle exactly as before.
+        tier_trigger_snapshots={str(k): float(v) for k, v in
+                                (d.get("tier_trigger_snapshots") or {}).items()},
     )
 
 
