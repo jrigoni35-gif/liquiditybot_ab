@@ -687,22 +687,23 @@ DONE; nothing in them decides anything.
 ---
 
 ## OPEN DOCKET — adjudicate together at the boundary
-- **KIMI-REVIEW HOLDS (2026-09-26; operator ruled the moratorium lifted
-  and "cohort-resetting" to be REDEFINED — the redefinition itself is
-  blocked: writing `core/cohort.py` (decision-fingerprint cohorts) was
-  DENIED by the auto-mode classifier as a safety-control change; needs
-  the operator's explicit permission).** Held, each drafted with pins in
-  vault `raw/audits/2026-09-26_kimi_review/`: **F1** darkpool is a static
-  date flag (#3 of 68 features; gate `max_data_age_days`, default off);
-  **R3** fee proposal names 4 of 6 keys → applying it FATALs boot (fix
-  drafted; apply DENIED by auto-mode); **R2** frozen tiers defects A-D
-  (redesign drafted: freeze sigma not trigger); **C5** in-process retrain
-  blocks the stop loop 21-28 s/hour (needs a threading design). **C3**
-  (slow-head fault skips the entry sweep) is DELIBERATELY left: fail-safe
-  under invariant 5. Framing for all of them: V = -C0 without edge;
-  break-even p* = (b+C0)/(a+b) = 0.571 (fees) / 0.619 (+adverse) at
-  PT 180 / SL 135, vs era-9 probes admitted at forced p=0.85 with model
-  p 0.39-0.51. Record: vault `sources/session-20260926-kimi-review-and-remote-plane`.
+- **PROBE LANE vs THE FAIR-GAME BAR (2026-09-26; operator choice, open).**
+  Every era-9 5m entry was an exploration probe admitted at forced
+  p_win 0.85 while the model said 0.39-0.51. At PT 180 / SL 135 the
+  break-even is p* = (b+C0)/(a+b) = 0.571 (fees 45 bps) / 0.619 (+15 bps
+  adverse fill); driftless V = -C0 under any stopping rule. The loss
+  channel is entering trades the bot's own math rejects. Levers the
+  formula ranks: required edge = C0/(a+b) -> lower C0 (maker both legs)
+  or widen a+b (horizon). Record: `docs/quant/2026-09-26_cut13_fingerprint_cohorts_decision_record.md` §3.
+- **C5 — auto-retrain blocks the stop loop 21-28 s/hour (n=20; open).**
+  Deferred on purpose: training, champion compare, save and meta.reload()
+  are interleaved and self.meta serves every inference, so threading it
+  unsplit risks a mid-inference model swap. Design: train on a snapshot
+  in a worker, promote on the main thread at the next hourly via the
+  existing external-adopt path. Own change, own review.
+- **C3** (slow-head fault skips the entry sweep) is DELIBERATELY left:
+  fail-safe under invariant 5. Not a docket item; recorded so nobody
+  "fixes" it.
 - **GRADEABILITY RETRO-PATH — the pre-DE-010 population is lost by
   construction (2026-09-19; SAFE, waiting on Lane B).** The census's
   L=60,574 EN-020+EN-030 absorbs carry no per-arrival record and can
@@ -1380,6 +1381,7 @@ verification is paid for twice.
 
 | what | verdict | record |
 |---|---|---|
+| **CUT #13 — decision-fingerprint cohorts replace hand-minted resets (09-26)** *(operator ruling; LAW change + decision forks)* | "Cohort-resetting — forbidden" is replaced by COHORT-FORKING: every fill carries `decision_fp` (config + decision-code AST, derived at boot, `core/cohort.py`); a change forks a cohort, banked trips keep their own read; `era_readout` keeps era-9's registered read on the legacy cohort and reads forks separately (proven output-identical on today's ledger). Shipped with it: F1 stale-darkpool gate (35 d), R3 fee proposal complete, R2 frozen tiers (Kimi's, redesigned A-D). **Before the first boot on this code, run `python scripts/migrate_fills_schema.py`** or the live ledger keeps its old width and the stamp is silently dropped. C5 + probe lane stay on the docket | `docs/quant/2026-09-26_cut13_fingerprint_cohorts_decision_record.md` |
 | **Kimi-review SAFE batch (09-26)** *(SAFE — normal path unchanged; runner half needs a boot)* | Three parallel reviewers over Kimi's ~50 commits (8 engine). Shipped, each red-first + mutation-verified with control: **F2** training-constant columns no longer saturate the model (sd=1e-9 → ±1e9 σ on first live move; output-identical on all 33,480 corpus rows); darkpool handle released per poll + real data age + neutral degraded snapshot; disabled darkpool no longer latches DF-020; DE-010 marks epsilon-roll probes `explored` (propensity "" not a false 1.0) and COUNTS dropped batches; hourly regime refresh + auto-retrain isolated (one raise used to starve fee-recon/retrain/drift); book-stamp pin AST not textual; quant_db duckdb errors → refusals; R1 docstring scope; overfit no longer prompts EXPECTED_ARMED from the synthetic fixture. 348 s cycle max = 09-23 reboot network settle, not code | vault `sources/session-20260926-kimi-review-and-remote-plane`; raw `raw/audits/2026-09-26_kimi_review/` |
 | **Remote command ack now names its sender's id (09-26)** *(SAFE — ack log text only)* | The git remote plane was proven end-to-end 2026-09-26 (`snapshot`, remote id `1790390354-6be212024f`: RC-010 forward → runner ack `snapshot saved`), but the ack carried no id, so correlation was by timestamp alone. `ControlChannel.send(..., origin_id=None)` now carries the remote id into the local queue (key omitted when absent — console payload unchanged) and the runner ack ends `[id=<local> origin=<remote>]`. **Poller half live on the next poll after merge; runner half only from the first runner boot after the merge commit** — a pre-boot ack without the tag is expected, not a regression. Acks still go to `events.jsonl` (rotates), NOT the audit chain | `runner.py` `handle_command`; `core/runtime.py` `ControlChannel.send`; `scripts/remote_control.py` `poll_once`; pins `test_ack_carries_local_and_remote_command_ids`, `test_origin_id_rides_the_queue_only_when_given`, `test_command_round_trip_exactly_once` (mutation-verified 3/3) |
 | **v10 dark-pool schema went live mid-era unadjudicated — RULED B: split the read (09-23)** *(settled; do not re-litigate)* | The sibling session's diff (commit 12a164f06, schema v9→v10) activated in the runner **2026-09-21T20:25:20Z** (derived from first `avail_darkpool != ''`), retired the v9 champion via the registry width-guard, and put 632 lit dark-pool rows into the entry scorer's space — a cohort-resetting entry-decisioning change that should have been a held branch. Ruling B: era-9 keeps accruing; **the n=100 verdict reads on the uncontaminated v9 cohort** (cohort = entry time; the diff touched no exit/sizing code). `era_readout` now prints v9/v10 beside pooled with a DERIVED cutoff. First split: v9 n=51 net −0.4655 CI [−0.6858, −0.2558] lean ACT-negative; v10 n=9 net −0.4467. Tree settlement closed the same morning (foreign diff committed green at 5610 tests, `research/` + `.playwright-mcp/` gitignored). | `docs/quant/2026-09-23_v10_cohort_split_ruling.md`; `scripts/era_readout.py` `cohort_cutoff`; `docs/session-bus.md` 09-23 |

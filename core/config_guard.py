@@ -769,6 +769,23 @@ def _label_cost_vs_booked_checks(config: dict) -> list:
              f"together (scripts/cut12_stage.py) or not at all.")]
 
 
+def _validate_darkpool(config: dict, fatal) -> None:
+    """darkpool weekly mirror (optional, read-only; F1 2026-09-26).
+    max_data_age_days gates a STALE mirror to unavailable (neutral dp_*
+    features). Absent/None = gate off; a non-positive value would mark
+    every mirror stale forever, silently - fail loud instead. Its own
+    function: validate() sits at pyright's complexity ceiling."""
+    if not bool(_f(config, "darkpool.enabled", False)):
+        return
+    d_poll = float(_f(config, "darkpool.poll_minutes", 360.0))
+    if d_poll <= 0:
+        fatal(f"darkpool.poll_minutes={d_poll} must be > 0")
+    d_age = _f(config, "darkpool.max_data_age_days", None)
+    if d_age is not None and not (float(d_age) > 0):
+        fatal(f"darkpool.max_data_age_days={d_age} must be > 0 or "
+              f"absent (gate off)")
+
+
 def validate(config: dict) -> list:
     """Pure check: returns [(severity, message), ...]. No side effects."""
     findings = []
@@ -3816,18 +3833,7 @@ def validate(config: dict) -> list:
                              f"{ck_cap} exceeds 300s - a systematic desync "
                              f"could go uncorrected for a long time"))
 
-    # --- darkpool weekly mirror (optional, read-only; F1 2026-09-26) -----
-    # max_data_age_days gates a STALE mirror to unavailable (neutral dp_*
-    # features). Absent/None = gate off; a non-positive value would mark
-    # every mirror stale forever, silently - fail loud instead.
-    if bool(_f(config, "darkpool.enabled", False)):
-        d_poll = float(_f(config, "darkpool.poll_minutes", 360.0))
-        if d_poll <= 0:
-            fatal(f"darkpool.poll_minutes={d_poll} must be > 0")
-        d_age = _f(config, "darkpool.max_data_age_days", None)
-        if d_age is not None and not (float(d_age) > 0):
-            fatal(f"darkpool.max_data_age_days={d_age} must be > 0 or "
-                  f"absent (gate off)")
+    _validate_darkpool(config, fatal)
 
     # --- moomoo equities context (optional, read-only) -------------------
     # Degrades to neutral on any failure, so bad config can't stop the bot -

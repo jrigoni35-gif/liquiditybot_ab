@@ -78,7 +78,8 @@ def decision_config(config: dict) -> dict:
             val = {k: v for k, v in val.items()
                    if k not in NON_DECISION_SYSTEM_KEYS}
         out[sec] = val
-    return _strip_docs(out)
+    stripped = _strip_docs(out)
+    return stripped if isinstance(stripped, dict) else {}
 
 
 def config_fingerprint(config: dict) -> str:

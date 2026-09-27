@@ -99,10 +99,12 @@ core:
   a hash of the decision-relevant config (fail-closed: unknown keys count)
   plus the docstring-stripped AST of the decision-path code, derived at
   boot and stamped on every fill (`fills.csv` `decision_fp`, audit
-  `CG-000`, `status.json`). Changes to entry decisioning, sizing, exits,
-  the fill simulator, fees, the order lifecycle, the universe, the hedger,
-  the probe ticket or the heat cap are ALLOWED under operator direction:
-  they FORK a new cohort automatically and banked trips keep their own
+  `CG-000`, `status.json`). The fork axes (a change to any of these forks
+  the cohort): entry decisioning, position sizing, stop/exit geometry
+  (placement, nudges, time limits), the fill simulator, fee booking, the
+  order lifecycle, the universe, the hedger, the probe ticket, or the heat
+  cap. **Changes on these axes are ALLOWED under operator direction:** they
+  FORK a new cohort automatically and banked trips keep their own
   read. Each still needs a short decision record in `docs/quant/` (what,
   why, which lever). A fork is pooled back only by an evidenced entry in
   `docs/law/cohort_equivalence.json`. **Hard invariants 1–7 are unchanged

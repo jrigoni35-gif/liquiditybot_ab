@@ -58,7 +58,7 @@ def test_the_fence_count_matches_claude_md_not_a_remembered_number():
     """
     axes, _ = ab.moratorium_axes()
     law = (REPO / "CLAUDE.md").read_text(encoding="utf-8", errors="replace")
-    assert "COHORT-RESETTING" in law
+    assert "COHORT-FORKING" in law        # renamed 2026-09-26; same ten axes
     assert len(axes) == 10, (
         f"parsed {len(axes)} axes: {axes}. Read CLAUDE.md before changing this "
         f"pin - a fence short by one axis restarts an era by accident.")

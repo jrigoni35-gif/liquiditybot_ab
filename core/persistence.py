@@ -77,6 +77,22 @@ def position_to_dict(pos) -> dict:
     }
 
 
+def _tier_snapshots_from(raw) -> dict:
+    """R2: tolerant restore - a malformed entry is DROPPED (that tier
+    falls back to live sigma), never raised: an exception here would
+    abort the portfolio section and lose every later position."""
+    out = {}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                continue
+            if f == f and f not in (float("inf"), float("-inf")) and f > 0:
+                out[str(k)] = f
+    return out
+
+
 def position_from_dict(d: dict):
     from core.state import Position
     return Position(
@@ -114,8 +130,8 @@ def position_from_dict(d: dict):
         # decisioning-coupling R2: pre-R2 snapshots lack this key ->
         # default empty dict, so a restored legacy position's tiers keep
         # live-recomputing every cycle exactly as before.
-        tier_trigger_snapshots={str(k): float(v) for k, v in
-                                (d.get("tier_trigger_snapshots") or {}).items()},
+        tier_trigger_snapshots=_tier_snapshots_from(
+            d.get("tier_trigger_snapshots")),
     )
 
 

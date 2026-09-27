@@ -92,8 +92,10 @@ def moratorium_axes() -> tuple[list[str], str]:
         txt = law.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return [], "CLAUDE.md unreadable"
+    # COHORT-FORKING (operator ruling 2026-09-26) replaced COHORT-RESETTING;
+    # the axes are the same ten, now listed after "The fork axes (...):".
     m = re.search(
-        r"COHORT-RESETTING.*?restarts accrual\)\s*:(.*?)(?:\*\*|\Z)",
+        r"COHORT-FORKING.*?fork axes \(.*?\)\s*:(.*?)(?:\*\*|\Z)",
         txt, re.DOTALL)
     if not m:
         return [], "parse failed - CLAUDE.md wording changed"
@@ -231,7 +233,8 @@ CONTRACT = """\
   as its corpus. "0 findings" and "the scan is broken" are the SAME observation
   until separated - say which you established.
 - EVERY finding and EVERY proposal carries its moratorium class:
-  SAFE | COHORT-RESETTING | OPERATOR-DOCKET | NEEDS-LIVE-DATA.
+  SAFE | COHORT-FORKING (needs a decision record) | OPERATOR-DOCKET |
+  NEEDS-LIVE-DATA.
 """
 
 AUTHORING_NOTE = """\
@@ -258,7 +261,7 @@ def render(facts: dict, contract: bool = True, authoring: bool = False) -> str:
     A("## Execution era and the law")
     A(f"- exec_era: {facts['exec_era']}  ordinal: {facts['era_ordinal']}"
       "   (authority: core/fill_ledger.EXEC_ERA)")
-    A(f"- cohort-resetting axes ({facts['cohort_resetting_count']}), "
+    A(f"- cohort-forking axes ({facts['cohort_resetting_count']}), "
       f"{facts['cohort_resetting_source']}:")
     axes = facts["cohort_resetting_axes"]
     if isinstance(axes, list):
@@ -304,7 +307,7 @@ def render(facts: dict, contract: bool = True, authoring: bool = False) -> str:
       f"   stop_widen: {facts['stop_widen']} (neutral 1.0)"
       f"   kelly_mult: {facts['kelly_mult']} (neutral 1.0)")
     A("  These move the ENTRY BAR and STOP GEOMETRY autonomously on cause-share")
-    A("  triggers; both axes are cohort-resetting. If any is off-neutral, say so.")
+    A("  triggers; both axes are cohort-forking. If any is off-neutral, say so.")
     A("")
     A("## Data plane")
     A(f"- kraken ws: {json.dumps(facts['ws_kraken'])}")
