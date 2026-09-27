@@ -464,3 +464,26 @@ def test_an_unclassifiable_corpus_falls_back_LOUDLY_not_silently(tmp_path):
     assert out["codes_seen"], "an unclassifiable corpus reported nothing at all"
     assert "fallback" in out["scope"], (
         f"fell back without saying so - scope reads {out['scope']!r}")
+
+
+def test_off_chain_fork_rows_are_excluded_by_default(tmp_path):
+    """A forked writer's rows (stale prev) interleave the file; the default
+    read drops them and reports how many, main_chain_only=False pools them."""
+    from core.audit import AuditTrail
+    from scripts.reason_chain_report import load_transitions
+    p = tmp_path / "audit.jsonl"
+    a = AuditTrail(str(p), fsync=False)
+    for _ in range(3):
+        a.log("long_book", "LB-010", "m", {"asset": "ETH"})
+    b = AuditTrail(str(p), fsync=False)
+    b.log("dup", "FT-010", "lock lost", {"asset": "ETH"})
+    for _ in range(4):
+        a.log("long_book", "LB-010", "m", {"asset": "ETH"})
+    b.log("dup", "RT-010", "self-terminated", {"asset": "ETH"})
+    out = load_transitions(p, scope="all")
+    assert dict(out["codes_seen"]) == {"LB-010": 7}
+    assert out["off_chain_excluded"] == 2 and out["main_chain_only"] is True
+    pooled = load_transitions(p, scope="all", main_chain_only=False)
+    assert dict(pooled["codes_seen"]) == {"LB-010": 7, "FT-010": 1,
+                                          "RT-010": 1}
+    assert pooled["off_chain_excluded"] == 0
