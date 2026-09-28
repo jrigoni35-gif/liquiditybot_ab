@@ -1,21 +1,21 @@
 {
-  "generated_at": 1790587362.0980434,
+  "generated_at": 1790590963.2197783,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790587352.0,
-    "duration_h": 1921.48
+    "end": 1790590949.0,
+    "duration_h": 1922.48
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 760,
-      "signal_records": 500,
+      "records": 755,
+      "signal_records": 495,
       "by_src": {
         "exploration": 262,
-        "long_book": 123,
-        "conviction": 120,
-        "ml_governor": 111,
+        "long_book": 121,
+        "conviction": 118,
+        "ml_governor": 110,
         "entry_sweep": 96,
         "order_manager": 35,
         "exit": 10,
@@ -34,11 +34,11 @@
         ],
         [
           "LB-010",
-          116
+          114
         ],
         [
           "CV-030",
-          62
+          60
         ],
         [
           "CV-000",
@@ -54,7 +54,7 @@
         ],
         [
           "ML-031",
-          42
+          41
         ],
         [
           "OM-000",
@@ -74,15 +74,15 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.232,
+      "dominant_frac": 0.23,
       "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 2383,
+      "records": 2740,
       "by_level": {
-        "INFO": 2377,
-        "WARNING": 5,
+        "INFO": 2733,
+        "WARNING": 6,
         "CRITICAL": 1
       },
       "top_warnings": [
@@ -105,27 +105,31 @@
         [
           "auto-retrain: 23760 rows (76 new)",
           1
+        ],
+        [
+          "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 157d old (> 35d)) - snapshot degraded",
+          1
         ]
       ],
       "liquidity_tally": {
-        "thin": 274,
-        "spoofy": 11
+        "thin": 322,
+        "spoofy": 22
       },
-      "spoofy_frac": 0.039,
+      "spoofy_frac": 0.064,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 135,
+      "cycles_estimate": 188,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 757.58,
+    "equity_end": 757.77,
     "equity_min": 757.4,
     "equity_max": 806.91,
     "equity_range": 49.51,
     "capital_epochs": 5,
-    "epoch_samples": 258611,
+    "epoch_samples": 258848,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 757.4,
     "lifetime_equity_max": 100000.03,
@@ -133,23 +137,23 @@
     "realized_pnl_total": -25.12,
     "fees_paid_total": 39.9336,
     "open_positions": 5,
-    "samples": 426402
+    "samples": 426639
   },
   "activity": {
-    "signal_rows_total": 34309,
+    "signal_rows_total": 34311,
     "live_labeled_trades": 510,
-    "candidate_rows": 33799
+    "candidate_rows": 33801
   },
   "audit": {
-    "records": 89757,
-    "signal_records": 35527,
+    "records": 89759,
+    "signal_records": 35529,
     "by_src": {
       "exploration": 77295,
       "ml_governor": 3578,
       "long_book": 3574,
       "order_manager": 2265,
       "conviction": 1201,
-      "entry_sweep": 568,
+      "entry_sweep": 570,
       "exit": 415,
       "startup": 346,
       "fault": 327,
@@ -218,8 +222,8 @@
     "chain_seams": 63,
     "chain_torn_tail": false,
     "chain_error": null,
-    "records_all_lines": 91998,
-    "main_chain_records": 89757,
+    "records_all_lines": 92000,
+    "main_chain_records": 89759,
     "off_chain_records": 2241,
     "off_chain_codes": {
       "FW-050": 312,
@@ -348,10 +352,10 @@
     ]
   },
   "events": {
-    "records": 2383,
+    "records": 2740,
     "by_level": {
-      "INFO": 2377,
-      "WARNING": 5,
+      "INFO": 2733,
+      "WARNING": 6,
       "CRITICAL": 1
     },
     "top_warnings": [
@@ -374,15 +378,19 @@
       [
         "auto-retrain: 23760 rows (76 new)",
         1
+      ],
+      [
+        "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 157d old (> 35d)) - snapshot degraded",
+        1
       ]
     ],
     "liquidity_tally": {
-      "thin": 274,
-      "spoofy": 11
+      "thin": 322,
+      "spoofy": 22
     },
-    "spoofy_frac": 0.039,
+    "spoofy_frac": 0.064,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 135,
+    "cycles_estimate": 188,
     "feed_error_events": 0
   },
   "model": {
@@ -413,7 +421,7 @@
       "unavailable": "signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 23921,
+      "triple_barrier_h432": 23923,
       "triple_barrier": 5328,
       "exit_sim": 2820,
       "legacy": 1781,
@@ -433,7 +441,7 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 34309,
+    "corpus_rows": 34311,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
     "corpus_last_ts": "2026-09-28T06:30:00Z",
     "corpus_span_days": 76.75,
