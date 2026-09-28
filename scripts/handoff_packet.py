@@ -95,11 +95,16 @@ def signature_index(path: Path) -> str:
 
 def law_excerpts(task: str, law_dir: Path, cap: int = 6,
                  para_cap: int = 300) -> list[str]:
-    """docs/law/ paragraphs whose keywords overlap the task words."""
+    """docs/law/ paragraphs ranked by how many DISTINCT task keywords they
+    contain; the top `cap` win. It used to return the FIRST `cap` matches
+    in alphabetical file order, so a newly added law file sorting early
+    (conduct_standard.md, 2026-09-27) filled the cap on one-word matches
+    and pushed the moratorium/DoD paragraphs out of every packet. Ties keep
+    file/paragraph order, so output stays deterministic."""
     keys = _keywords(task)
     if not keys or not law_dir.is_dir():
         return []
-    hits = []
+    scored = []
     for md in sorted(law_dir.glob("*.md")):
         try:
             text = md.read_text(encoding="utf-8", errors="replace")
@@ -108,11 +113,11 @@ def law_excerpts(task: str, law_dir: Path, cap: int = 6,
         for para in text.split("\n\n"):
             flat = " ".join(para.split())
             low = flat.lower()
-            if any(k in low for k in keys):
-                hits.append(f"[{md.name}] {flat[:para_cap]}")
-                if len(hits) >= cap:
-                    return hits
-    return hits
+            score = sum(1 for k in keys if k in low)
+            if score:
+                scored.append((-score, len(scored),
+                               f"[{md.name}] {flat[:para_cap]}"))
+    return [s[2] for s in sorted(scored)[:cap]]
 
 
 def diff_hunks(root: Path, since: str | None, line_cap: int = 400) -> str:

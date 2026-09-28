@@ -107,9 +107,26 @@ def test_packet_on_real_repo_fee_task(monkeypatch):
                           REPO, since="main")
     assert "HANDOFF PACKET" in out
     assert "execution/order_manager.py" in out        # routed module
-    assert "era9_moratorium" in out or "definition_of_done" in out
+    # fee-reconciliation law moved to conduct_standard.md (VG-1, PR #6,
+    # 2026-09-27): its paragraph matches 3 of the 4 task keywords, the
+    # moratorium's best matches 1 ("fee"), DoD none - measured, not assumed
+    assert "conduct_standard" in out
     # the packet must not dump whole source files
     assert len(out) < 40000
+
+
+def test_law_excerpts_rank_best_matches_not_first_in_file_order(tmp_path):
+    """First-N in alphabetical order let an early-sorting file fill the cap
+    on one-word matches (2026-09-27). Best-N must win regardless of order."""
+    law = tmp_path / "law"
+    law.mkdir()
+    (law / "a_early.md").write_text(
+        "\n\n".join(f"fee note {i}" for i in range(8)), encoding="utf-8")
+    (law / "z_late.md").write_text(
+        "fee reconciliation mismatch proposal: the real rule",
+        encoding="utf-8")
+    top = hp.law_excerpts("fee reconciliation mismatch proposal", law, cap=3)
+    assert top[0].startswith("[z_late.md]")
 
 
 def test_packet_derives_module_from_task_words(tmp_path):
