@@ -49,15 +49,31 @@ demand; read it there and treat 300 s as a floor under review, not a fact.
 
 Records are never silently dropped: production + synthetic + unclassified
 always equals the input line count, and the tool asserts it.
+
+FORK MODE (`--forks`, 2026-09-27). A structural cut, orthogonal to the
+capital classifier: records NOT on the main hash chain (core.audit.
+main_chain_indices - the longest prev->h lineage) are forked writers.
+`--forks` summarises them (clusters by time gap, code/src counts, CG-000
+config fingerprints) and, with `--write`, copies them verbatim to
+`<name>.forks.jsonl` plus `<name>.forks.summary.json`. The trail is hashed
+before and after and the run raises if one byte moved.
+  python scripts/audit_quarantine.py --forks --trail <audit.jsonl> [--write]
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
+import sys
+import tempfile
 import time
+from collections import Counter
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:     # `python scripts/audit_quarantine.py`
+    sys.path.insert(0, str(REPO_ROOT))  # must resolve core.audit
 DEFAULT_TRAIL = REPO_ROOT / "outputs" / "audit.jsonl"
 SESSION_START = "CG-000"
 
@@ -166,7 +182,217 @@ def seams(records: list, labels: list) -> list:
     return out
 
 
+# --- FORK MODE (--forks, 2026-09-27) ------------------------------------
+# A second, orthogonal cut. The capital classifier above labels SESSIONS;
+# this one asks a structural question the hash chain answers exactly: which
+# records are NOT on the main chain (core.audit.main_chain_indices - the
+# longest prev->h lineage)? Those are forked writers - harness boots that
+# wrote before configure_audit redirected them, and duplicate runners'
+# dispositions written with a stale prev. They are copied to a sibling
+# `<name>.forks.jsonl` (verbatim lines, file order) plus a summary JSON.
+# The original is opened READ-ONLY, hashed before and after, and the run
+# FAILS LOUDLY if a single byte moved - the same evidence rule as above.
+
+FORK_CLUSTER_GAP_S = 600.0     # a new cluster after this much quiet
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _iso(ts) -> "str | None":
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(float(ts)))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def _fingerprint(rec: dict) -> dict:
+    d = rec.get("data") if isinstance(rec.get("data"), dict) else {}
+    return {k: d.get(k) for k in ("config_sha256", "starting_capital_usd",
+                                  "dry_run", "maker_fee_bps",
+                                  "taker_fee_bps")}
+
+
+def fork_summary(records: list, keep: set,
+                 gap_s: float = FORK_CLUSTER_GAP_S) -> dict:
+    """Summarise the off-chain rows of `records` (indices not in `keep`).
+    Unparseable lines (None) are counted separately - they are neither on
+    the chain nor a fork. Clusters split on a ts gap > `gap_s`."""
+    off = [i for i, r in enumerate(records)
+           if r is not None and i not in keep]
+    unparseable = sum(1 for r in records if r is None)
+    main_fp = Counter(
+        json.dumps(_fingerprint(records[i]), sort_keys=True)
+        for i in keep if records[i] is not None
+        and records[i].get("code") == SESSION_START)
+    clusters: list = []
+    cur: list = []
+    last_ts = None
+    for i in off:
+        ts = records[i].get("ts")
+        ts = ts if isinstance(ts, (int, float)) else None
+        if cur and (ts is None or last_ts is None or ts - last_ts > gap_s):
+            clusters.append(cur)
+            cur = []
+        cur.append(i)
+        last_ts = ts if ts is not None else last_ts
+    if cur:
+        clusters.append(cur)
+
+    def _one(idx: list) -> dict:
+        rs = [records[i] for i in idx]
+        tss = [r["ts"] for r in rs if isinstance(r.get("ts"), (int, float))]
+        cg = [r for r in rs if r.get("code") == SESSION_START]
+        fps = Counter(json.dumps(_fingerprint(r), sort_keys=True) for r in cg)
+        return {
+            "first_ts": _iso(min(tss)) if tss else None,
+            "last_ts": _iso(max(tss)) if tss else None,
+            "records": len(rs),
+            "first_line": idx[0] + 1,       # 1-indexed over non-blank lines
+            "codes": dict(Counter(str(r.get("code")) for r in rs)
+                          .most_common()),
+            "srcs": dict(Counter(str(r.get("src")) for r in rs)
+                         .most_common()),
+            "cg000": len(cg),
+            "cg000_fingerprints": [
+                {"n": n, **json.loads(k)} for k, n in fps.most_common()],
+        }
+
+    off_recs = [records[i] for i in off]
+    cg_off = [r for r in off_recs if r.get("code") == SESSION_START]
+    return {
+        "records": sum(1 for r in records if r is not None),
+        "unparseable": unparseable,
+        "main_chain": len(keep),
+        "off_chain": len(off),
+        "gap_sec": gap_s,
+        "codes": dict(Counter(str(r.get("code")) for r in off_recs)
+                      .most_common()),
+        "srcs": dict(Counter(str(r.get("src")) for r in off_recs)
+                     .most_common()),
+        "cg000_off_chain": len(cg_off),
+        "cg000_off_chain_fingerprints": [
+            {"n": n, **json.loads(k)} for k, n in Counter(
+                json.dumps(_fingerprint(r), sort_keys=True)
+                for r in cg_off).most_common()],
+        "cg000_main_chain_fingerprints": [
+            {"n": n, **json.loads(k)} for k, n in main_fp.most_common()],
+        "clusters": [_one(c) for c in clusters],
+    }
+
+
+def fork_paths(trail: Path, out_dir: "Path | None" = None) -> tuple:
+    """(<name>.forks.jsonl, <name>.forks.summary.json) beside the trail
+    (or in `out_dir`)."""
+    d = out_dir if out_dir is not None else trail.parent
+    stem = trail.name[:-len(".jsonl")] if trail.name.endswith(".jsonl") \
+        else trail.name
+    return d / f"{stem}.forks.jsonl", d / f"{stem}.forks.summary.json"
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+        try:
+            os.chmod(tmp, 0o644)       # mkstemp is 0600; a report is not secret
+        except OSError:
+            pass
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def quarantine_forks(trail: Path, out_dir: "Path | None" = None,
+                     write: bool = False,
+                     gap_s: float = FORK_CLUSTER_GAP_S) -> dict:
+    """Read `trail`, summarise its off-chain rows, and (write=True) copy them
+    verbatim to the sibling forks file plus a summary JSON. NEVER writes the
+    trail: refuses an output path that resolves to it, and re-hashes the
+    trail afterwards - a changed digest raises."""
+    from core.audit import main_chain_indices
+    trail = Path(trail)
+    before = _sha256(trail)
+    read_at = time.time()
+    raw_lines: list = []
+    records: list = []
+    with open(trail, "rb") as fh:                  # read-only, binary
+        for raw in fh:
+            line = raw.decode("utf-8", errors="replace").strip()
+            line = line.strip("\x00").strip()
+            if not line:
+                continue
+            raw_lines.append(line)
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                rec = None
+            records.append(rec if isinstance(rec, dict) else None)
+    keep = main_chain_indices(records)
+    summ = fork_summary(records, keep, gap_s)
+    summ.update({"trail": str(trail), "read_at": _iso(read_at),
+                 "trail_sha256": before})
+    forks_p, summ_p = fork_paths(trail, out_dir)
+    summ["forks_path"] = str(forks_p)
+    summ["summary_path"] = str(summ_p)
+    summ["written"] = False
+    if write:
+        tr = trail.resolve()
+        for p in (forks_p, summ_p):
+            if p.resolve() == tr:
+                raise ValueError(f"refusing to write over the trail: {p}")
+        body = "".join(raw_lines[i] + "\n" for i, r in enumerate(records)
+                       if r is not None and i not in keep)
+        _atomic_write_text(forks_p, body)
+        summ["written"] = True
+        _atomic_write_text(summ_p, json.dumps(summ, indent=2) + "\n")
+    after = _sha256(trail)
+    if after != before:
+        raise RuntimeError(f"{trail} CHANGED during quarantine "
+                           f"({before} -> {after}) - it may be a live file "
+                           "being appended; nothing here writes it")
+    return summ
+
+
+def _print_fork_summary(s: dict) -> None:
+    print(f"trail            : {s['trail']}")
+    print(f"read at          : {s['read_at']}  (LIVE FILE - counts are as-of)")
+    print(f"sha256           : {s['trail_sha256']}")
+    print(f"records          : {s['records']}   unparseable: "
+          f"{s['unparseable']}")
+    print(f"main chain       : {s['main_chain']}")
+    print(f"off chain (forks): {s['off_chain']}   "
+          f"(CG-000 among them: {s['cg000_off_chain']})")
+    print(f"off-chain codes  : {s['codes']}")
+    print(f"off-chain srcs   : {s['srcs']}")
+    print(f"\nclusters (gap > {s['gap_sec']:g}s): {len(s['clusters'])}")
+    for c in s["clusters"]:
+        top = dict(list(c["codes"].items())[:5])
+        fp = ""
+        if c["cg000"]:
+            cfgs = {f.get("config_sha256") for f in c["cg000_fingerprints"]}
+            caps: Counter = Counter()
+            for f in c["cg000_fingerprints"]:
+                caps[f.get("starting_capital_usd")] += f["n"]
+            fp = (f"  CG-000 x{c['cg000']} ({len(cfgs)} distinct cfg; "
+                  f"capital {dict(caps)})")
+        print(f"  {c['first_ts']} .. {c['last_ts']}  n={c['records']:<5} "
+              f"{top}{fp}")
+
+
 def main() -> int:
+    if "--forks" in sys.argv[1:]:
+        return main_forks([a for a in sys.argv[1:] if a != "--forks"])
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--trail", default=str(DEFAULT_TRAIL))
     ap.add_argument("--config", default=str(REPO_ROOT / "config.json"))
@@ -250,6 +476,35 @@ def main() -> int:
     print(f"wrote {syn_p}")
     print(f"wrote {seam_p}")
     print(f"\n{trail} is UNMODIFIED - it stays the evidence record.")
+    return 0
+
+
+def main_forks(argv=None) -> int:
+    ap = argparse.ArgumentParser(
+        description="--forks: copy OFF-MAIN-CHAIN audit rows to "
+                    "<name>.forks.jsonl + a summary. Report-only unless "
+                    "--write; the trail itself is never modified.")
+    ap.add_argument("--trail", default=str(DEFAULT_TRAIL))
+    ap.add_argument("--out-dir", default=None,
+                    help="where the sidecars go (default: beside the trail)")
+    ap.add_argument("--gap-sec", type=float, default=FORK_CLUSTER_GAP_S)
+    ap.add_argument("--json", action="store_true",
+                    help="print the summary as JSON")
+    ap.add_argument("--write", action="store_true",
+                    help="write the sidecars; without it this only reports")
+    args = ap.parse_args(argv)
+    s = quarantine_forks(Path(args.trail),
+                         Path(args.out_dir) if args.out_dir else None,
+                         write=args.write, gap_s=args.gap_sec)
+    if args.json:
+        print(json.dumps(s, indent=2))
+    else:
+        _print_fork_summary(s)
+        if s["written"]:
+            print(f"\nwrote {s['forks_path']}\nwrote {s['summary_path']}")
+        else:
+            print("\nreport only - pass --write to emit the sidecars")
+        print(f"\n{s['trail']} is UNMODIFIED (sha256 re-checked).")
     return 0
 
 

@@ -1909,6 +1909,68 @@ def apply_force_dry_sentinel(config: dict, fresh: bool = False,
     return True
 
 
+#: Injection seam for confirm_lock_ownership's settle wait (tests replace
+#: it to plant a peer's claim mid-settle without sleeping).
+_LOCK_SETTLE_SLEEP: Callable[[float], None] = time.sleep
+
+
+def lock_confirm_settle_sec(config: dict, stale_after: float) -> float:
+    """How long a freshly-acquired lock sits before ownership is re-checked.
+
+    Default = two heartbeat periods (system.polling_interval_sec is the
+    heartbeat cadence, runner._hb_sec): long enough that a live peer whose
+    record we displaced has refreshed at least once and a racing claimant's
+    write has landed. Clamped to [1s, stale_after/2] so the settle can never
+    let OUR OWN fresh record age out against the stale window before the
+    heartbeat thread starts. Overridable via system.lock_confirm_settle_sec
+    (absent from config.json on purpose: the default is derived, and adding
+    the key would change the CG-000 config fingerprint for no reason)."""
+    sys_cfg = (config or {}).get("system", {}) or {}
+    try:
+        poll = float(sys_cfg.get("polling_interval_sec", 5.0))
+    except (TypeError, ValueError):
+        poll = 5.0
+    raw = sys_cfg.get("lock_confirm_settle_sec")
+    try:
+        want = float(raw) if raw is not None else 2.0 * poll
+    except (TypeError, ValueError):
+        want = 2.0 * poll
+    if not math.isfinite(want):
+        want = 2.0 * poll
+    return max(1.0, min(want, max(stale_after / 2.0, 1.0)))
+
+
+def confirm_lock_ownership(lock: SingleInstanceLock, settle_sec: float) -> bool:
+    """Boot-time ownership confirmation, run AFTER acquire() and BEFORE the
+    engine is built - i.e. before this process has written a single audit
+    record (the audit singleton is first touched by LiquidityBot
+    construction; importing runner does not construct it).
+
+    WHY. acquire() can return None to more than one process: its own
+    docstring names the create-before-write residue, and the Windows
+    O_EXCL OSError branch falls back to refresh(), which overwrites a lock
+    it cannot read. The runtime backstop (refresh()'s ownership check +
+    forfeit) only fires from the heartbeat thread, i.e. after the loser has
+    already booted an engine and written CG-000/FT-020 (and later
+    FT-010/FT-020/RT-010) into the shared trail with its own seq/prev -
+    measured on the PC trail 2026-09-27 as off-main-chain fork rows.
+
+    WHAT. Wait `settle_sec`, then refresh() once. refresh() is exactly what
+    the heartbeat thread does moments later, so for the WINNER nothing
+    about the lock changes (it rewrites its own record). For a loser - a
+    fresh foreign record now sits in the file - refresh() counts the loss
+    and returns False, and main() exits 3 having written nothing to the
+    audit trail. A heartbeat WRITE failure is not a peer (same rule as
+    refresh()/forfeited) and does not block the boot.
+
+    Returns True when this process owns the lock."""
+    _LOCK_SETTLE_SLEEP(max(float(settle_sec), 0.0))
+    before = lock.lost_count
+    if lock.refresh():
+        return True
+    return lock.lost_count == before       # write failure only: not a peer
+
+
 def main():
     ap = argparse.ArgumentParser(description="liquiditybot v2 runner")
     ap.add_argument("--config", default="config.json")
@@ -1990,6 +2052,20 @@ def main():
                          "(pid=%s, heartbeat %.0fs ago > %.0fs) - refusing to "
                          "start; clear it (stop.bat) or wait for lock expiry.",
                          held.get("pid"), hb_age, _lock.stale_after)
+        raise SystemExit(3)
+
+    # BOOT OWNERSHIP CONFIRMATION (2026-09-27): acquire() returning None is
+    # not proof of sole ownership (see confirm_lock_ownership). Re-check
+    # after a settle, BEFORE the engine exists, so a peer that lost the
+    # race backs off having written zero audit records - its CG-000/FT-020
+    # used to land in the shared trail as fork rows. Nothing below this
+    # line has run yet: no state cleared, no engine, no orders, no audit.
+    _settle = lock_confirm_settle_sec(config, _lock.stale_after)
+    if not confirm_lock_ownership(_lock, _settle):
+        log.warning("outputs/runner.lock was claimed by a live peer during "
+                    "the %.1fs boot settle - this spawn backs off BEFORE "
+                    "building the engine (no audit records written)",
+                    _settle)
         raise SystemExit(3)
 
     if args.fresh:

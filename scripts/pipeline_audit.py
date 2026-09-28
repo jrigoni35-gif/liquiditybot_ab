@@ -23,6 +23,8 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:          # `python scripts/pipeline_audit.py`
+    sys.path.insert(0, str(ROOT))      # must still resolve core.audit
 
 SZ_CODE = re.compile(r"SZ-\d{3}")
 
@@ -103,18 +105,27 @@ def labels_in_window(history_csv: Path, since: float) -> dict:
     return out
 
 
-def audit_code_mix(audit_jsonl: Path, since: float) -> Counter:
+def audit_code_mix(audit_jsonl: Path, since: float,
+                   main_chain_only: bool = True) -> Counter:
+    """Code histogram over records with ts >= since. MAIN CHAIN ONLY by
+    default (2026-09-27): off-chain rows are forked writers (harness boots
+    before configure_audit, duplicate runners) and are not the bot's
+    decision stream - core.audit.main_chain_indices is the shared rule.
+    `main_chain_only=False` restores the pooled every-line read."""
     mix: Counter = Counter()
     if not audit_jsonl.exists():
         return mix
-    with open(audit_jsonl, encoding="utf-8") as f:
-        for line in f:
-            try:
-                r = json.loads(line)
-            except ValueError:
-                continue
-            if float(r.get("ts", 0)) >= since:
-                mix[str(r.get("code", "?"))] += 1
+    from core.audit import read_main_chain
+    recs, keep = read_main_chain(audit_jsonl)
+    for i, r in enumerate(recs):
+        if r is None or (main_chain_only and i not in keep):
+            continue
+        try:
+            ts = float(r.get("ts", 0))
+        except (TypeError, ValueError):
+            continue
+        if ts >= since:
+            mix[str(r.get("code", "?"))] += 1
     return mix
 
 

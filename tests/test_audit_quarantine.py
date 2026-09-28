@@ -286,3 +286,65 @@ def test_the_SHIPPED_default_ceiling_actually_bounds_the_inference():
     assert out[-1][0] == "UNCLASSIFIED", (
         "with the shipped default, a record far past the last confirmed "
         "reading is still claimed as production by inference")
+
+
+# --- --forks mode (2026-09-27): off-main-chain rows -> <name>.forks.jsonl ---
+# Forks are made by REAL AuditTrail writers (a second instance with a stale
+# prev), so the hashes are genuine and the trail verifies as seams-only.
+
+def _forked(tmp_path):
+    from core.audit import AuditTrail
+    p = tmp_path / "audit.jsonl"
+    a = AuditTrail(str(p), fsync=False)
+    a.log("startup", "CG-000", "boot", {"config_sha256": "mainmain",
+                                        "starting_capital_usd": 800})
+    a.log("long_book", "LB-010", "m")
+    b = AuditTrail(str(p), fsync=False)
+    b.log("startup", "CG-000", "harness boot",
+          {"config_sha256": "harness1", "starting_capital_usd": 10000})
+    for _ in range(3):
+        a.log("long_book", "LB-010", "m")
+    b.log("fault", "FT-020", "startup validation passed")
+    return p
+
+
+def test_forks_write_leaves_the_trail_byte_identical(tmp_path):
+    from scripts.audit_quarantine import quarantine_forks
+    p = _forked(tmp_path)
+    before = p.read_bytes()
+    mtime = p.stat().st_mtime_ns
+    s = quarantine_forks(p, write=True)
+    assert p.read_bytes() == before, "the trail must never be modified"
+    assert p.stat().st_mtime_ns == mtime
+    forks = (tmp_path / "audit.forks.jsonl").read_text(encoding="utf-8")
+    lines = before.decode("utf-8").splitlines()
+    # verbatim copies of exactly the two off-chain lines, file order
+    assert forks.splitlines() == [lines[2], lines[6]]
+    assert s["off_chain"] == 2 and s["main_chain"] == 5
+    assert s["codes"] == {"CG-000": 1, "FT-020": 1}
+    assert s["cg000_off_chain_fingerprints"][0]["config_sha256"] == "harness1"
+    summ = json.loads((tmp_path / "audit.forks.summary.json")
+                      .read_text(encoding="utf-8"))
+    assert summ["off_chain"] == 2 and summ["written"] is True
+
+
+def test_forks_default_is_report_only(tmp_path):
+    from scripts.audit_quarantine import quarantine_forks
+    p = _forked(tmp_path)
+    s = quarantine_forks(p)
+    assert s["written"] is False
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["audit.jsonl"]
+
+
+def test_forks_clusters_split_on_the_gap():
+    from scripts.audit_quarantine import fork_summary
+    recs = [{"h": "a", "prev": "0", "ts": 0.0, "code": "X"},
+            {"h": "b", "prev": "a", "ts": 1.0, "code": "X"},
+            {"h": "f1", "prev": "a", "ts": 2.0, "code": "CG-000"},
+            {"h": "c", "prev": "b", "ts": 3.0, "code": "X"},
+            {"h": "f2", "prev": "a", "ts": 5000.0, "code": "FT-020"},
+            {"h": "d", "prev": "c", "ts": 5001.0, "code": "X"}]
+    from core.audit import main_chain_indices
+    s = fork_summary(recs, main_chain_indices(recs), gap_s=600.0)
+    assert s["off_chain"] == 2 and len(s["clusters"]) == 2
+    assert [c["records"] for c in s["clusters"]] == [1, 1]

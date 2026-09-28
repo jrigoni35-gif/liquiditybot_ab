@@ -344,7 +344,7 @@ def _long_book_checks(config: dict) -> list:
     # minutes down to an instant re-attempt loop, or the staleness band
     # down to a hair's width so the bid reprices on every tick. Each floor
     # below is a FATAL, not a WARN: this is the compliance-review pre-live
-    # condition (docs/compliance_market_conduct.md Rule 575-A), not a
+    # condition (docs/law/conduct_standard.md F1 + OD-1), not a
     # tuning preference.
     order_ttl_hours = float(lb.get("order_ttl_hours", 0.0))
     if order_ttl_hours < 1.0:

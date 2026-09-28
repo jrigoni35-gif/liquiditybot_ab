@@ -34,6 +34,8 @@ shipped members below. Registry-hygiene pass 2026-08-17):
   CX  data.context_engine (Compounder Phase B context feed)
   DF  data feeds (data/moomoo_feed.py freeze/degrade detectors)
   LB  risk.long_book (Compounder Phase C long-horizon book)
+  VI  core.venue_integrity (conduct standard VG-1..VG-10: venue-integrity
+      measurements + the kraken_feed error/post-only telemetry counters)
 """
 
 from enum import Enum
@@ -711,6 +713,44 @@ class Code(str, Enum):
     DI_HASH_MISMATCH = "DI-030"      # payload sha256 != content_sha256
     DI_ROWS_MISMATCH = "DI-040"      # counted rows != manifest rows
     DI_SCHEMA_MISMATCH = "DI-050"    # declared columns not all present
+
+    # ---- venue integrity (VI) - core/venue_integrity.py ---------------
+    # docs/law/conduct_standard.md section 3, gaps VG-1..VG-10. SAFE class:
+    # every VI code is a MEASUREMENT disposition (a report line, or a
+    # code_stats counter bumped by data/kraken_feed.py AFTER its return value
+    # is decided). None of them places, sizes, cancels or gates anything; an
+    # acting variant of any VG item is COHORT-RESETTING and needs a new code.
+    VI_CLEAN = "VI-000"              # check ran on its input, no finding
+    VI_NO_LIVE_DATA = "VI-001"       # input holds no live (non-sim) rows:
+                                     # the verdict is ABSENT, not clean
+    VI_FEE_MISMATCH = "VI-010"       # VG-1: charged fee != published tier row
+    VI_FEE_UNRESOLVED = "VI-011"     # VG-1: tier row unresolvable (volume
+                                     # unknown) - never defaulted to a row
+    VI_FILL_ACCEPT_BREACH = "VI-020" # VG-2: registered live fill-acceptance
+                                     # bound breached (report only)
+    VI_FILL_ACCEPT_UNDER_N = "VI-021"  # VG-2: metric below its n-floor
+    VI_SIM_LIVE_GAP = "VI-030"       # VG-3: sim-vs-live fill-rate gap measured
+    VI_ERR_RATE_LIMIT = "VI-040"     # VG-4: venue rate limit / lockout
+    VI_ERR_POST_ONLY = "VI-041"      # VG-4/5: post-only would cross
+    VI_ERR_FUNDS = "VI-042"          # VG-4: insufficient funds / margin
+    VI_ERR_NONCE = "VI-043"          # VG-4: invalid nonce
+    VI_ERR_PERMISSION = "VI-044"     # VG-4: key/permission/auth error
+    VI_ERR_UNAVAILABLE = "VI-045"    # VG-4: EService / internal / busy
+    VI_ERR_ORDER_REJECT = "VI-046"   # VG-4: other EOrder reject
+    VI_ERR_OTHER = "VI-047"          # VG-4: unclassified venue error
+    VI_ERR_TRANSPORT = "VI-048"      # VG-4: request failed below the API
+    VI_POST_ONLY_CANCEL = "VI-050"   # VG-5: venue cancelled a post-only order
+                                     # (counted once per txid)
+    VI_ORPHAN_ORDER = "VI-060"       # VG-6: venue-open order the bot never
+                                     # recorded (never auto-cancelled)
+    VI_STRANDED_ORDER = "VI-061"     # VG-6: bot says terminal, venue says open
+    VI_RECON_MISMATCH = "VI-070"     # VG-7: fills.csv vs venue disagree
+    VI_RECON_UNMATCHED = "VI-071"    # VG-7: order on one side only
+    VI_SELF_CROSS = "VI-080"         # VG-8: own opposite-side fills/orders
+                                     # coincide (self-match footprint)
+    VI_VENUE_STATUS = "VI-090"       # VG-9: pair/system status not online
+    VI_CUSTODY_OVER_TARGET = "VI-100"  # VG-10: on-venue USD above the
+                                       # operator's target
 
 
 def tag(code: Code, detail: str) -> str:

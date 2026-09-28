@@ -120,7 +120,8 @@ def registered_codes() -> set:
 
 
 def load_transitions(audit_path: Path, prefix: str | None = None,
-                     scope: str = "production") -> dict[str, Any]:
+                     scope: str = "production",
+                     main_chain_only: bool = True) -> dict[str, Any]:
     """Per-asset code sequences in `seq` order -> first-order transitions.
 
     SCOPE, added 2026-09-11 after red-team OBJ-6 (BLOCKING, conceded). This read
@@ -202,9 +203,39 @@ def load_transitions(audit_path: Path, prefix: str | None = None,
             keep = set(range(len(labels)))
             scope_effective = "all (fallback: nothing classified as %s)" % scope
 
+    # MAIN CHAIN (2026-09-27, default on). Composes with `scope`: the
+    # capital classifier above labels SESSIONS, while this drops rows that
+    # are not on the longest prev->h lineage at all - forked writers
+    # (harness boots before configure_audit, duplicate runners' pre-exit
+    # dispositions) whose rows interleave a production session and inherit
+    # its label. core.audit.main_chain_indices is the shared rule; the
+    # excluded count is reported, never silent.
+    chain_keep: set | None = None
+    off_chain = 0
+    if main_chain_only:
+        try:
+            from core.audit import read_main_chain
+            _recs, chain_keep = read_main_chain(audit_path)
+            off_chain = len(_recs) - len(chain_keep)
+            if not chain_keep:
+                chain_keep = None           # unreadable/empty: do not zero
+        except Exception:                   # noqa: BLE001 - filter optional
+            log.warning("main-chain filter unavailable - fork rows are "
+                        "included in the transition counts")
+            chain_keep = None
+
     with fh:
-        for line_no, line in enumerate(fh):
-            if labels and line_no not in keep:
+        # index over NON-BLANK lines: that is how both the classifier input
+        # (all_recs) and read_main_chain number records, so a blank line in
+        # the file can no longer shift every later label by one
+        k = -1
+        for line in fh:
+            if not line.strip():
+                continue
+            k += 1
+            if labels and k not in keep:
+                continue
+            if chain_keep is not None and k not in chain_keep:
                 continue
             if '"code"' not in line:
                 continue
@@ -241,6 +272,8 @@ def load_transitions(audit_path: Path, prefix: str | None = None,
         "rows": rows,
         "scope": scope_effective,
         "corpus_split": dict(split),
+        "main_chain_only": chain_keep is not None,
+        "off_chain_excluded": off_chain if chain_keep is not None else 0,
         "codes_seen": seen,
         "unregistered": unregistered,
         "transitions": trans,
@@ -511,6 +544,7 @@ def build_report(prefix: str | None = None,
         "audit_path": loaded["audit_path"],
         "audit_mtime_utc": loaded["audit_mtime_utc"],
         "coded_records": loaded["rows"],
+        "off_chain_excluded": loaded.get("off_chain_excluded", 0),
         "distinct_codes": len(loaded["codes_seen"]),
         "registered_codes": len(registered_codes()),
         "groups": loaded["groups"],
