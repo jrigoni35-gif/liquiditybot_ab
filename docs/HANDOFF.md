@@ -689,6 +689,14 @@ DONE; nothing in them decides anything.
 ## OPEN DOCKET — adjudicate together at the boundary
 - **LOCK-LOSS FORK ROWS — RULED 2026-09-27: LEAVE AS IS.** The operator keeps an ex-owner's post-loss FT-010/FT-020/RT-010 records on the real trail (safety dispositions, invariant 6). They stay off the main chain, and readers exclude them via `core.audit.read_main_chain`. No fault-path change. Reopen only by a new ruling. Authority: this row + `runner.py` `_note_lock_lost`.
 - **CONDUCT STANDARD — RULED 2026-09-27.** The operator ruled: OD-1..OD-12 KEEP ALL at current values (no behavior change, no era reset); VG-2 `LIVE_FILL_ACCEPTANCE` RATIFIED unchanged; pre-live checklist adopted; `stptype` LEFT UNSET, revisit before `ARM LIVE` (VG-8: Kraken's default `cancel-newest` cancels the arriving order, the exit on the OD-9 path [I]). Still open before arming: checklist items 1 (VG-11 key permission) and 3–6. Authority: `docs/law/conduct_standard.md` §2 ruling, `docs/law/pre_live_checklist.md`.
+- **PROBE LANE — RESOLVED 2026-09-28 (operator delegated: "resolve"): KEEP
+  EXPLORING.** Exits are ruled out (replay below), so the bar is reachable
+  only through entries the model EARNS, which needs live labels (504/1200
+  at 09-27); exploration is dry-run hard-gated paper tuition that buys
+  exactly those. Graduating now would freeze the model at its ~0.51
+  ceiling with no label flow. Entry-signal work needs the 2026-08-10
+  model freeze lifted - an operator ruling, NOT overturned by inference;
+  reopen on one operator word. History of the question:
 - **PROBE LANE vs THE FAIR-GAME BAR (2026-09-26; operator choice, open).**
   Every era-9 5m entry was an exploration probe admitted at forced
   p_win 0.85 while the model said 0.39-0.51. At PT 180 / SL 135 the
