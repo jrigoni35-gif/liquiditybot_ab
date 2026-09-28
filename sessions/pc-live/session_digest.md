@@ -2,13 +2,13 @@
 
 **Verdict: SD-011 audit fork carries divergent payloads**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-09-28 22:22 UTC (1934.49h, ~470 cycles)
-- Equity (current capital epoch): $800.00 -> $755.49 (range $51.59) | 5 epochs lifetime, range $99,244.71 | realized PnL (post-close-fee) $-28.55 | fees (all legs) $40.56
+- Window: 2026-07-10 07:53 UTC -> 2026-09-28 23:22 UTC (1935.49h, ~498 cycles)
+- Equity (current capital epoch): $800.00 -> $755.51 (range $51.59) | 5 epochs lifetime, range $99,244.71 | realized PnL (post-close-fee) $-28.55 | fees (all legs) $40.56
 - Activity: 3 open | 513 live labeled trades | 33956 candidates | 435 postmortems
 - Model: level 1 | use_model=True | brier n/a | history_rows 513 | cold=False
-- Audit: 89824 main-chain records (2241 off-chain fork rows excluded from counts) (35589 non-routine) | dominant SZ-047 (63% of non-routine) | chain=SEAMS(63, benign) | retrain_requests 272
-- Liquidity: spoofy 13% of non-liquid cycles | feed errors 1
-- Recent (48h lens): 710 audit records | dominant LB-010 (20% of non-routine) | retrain_requests 7 | spoofy 13% (non-liquid)
+- Audit: 89849 main-chain records (2241 off-chain fork rows excluded from counts) (35598 non-routine) | dominant SZ-047 (63% of non-routine) | chain=SEAMS(63, benign) | retrain_requests 272
+- Liquidity: spoofy 11% of non-liquid cycles | feed errors 1
+- Recent (48h lens): 730 audit records | dominant LB-010 (20% of non-routine) | retrain_requests 7 | spoofy 11% (non-liquid)
 - Eras: current 12-10d4d0c2 | signal_history exec_era: unavailable (signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)) | fills per exec_era: {'prestamp': 1030, '12-10d4d0c2': 205, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4} (1467 rows) | pooling_hazard=True (source fills.exec_era)
 - RAW signal-file span (signal_ts, all 34469 rows on disk): 2026-07-13T12:35:47Z -> 2026-09-28T17:40:00Z (77.21d) - NOT the TRAINED corpus span: era exclusion + the label_era filter drop rows, so the span the champion is SCORED on is shorter. For that one (the MinBTL / Sharpe-SE denominator) run scripts/champion_skill_report.py --json -> corpus_span_days
 
