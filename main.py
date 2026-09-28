@@ -33,6 +33,7 @@ import logging
 import math
 import os
 import random
+import threading
 import time
 import types
 import uuid
@@ -6614,7 +6615,7 @@ class LiquidityBot:
             self.monitor.reconcile_champion_badge(
                 self.meta.oof_brier, model_loaded=self.meta.trained)
         try:
-            self._maybe_auto_retrain()
+            self._launch_auto_retrain()          # C5: heavy half off-thread
         except Exception:
             log.exception("auto-retrain raised - isolated; drift still runs")
         self.monitor.check_drift(self.meta.feature_deciles, FEATURE_NAMES)
@@ -6655,6 +6656,59 @@ class LiquidityBot:
                 f"${venue_eq:,.2f} ({self._equity_drift_pct:+.2f}%). "
                 f"Manual trades, missed fills, or a config error. New "
                 f"entries blocked; reconcile before re-arming.")
+
+    def _launch_auto_retrain(self) -> None:
+        """C5 (2026-09-28): the hourly entry point. The in-process retrain
+        used to run INSIDE cycle_once and hold the per-position stop loop
+        for its whole duration (measured 21-28 s, n=20). Now the gate runs
+        here on the engine thread, the heavy half (_retrain_compute) runs on
+        ONE daemon worker, and _poll_auto_retrain applies the result on the
+        engine thread. Daemon: a `stop` is never held hostage by training
+        (an interrupted job is simply retried by a later gate).
+        ml.auto_retrain_async=false restores the synchronous path."""
+        if not bool((self.config.get("ml", {}) or {})
+                    .get("auto_retrain_async", True)):
+            self._maybe_auto_retrain()
+            return
+        if getattr(self, "_retrain_thread", None) is not None:
+            return                               # one job in flight, never two
+        rows = self.history.row_count()
+        if not self._retrain_gate(rows):
+            return
+        holder: dict = {}
+
+        def _work() -> None:
+            try:
+                holder["job"] = self._retrain_compute(rows)
+            except Exception as exc:             # noqa: BLE001 - re-raised on poll
+                holder["error"] = exc
+
+        self._retrain_holder = holder
+        self._retrain_thread = threading.Thread(
+            target=_work, name="auto-retrain", daemon=True)
+        self._retrain_thread.start()
+
+    def _poll_auto_retrain(self) -> None:
+        """Every cycle, after fast_cycle: when the worker has finished, gate
+        and deploy on the ENGINE thread (so the model is never swapped
+        mid-inference). Failure accounting is identical to the synchronous
+        path: one retrain_failures bump + the same log line. Never raises."""
+        t = getattr(self, "_retrain_thread", None)
+        if t is None or t.is_alive():
+            return
+        holder = getattr(self, "_retrain_holder", None) or {}
+        self._retrain_thread = None
+        self._retrain_holder = None
+        try:
+            if "error" in holder:
+                raise holder["error"]
+            job = holder.get("job")
+            if job is not None:
+                self._retrain_apply(job)
+        except Exception:
+            self._retrain_failures += 1
+            log.exception("auto-retrain failed - keeping current model "
+                          "(retrain_failures=%d)", self._retrain_failures)
 
     def _retrain_gate(self, rows: int) -> bool:
         """Decide whether to ATTEMPT an auto-retrain this cycle (side effect:
@@ -6697,368 +6751,397 @@ class LiquidityBot:
         2, or the flag file exists) and enough NEW labeled rows have accrued,
         retrain in-process on live+candidate history. The challenger only
         deploys if its out-of-fold Brier beats the champion's - the bot
-        never swaps in a worse model just to feel busy."""
+        never swaps in a worse model just to feel busy.
+
+        SYNCHRONOUS form: compute then apply in one call (tests, CLI, and
+        the ml.auto_retrain_async=false fallback). The engine's hourly path
+        uses _launch_auto_retrain/_poll_auto_retrain instead, so the heavy
+        half never blocks the per-position stop loop (C5, 2026-09-28)."""
         rows = self.history.row_count()
         if not self._retrain_gate(rows):
             return
         try:
-            from ml.walkforward import evaluate_and_select
-            from ml.retrain_log import family_metric
-            from ml.models import save_model
-            from ml.calibration import (IsotonicCalibrator, brier_score,
-                                        feature_deciles)
-            sw_cfg = self.config.get("ml", {}).get("sample_weights", {})
-            tele_cfg = self.config.get("ml", {}).get("telemetry", {})
-            epoch_cfg = self.config.get("ml", {}).get("epoch", {})
-            # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
-            # this is the production retrain path - the ONE consumer that must
-            # never drift from what OF-3's PBO measures (docs/quant/
-            # pbo_admission_policy.md's cross-consumer prerequisite).
-            era_cfg = self.config.get("ml", {}).get("era_exclusion", {})
-            X, y, w, sig, res = self.history.load_training_data(
-                half_life_days=float(sw_cfg.get("half_life_days", 30)),
-                candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
-                manip_discount=float(sw_cfg.get("manip_discount", 0.5)),
-                return_label_times=True, weights_cfg=sw_cfg,
-                telemetry_cfg=tele_cfg, epoch_cfg=epoch_cfg, era_cfg=era_cfg)
-            # LP-4: the same feature contract the INFERENCE path enforces
-            # screens the training matrix - a poisoned row must not be
-            # 'fixed' into the weights (rows dropped, never imputed)
-            from ml.contracts import get_contract
-            _keep = get_contract().check_matrix(X)["keep"]
-            if not _keep.all():
-                X, y, w = X[_keep], y[_keep], w[_keep]
-                sig, res = sig[_keep], res[_keep]
-            if len(X) < 60 or y.sum() < 10 or (len(y) - y.sum()) < 10:
-                return
-            log.warning(f"auto-retrain: {len(X)} rows "
-                        f"({rows - self._rows_at_last_train} new)")
-            # sig -> TIME-based fold purge: the deployed champion is selected
-            # on leak-free OOF (row-count purge under-purges bursty signals).
-            # label_span MUST match the labeler's actual horizon (config
-            # label_max_bars) or the purge window and the label window drift.
-            # opt-in adaptive rung: only enters the deployed selection when
-            # ml.adaptive_gbt.enabled (disabled -> extra_models=() -> the
-            # historical in-process ladder, unchanged).
-            _ag = self.config.get('ml', {}).get('adaptive_gbt', {}) or {}
-            # opt-in monotone-constrained GBT rung (T3.4): SHIPPED DISABLED
-            # (ml.gbt_mono.enabled=false) - entering the deployed ladder is
-            # a conscious PBO re-baseline (T3.5 rule), not this task's call.
-            # Constraint feature NAMES are resolved to column indices here
-            # (main.py already imports FEATURE_NAMES at module scope) so
-            # ml/walkforward.py never needs to import ml.features itself.
-            _gm = self.config.get('ml', {}).get('gbt_mono', {}) or {}
-            _gm_constraints = {
-                FEATURE_NAMES.index(_name): int(_sign)
-                for _name, _sign in (_gm.get('constraints') or {}).items()
-                if _name in FEATURE_NAMES} if _gm.get("enabled") else {}
-            _extra = tuple(
-                _name for _name, _on in
-                (("adaptive_gbt", _ag.get("enabled")),
-                 ("gbt_mono", _gm.get("enabled"))) if _on)
-            # EVIDENCE GATE: admit a higher-capacity family only when the
-            # LIVE (ground-truth) label count can support it - don't train
-            # every model when the data gives the complex ones no chance.
-            # Count from the load's own CLEAN pass when available: a raw CSV
-            # scan counts dirty live rows the loader just dropped, making the
-            # floor marginally permissive vs the rows actually entering the fit.
-            _stats = getattr(self.history, "last_load_stats", {}) or {}
-            _n_live = _stats.get("live_clean")
-            if _n_live is None:
-                _sc_fn: Optional[Callable[[], dict]] = getattr(
-                    self.history, "source_counts", None)
-                _n_live = ((_sc_fn() or {}).get("live", 0)
-                           if callable(_sc_fn) else 0)
-            _sel_cfg = self.config.get('ml', {}).get('model_selection') or None
-            results = evaluate_and_select(
-                X, y, sample_weight=w, feature_names=FEATURE_NAMES,
-                label_span=int(self.config.get('ml', {})
-                            .get('label_max_bars', 96)),
-                ensemble_k=int(self.config.get('ml', {})
-                            .get('ensemble_seeds', 3)), sig=sig,
-                extra_models=_extra, adaptive_cfg=_ag,
-                n_live=int(_n_live), select_cfg=_sel_cfg, res=res,
-                gbt_mono_cfg={"constraints": _gm_constraints})
-            self._last_retrain_calib_gap = family_metric(results, "calib_gap")
-            if results.get("gated"):
-                get_audit().log(
-                    "ml_governor", Code.ML_LADDER_GATED,
-                    f"selection gated to {results.get('admitted')} "
-                    f"(skipped {results['gated']}): {_n_live} live labels",
-                    {"admitted": results.get("admitted"),
-                     "gated": results["gated"], "live": int(_n_live),
-                     "total": int(len(X))})
-            sel = results[results["selected"]]
-            cal = IsotonicCalibrator().fit(sel["oof_p"], sel["oof_y"])
-            if not cal.fitted:
-                log.warning(f"ML-014: calibration skipped - only "
-                           f"{len(sel['oof_p'])} OOF points (<20 needed) - "
-                           f"challenger ships with raw, uncalibrated "
-                           f"probabilities")
-                get_audit().log("ml_governor", Code.ML_CALIBRATION_SKIPPED,
-                                f"isotonic PAV had {len(sel['oof_p'])} OOF "
-                                f"points (<20) - auto-retrain challenger "
-                                f"ships uncalibrated",
-                                {"oof_points": int(len(sel["oof_p"]))})
-            # H13: the SHIPPED calibrator above stays the full-pool fit
-            # (the artifact is unchanged), but the GATE score must not be
-            # calibration-in-sample while the champion is rescored strictly
-            # out-of-sample - see cross_fitted_calibrated_oof. This one
-            # vector feeds challenger_brier, the n_oof evidence count and
-            # shared_challenger_brier, so all three move together.
-            _cv_folds = int((self.config.get("ml", {}).get("monitor", {})
-                             or {}).get("gate_calibration_folds", 5))
-            oof_cal = cross_fitted_calibrated_oof(
-                sel["oof_p"], sel["oof_y"], folds=_cv_folds) \
-                if len(sel["oof_p"]) else sel["oof_p"]
-            if not len(oof_cal):
-                # purged walk-forward can produce ZERO out-of-fold points at
-                # small row counts (the purge span swallows every test fold)
-                # - the challenger is then UNSCOREABLE, not "0.25". Say so
-                # instead of letting a fabricated score masquerade as a fair
-                # reject (observed: 88 rows -> 0 OOF -> silent auto-reject).
-                log.warning("auto-retrain unscoreable: 0 OOF points at "
-                            "%d rows (purge span eats the folds) - keeping "
-                            "champion until more labels accrue", len(X))
-                return
-            challenger_brier = brier_score(sel["oof_y"], oof_cal)
-            self._rows_at_last_train = rows
-            oof_idx = results.get("oof_idx", [])
-            # STALE-BADGE GUARD (ML-042): rescore the FROZEN incumbent on
-            # the same fresh OOF rows before gating — its stored brier is
-            # a birth certificate from an older corpus era, and comparing
-            # challengers against it lets an aging champion squat forever
-            # (measured live: badge 0.1887 vs 0.27+ for every honestly-
-            # scored candidate on the current corpus).
-            champ_fresh = self.monitor.rescore_frozen(
-                self.meta.model, self.meta.calibrator, X, y,
-                oof_idx, self.meta.trained_rows,
-                self.monitor.deploy_min_oof)
-            if champ_fresh is not None and \
-                    abs(champ_fresh - self.monitor.champion_brier) > 1e-9:
-                get_audit().log(
-                    "ml_governor", Code.ML_CHAMP_RESCORED,
-                    f"champion rescored on fresh OOF: "
-                    f"{self.monitor.champion_brier:.4f} -> "
-                    f"{champ_fresh:.4f}",
-                    {"old": round(self.monitor.champion_brier, 4),
-                     "new": round(champ_fresh, 4)})
-                log.info("champion badge realigned: %.4f -> %.4f (fresh "
-                         "OOF, rows beyond its training horizon)",
-                         self.monitor.champion_brier, champ_fresh)
-                self.monitor.champion_brier = champ_fresh
-            # W2-2 stale-gate CAS: snapshot the on-disk champion's identity
-            # right before the gate decision. A CLI scripts/train_meta.py run
-            # can race this in-process retrain — both gate a challenger
-            # against the CURRENT champion; whichever writes last must not
-            # silently clobber the other's already-deployed artifact with a
-            # decision made against a champion that no longer exists on
-            # disk. save_model() re-checks this immediately before its write.
-            from ml.registry import sha256_file
-            _model_path_p = Path(self.meta.model_path)
-            try:
-                _prior_hash = (sha256_file(_model_path_p)
-                              if _model_path_p.exists() else None)
-            except OSError:
-                _prior_hash = None
-            # LIKE-FOR-LIKE GATE: should_deploy may only compare champion and
-            # challenger scores drawn from the IDENTICAL row set. Before this,
-            # the champion above was rescored on the fresh OOF tail (base
-            # rate can differ ~79% from the full span — measured live 0.0841
-            # vs 0.1508) while the challenger below was scored over the FULL
-            # oof_idx span: Brier is not comparable across differing base
-            # rates, so the champion won by population, not merit (four
-            # days, 68/68 REJECT — task-champ-report.md). When a real
-            # champion is loaded, gate both scores on the SAME shared rows;
-            # an incomparable pair (too few fresh rows, a rescore fault)
-            # fails CLOSED — promotion is new risk and is never granted by
-            # default. Cold start (no champion loaded yet) has no incumbent
-            # population to match, so should_deploy's own no-champion
-            # clause still decides on the challenger's full-span score,
-            # exactly as before.
-            if self.meta.model is None:
-                _deploy_ok = self.monitor.should_deploy(challenger_brier,
-                                                        n_oof=len(oof_cal))
-            elif int(self.meta.trained_rows) > len(X):
-                # 2026-07-29 ERA-ORPHAN UNLOCK (ML-083): the champion's
-                # trained_rows watermark indexes a corpus POPULATION that
-                # no longer exists - era exclusion (ML-081) rebuilt the
-                # training matrix smaller than the watermark itself
-                # (measured live: champion rows=4823 vs post-exclusion
-                # matrix 1516), so idx >= trained_rows is empty BY
-                # CONSTRUCTION and the fail-closed branch below would
-                # REJECT every retrain forever (observed: RETRAIN flag
-                # stuck QUEUED, deploys structurally impossible). An
-                # unfalsifiable badge may not gate forever (ML-076
-                # doctrine): fall back to the no-champion clause - the
-                # challenger must clear the SAME absolute cold-start bar
-                # (should_deploy's own thresholds; nothing widened), and
-                # the incumbent keeps serving until one does. NOTE: if
-                # the corpus regrows past a stale watermark before any
-                # deploy, indexes would misalign silently - this branch
-                # fires first precisely because the watermark exceeds
-                # the matrix, closing that window with an audit record.
-                # ignore_champion=True (wave-4/5 adversarial-verify fix,
-                # same day): the era-orphaned BADGE is set aside too -
-                # it is a Brier measured on the dead population's base
-                # rate and consulting it kept the deadlock alive in a
-                # softer form (should_deploy's no-champion disjunct only
-                # frees the bar when the badge is >= 0.25; the live
-                # badge is 0.1237). The challenger faces the true
-                # cold-start standard: Brier < 0.25 + deploy_min_oof.
-                get_audit().log(
-                    "ml_governor", Code.ML_CHAMPION_ERA_ORPHAN,
-                    f"champion watermark era-orphaned: trained_rows="
-                    f"{int(self.meta.trained_rows)} > corpus {len(X)} - "
-                    f"like-for-like impossible by construction; deploy "
-                    f"gate applies the cold-start bar with the badge "
-                    f"set aside (era-orphaned, not comparable)",
-                    {"trained_rows": int(self.meta.trained_rows),
-                     "corpus_rows": int(len(X)),
-                     "challenger_brier": float(challenger_brier),
-                     "n_oof": int(len(oof_cal))})
-                _deploy_ok = self.monitor.should_deploy(
-                    challenger_brier, n_oof=len(oof_cal),
-                    ignore_champion=True)
-            else:
-                shared = None if champ_fresh is None else \
-                    self.monitor.shared_challenger_brier(
-                        oof_idx, self.meta.trained_rows,
-                        self.monitor.deploy_min_oof, oof_cal, y)
-                if shared is None:
-                    n_shared = int(np.sum(
-                        np.asarray(oof_idx, int) >=
-                        int(self.meta.trained_rows)))
-                    detail = {"decision": "REJECT", "n_shared": n_shared,
-                             "deploy_min_oof": self.monitor.deploy_min_oof}
-                    get_audit().log(
-                        "ml_governor", Code.ML_DEPLOY_REJECT,
-                        "challenger rejected: no like-for-like shared row "
-                        f"set could be built vs the frozen champion "
-                        f"({n_shared} candidate fresh OOF rows, "
-                        f"deploy_min_oof={self.monitor.deploy_min_oof}) - "
-                        f"comparing populations with different label base "
-                        f"rates is refused, fail-closed", detail)
-                    log.info("challenger brier=%.4f vs frozen champion: no "
-                             "honest shared row set (%d candidate fresh "
-                             "rows, deploy_min_oof=%d) -> REJECT "
-                             "(fail-closed)", challenger_brier, n_shared,
-                             self.monitor.deploy_min_oof)
-                    _deploy_ok = False
-                else:
-                    _shared_brier, n_shared = shared
-                    _deploy_ok = self.monitor.should_deploy(
-                        _shared_brier, n_oof=n_shared)
-            # continuous learning curve: one history row per retrain,
-            # deployed or rejected (ml/retrain_log)
-            from ml import retrain_log as _rl
-            from ml.retrain_log import append_retrain, retrain_record
-            # incumbent watermark for the orphan-ratio column. Read HERE, i.e.
-            # before any deploy swaps the champion, and getattr-guarded for the
-            # same reason as the retirement capture below: a report column may
-            # never be the reason a retrain aborts.
-            _tr_watermark = getattr(self.meta, "trained_rows", None)
-            append_retrain(
-                self.config.get("ml", {}).get(
-                    "retrain_history_path",
-                    _rl.RETRAIN_HISTORY_PATH_DEFAULT),
-                retrain_record(time.time(), "auto", results, len(X),
-                               int(_n_live), challenger_brier,
-                               self.monitor.champion_brier, _deploy_ok,
-                               trained_rows=(int(_tr_watermark)
-                                             if _tr_watermark else None)))
-            if not _deploy_ok:
-                return
-            from ml.interpret import background_sample
-            from ml.registry import sha256_array
-            saved = save_model(results["model"], self.meta.model_path,
-                    extra={"calibration": cal.to_dict(),
-                            "oof_brier": challenger_brier,
-                            "feature_deciles": feature_deciles(X),
-                            # history-spanning background so interventional
-                            # SHAP (scripts/interpret_report.py) is defined
-                            # for THIS artifact without the training corpus
-                            "background": background_sample(
-                                X, int(self.config.get("ml", {})
-                                       .get("interpret", {})
-                                       .get("background_rows", 64))),
-                            # walk-forward importance under its OWN key:
-                            # "importance" would overwrite the gbt model's
-                            # internal {idx: gain} dict in save_model's
-                            # d.update(extra), so an auto-deployed gbt lost its
-                            # gain importance while a CLI-deployed one kept it.
-                            # Match scripts/train_meta.py's key.
-                            "wf_importance": results.get("importance", []),
-                            "rows": int(len(X)),
-                            "class_balance": round(float(y.mean()), 3),
-                            "train_data_sha": sha256_array(X)},
-                    expect_prior_sha256=_prior_hash)
-            if not saved:
-                # W2-2: a concurrent writer (CLI train_meta.py) already
-                # deployed to model_path since this gate read the champion -
-                # this challenger was gated against a champion that no
-                # longer exists on disk. Discard it rather than clobber the
-                # newer artifact; the next cycle re-gates against whatever
-                # actually landed.
-                log.warning("auto-retrain challenger gated OK but a "
-                           "concurrent writer already deployed to %s since "
-                           "the gate read - discarding this challenger "
-                           "instead of overwriting the newer artifact",
-                           self.meta.model_path)
-                return
-            # Capture the OUTGOING champion BEFORE reload() swaps it: a
-            # retirement is only recordable while its identity is still the
-            # loaded one, and prev_trained_rows read AFTER reload would be the
-            # incoming model's watermark, which is the opposite of the number
-            # wanted. `note("retired")` has existed since the registry shipped
-            # and had never been called by anything.
-            # getattr-guarded because this is OBSERVABILITY: it must degrade to
-            # "unknown", never raise into the retrain path. Caught by
-            # test_auto_retrain_stale_gate_cas when a bare attribute read here
-            # aborted a deploy through the outer fail-safe — lineage has no
-            # business deciding whether a retrain completes.
-            _outgoing_id = str(getattr(self.meta, "model_id", "") or "")
-            _outgoing_rows = getattr(self.meta, "trained_rows", None)
-            self.meta.reload()
-            self.monitor.note_deployed(challenger_brier)
-            # ML-060 LINEAGE GAP (found 2026-08-14): outputs/models/
-            # registry.jsonl held 134 "registered" events and ZERO "deployed"
-            # ones, so the ledger could not answer the question its own
-            # docstring promises — "which model was making decisions at
-            # 3:47am on Tuesday". ml/models.py:404 registers on SAVE;
-            # becoming CHAMPION happens only here, so this is the one honest
-            # place to record it. Wrapped: lineage must never be able to take
-            # down the retrain path it is only observing.
-            try:
-                from ml.registry import get_registry
-                _reg = get_registry()
-                _new_id = str(self.meta.model_id or "")
-                _reg.note(
-                    "deployed", _new_id,
-                    {"oof_brier": float(challenger_brier),
-                     "family": str(results.get("selected")),
-                     "rows": int(len(X)),
-                     # the OUTGOING champion's watermark (captured pre-reload),
-                     # so a reader sees the orphan ratio that gated — or
-                     # bypassed — this promotion without joining another ledger
-                     "prev_trained_rows": (int(_outgoing_rows)
-                                           if _outgoing_rows else None),
-                     "source": "auto_retrain"})
-                # the other half of a lifecycle the ledger has never recorded:
-                # a promotion RETIRES the model it replaces. Guarded on a real
-                # change so a no-op reload cannot retire a live champion.
-                if _outgoing_id and _outgoing_id != _new_id:
-                    _reg.note("retired", _outgoing_id,
-                              {"superseded_by": _new_id,
-                               "reason": "auto_retrain_promotion"})
-            except Exception:                        # noqa: BLE001
-                log.debug("registry deployed-note failed", exc_info=True)
-            log.warning(f"auto-retrain DEPLOYED {results['selected']} "
-                        f"(oof brier {challenger_brier:.4f})")
+            job = self._retrain_compute(rows)
+            if job is not None:
+                self._retrain_apply(job)
         except Exception:
             self._retrain_failures += 1
             log.exception("auto-retrain failed - keeping current model "
                           "(retrain_failures=%d)", self._retrain_failures)
+
+    def _retrain_compute(self, rows: int) -> Optional[dict]:
+        """HEAVY half of the auto-retrain (C5): load the corpus, run the
+        walk-forward selection, fit calibration, score the challenger.
+        Touches NO model/champion/monitor state, so it is safe on a worker
+        thread; its audit records go through AuditTrail's own lock. Returns
+        None when there is nothing to gate (too few rows / unscoreable)."""
+        from ml.walkforward import evaluate_and_select
+        from ml.retrain_log import family_metric
+        from ml.calibration import IsotonicCalibrator, brier_score
+        sw_cfg = self.config.get("ml", {}).get("sample_weights", {})
+        tele_cfg = self.config.get("ml", {}).get("telemetry", {})
+        epoch_cfg = self.config.get("ml", {}).get("epoch", {})
+        # era-gated training exclusion (docs/quant/2026-07-26_era_exclusion.md):
+        # this is the production retrain path - the ONE consumer that must
+        # never drift from what OF-3's PBO measures (docs/quant/
+        # pbo_admission_policy.md's cross-consumer prerequisite).
+        era_cfg = self.config.get("ml", {}).get("era_exclusion", {})
+        X, y, w, sig, res = self.history.load_training_data(
+            half_life_days=float(sw_cfg.get("half_life_days", 30)),
+            candidate_weight=float(sw_cfg.get("candidate_weight", 0.4)),
+            manip_discount=float(sw_cfg.get("manip_discount", 0.5)),
+            return_label_times=True, weights_cfg=sw_cfg,
+            telemetry_cfg=tele_cfg, epoch_cfg=epoch_cfg, era_cfg=era_cfg)
+        # LP-4: the same feature contract the INFERENCE path enforces
+        # screens the training matrix - a poisoned row must not be
+        # 'fixed' into the weights (rows dropped, never imputed)
+        from ml.contracts import get_contract
+        _keep = get_contract().check_matrix(X)["keep"]
+        if not _keep.all():
+            X, y, w = X[_keep], y[_keep], w[_keep]
+            sig, res = sig[_keep], res[_keep]
+        if len(X) < 60 or y.sum() < 10 or (len(y) - y.sum()) < 10:
+            return None
+        log.warning(f"auto-retrain: {len(X)} rows "
+                    f"({rows - self._rows_at_last_train} new)")
+        # sig -> TIME-based fold purge: the deployed champion is selected
+        # on leak-free OOF (row-count purge under-purges bursty signals).
+        # label_span MUST match the labeler's actual horizon (config
+        # label_max_bars) or the purge window and the label window drift.
+        # opt-in adaptive rung: only enters the deployed selection when
+        # ml.adaptive_gbt.enabled (disabled -> extra_models=() -> the
+        # historical in-process ladder, unchanged).
+        _ag = self.config.get('ml', {}).get('adaptive_gbt', {}) or {}
+        # opt-in monotone-constrained GBT rung (T3.4): SHIPPED DISABLED
+        # (ml.gbt_mono.enabled=false) - entering the deployed ladder is
+        # a conscious PBO re-baseline (T3.5 rule), not this task's call.
+        # Constraint feature NAMES are resolved to column indices here
+        # (main.py already imports FEATURE_NAMES at module scope) so
+        # ml/walkforward.py never needs to import ml.features itself.
+        _gm = self.config.get('ml', {}).get('gbt_mono', {}) or {}
+        _gm_constraints = {
+            FEATURE_NAMES.index(_name): int(_sign)
+            for _name, _sign in (_gm.get('constraints') or {}).items()
+            if _name in FEATURE_NAMES} if _gm.get("enabled") else {}
+        _extra = tuple(
+            _name for _name, _on in
+            (("adaptive_gbt", _ag.get("enabled")),
+             ("gbt_mono", _gm.get("enabled"))) if _on)
+        # EVIDENCE GATE: admit a higher-capacity family only when the
+        # LIVE (ground-truth) label count can support it - don't train
+        # every model when the data gives the complex ones no chance.
+        # Count from the load's own CLEAN pass when available: a raw CSV
+        # scan counts dirty live rows the loader just dropped, making the
+        # floor marginally permissive vs the rows actually entering the fit.
+        _stats = getattr(self.history, "last_load_stats", {}) or {}
+        _n_live = _stats.get("live_clean")
+        if _n_live is None:
+            _sc_fn: Optional[Callable[[], dict]] = getattr(
+                self.history, "source_counts", None)
+            _n_live = ((_sc_fn() or {}).get("live", 0)
+                       if callable(_sc_fn) else 0)
+        _sel_cfg = self.config.get('ml', {}).get('model_selection') or None
+        results = evaluate_and_select(
+            X, y, sample_weight=w, feature_names=FEATURE_NAMES,
+            label_span=int(self.config.get('ml', {})
+                        .get('label_max_bars', 96)),
+            ensemble_k=int(self.config.get('ml', {})
+                        .get('ensemble_seeds', 3)), sig=sig,
+            extra_models=_extra, adaptive_cfg=_ag,
+            n_live=int(_n_live), select_cfg=_sel_cfg, res=res,
+            gbt_mono_cfg={"constraints": _gm_constraints})
+        self._last_retrain_calib_gap = family_metric(results, "calib_gap")
+        if results.get("gated"):
+            get_audit().log(
+                "ml_governor", Code.ML_LADDER_GATED,
+                f"selection gated to {results.get('admitted')} "
+                f"(skipped {results['gated']}): {_n_live} live labels",
+                {"admitted": results.get("admitted"),
+                 "gated": results["gated"], "live": int(_n_live),
+                 "total": int(len(X))})
+        sel = results[results["selected"]]
+        cal = IsotonicCalibrator().fit(sel["oof_p"], sel["oof_y"])
+        if not cal.fitted:
+            log.warning(f"ML-014: calibration skipped - only "
+                       f"{len(sel['oof_p'])} OOF points (<20 needed) - "
+                       f"challenger ships with raw, uncalibrated "
+                       f"probabilities")
+            get_audit().log("ml_governor", Code.ML_CALIBRATION_SKIPPED,
+                            f"isotonic PAV had {len(sel['oof_p'])} OOF "
+                            f"points (<20) - auto-retrain challenger "
+                            f"ships uncalibrated",
+                            {"oof_points": int(len(sel["oof_p"]))})
+        # H13: the SHIPPED calibrator above stays the full-pool fit
+        # (the artifact is unchanged), but the GATE score must not be
+        # calibration-in-sample while the champion is rescored strictly
+        # out-of-sample - see cross_fitted_calibrated_oof. This one
+        # vector feeds challenger_brier, the n_oof evidence count and
+        # shared_challenger_brier, so all three move together.
+        _cv_folds = int((self.config.get("ml", {}).get("monitor", {})
+                         or {}).get("gate_calibration_folds", 5))
+        oof_cal = cross_fitted_calibrated_oof(
+            sel["oof_p"], sel["oof_y"], folds=_cv_folds) \
+            if len(sel["oof_p"]) else sel["oof_p"]
+        if not len(oof_cal):
+            # purged walk-forward can produce ZERO out-of-fold points at
+            # small row counts (the purge span swallows every test fold)
+            # - the challenger is then UNSCOREABLE, not "0.25". Say so
+            # instead of letting a fabricated score masquerade as a fair
+            # reject (observed: 88 rows -> 0 OOF -> silent auto-reject).
+            log.warning("auto-retrain unscoreable: 0 OOF points at "
+                        "%d rows (purge span eats the folds) - keeping "
+                        "champion until more labels accrue", len(X))
+            return None
+        challenger_brier = brier_score(sel["oof_y"], oof_cal)
+        return {"rows": rows, "X": X, "y": y, "results": results,
+                "cal": cal, "oof_cal": oof_cal,
+                "challenger_brier": challenger_brier,
+                "n_live": _n_live}
+
+    def _retrain_apply(self, job: dict) -> None:
+        """MAIN-THREAD half (C5): rescore the CURRENT champion, gate, log the
+        learning curve, save with the stale-gate CAS, reload, and record
+        lineage. Runs on the engine thread only, so the loaded model is
+        never swapped mid-inference and an externally adopted champion
+        that landed during training is the one the challenger faces."""
+        from ml.models import save_model
+        from ml.calibration import feature_deciles
+        rows, X, y = job["rows"], job["X"], job["y"]
+        results, cal, oof_cal = job["results"], job["cal"], job["oof_cal"]
+        challenger_brier, _n_live = job["challenger_brier"], job["n_live"]
+        self._rows_at_last_train = rows
+        oof_idx = results.get("oof_idx", [])
+        # STALE-BADGE GUARD (ML-042): rescore the FROZEN incumbent on
+        # the same fresh OOF rows before gating — its stored brier is
+        # a birth certificate from an older corpus era, and comparing
+        # challengers against it lets an aging champion squat forever
+        # (measured live: badge 0.1887 vs 0.27+ for every honestly-
+        # scored candidate on the current corpus).
+        champ_fresh = self.monitor.rescore_frozen(
+            self.meta.model, self.meta.calibrator, X, y,
+            oof_idx, self.meta.trained_rows,
+            self.monitor.deploy_min_oof)
+        if champ_fresh is not None and \
+                abs(champ_fresh - self.monitor.champion_brier) > 1e-9:
+            get_audit().log(
+                "ml_governor", Code.ML_CHAMP_RESCORED,
+                f"champion rescored on fresh OOF: "
+                f"{self.monitor.champion_brier:.4f} -> "
+                f"{champ_fresh:.4f}",
+                {"old": round(self.monitor.champion_brier, 4),
+                 "new": round(champ_fresh, 4)})
+            log.info("champion badge realigned: %.4f -> %.4f (fresh "
+                     "OOF, rows beyond its training horizon)",
+                     self.monitor.champion_brier, champ_fresh)
+            self.monitor.champion_brier = champ_fresh
+        # W2-2 stale-gate CAS: snapshot the on-disk champion's identity
+        # right before the gate decision. A CLI scripts/train_meta.py run
+        # can race this in-process retrain — both gate a challenger
+        # against the CURRENT champion; whichever writes last must not
+        # silently clobber the other's already-deployed artifact with a
+        # decision made against a champion that no longer exists on
+        # disk. save_model() re-checks this immediately before its write.
+        from ml.registry import sha256_file
+        _model_path_p = Path(self.meta.model_path)
+        try:
+            _prior_hash = (sha256_file(_model_path_p)
+                          if _model_path_p.exists() else None)
+        except OSError:
+            _prior_hash = None
+        # LIKE-FOR-LIKE GATE: should_deploy may only compare champion and
+        # challenger scores drawn from the IDENTICAL row set. Before this,
+        # the champion above was rescored on the fresh OOF tail (base
+        # rate can differ ~79% from the full span — measured live 0.0841
+        # vs 0.1508) while the challenger below was scored over the FULL
+        # oof_idx span: Brier is not comparable across differing base
+        # rates, so the champion won by population, not merit (four
+        # days, 68/68 REJECT — task-champ-report.md). When a real
+        # champion is loaded, gate both scores on the SAME shared rows;
+        # an incomparable pair (too few fresh rows, a rescore fault)
+        # fails CLOSED — promotion is new risk and is never granted by
+        # default. Cold start (no champion loaded yet) has no incumbent
+        # population to match, so should_deploy's own no-champion
+        # clause still decides on the challenger's full-span score,
+        # exactly as before.
+        if self.meta.model is None:
+            _deploy_ok = self.monitor.should_deploy(challenger_brier,
+                                                    n_oof=len(oof_cal))
+        elif int(self.meta.trained_rows) > len(X):
+            # 2026-07-29 ERA-ORPHAN UNLOCK (ML-083): the champion's
+            # trained_rows watermark indexes a corpus POPULATION that
+            # no longer exists - era exclusion (ML-081) rebuilt the
+            # training matrix smaller than the watermark itself
+            # (measured live: champion rows=4823 vs post-exclusion
+            # matrix 1516), so idx >= trained_rows is empty BY
+            # CONSTRUCTION and the fail-closed branch below would
+            # REJECT every retrain forever (observed: RETRAIN flag
+            # stuck QUEUED, deploys structurally impossible). An
+            # unfalsifiable badge may not gate forever (ML-076
+            # doctrine): fall back to the no-champion clause - the
+            # challenger must clear the SAME absolute cold-start bar
+            # (should_deploy's own thresholds; nothing widened), and
+            # the incumbent keeps serving until one does. NOTE: if
+            # the corpus regrows past a stale watermark before any
+            # deploy, indexes would misalign silently - this branch
+            # fires first precisely because the watermark exceeds
+            # the matrix, closing that window with an audit record.
+            # ignore_champion=True (wave-4/5 adversarial-verify fix,
+            # same day): the era-orphaned BADGE is set aside too -
+            # it is a Brier measured on the dead population's base
+            # rate and consulting it kept the deadlock alive in a
+            # softer form (should_deploy's no-champion disjunct only
+            # frees the bar when the badge is >= 0.25; the live
+            # badge is 0.1237). The challenger faces the true
+            # cold-start standard: Brier < 0.25 + deploy_min_oof.
+            get_audit().log(
+                "ml_governor", Code.ML_CHAMPION_ERA_ORPHAN,
+                f"champion watermark era-orphaned: trained_rows="
+                f"{int(self.meta.trained_rows)} > corpus {len(X)} - "
+                f"like-for-like impossible by construction; deploy "
+                f"gate applies the cold-start bar with the badge "
+                f"set aside (era-orphaned, not comparable)",
+                {"trained_rows": int(self.meta.trained_rows),
+                 "corpus_rows": int(len(X)),
+                 "challenger_brier": float(challenger_brier),
+                 "n_oof": int(len(oof_cal))})
+            _deploy_ok = self.monitor.should_deploy(
+                challenger_brier, n_oof=len(oof_cal),
+                ignore_champion=True)
+        else:
+            shared = None if champ_fresh is None else \
+                self.monitor.shared_challenger_brier(
+                    oof_idx, self.meta.trained_rows,
+                    self.monitor.deploy_min_oof, oof_cal, y)
+            if shared is None:
+                n_shared = int(np.sum(
+                    np.asarray(oof_idx, int) >=
+                    int(self.meta.trained_rows)))
+                detail = {"decision": "REJECT", "n_shared": n_shared,
+                         "deploy_min_oof": self.monitor.deploy_min_oof}
+                get_audit().log(
+                    "ml_governor", Code.ML_DEPLOY_REJECT,
+                    "challenger rejected: no like-for-like shared row "
+                    f"set could be built vs the frozen champion "
+                    f"({n_shared} candidate fresh OOF rows, "
+                    f"deploy_min_oof={self.monitor.deploy_min_oof}) - "
+                    f"comparing populations with different label base "
+                    f"rates is refused, fail-closed", detail)
+                log.info("challenger brier=%.4f vs frozen champion: no "
+                         "honest shared row set (%d candidate fresh "
+                         "rows, deploy_min_oof=%d) -> REJECT "
+                         "(fail-closed)", challenger_brier, n_shared,
+                         self.monitor.deploy_min_oof)
+                _deploy_ok = False
+            else:
+                _shared_brier, n_shared = shared
+                _deploy_ok = self.monitor.should_deploy(
+                    _shared_brier, n_oof=n_shared)
+        # continuous learning curve: one history row per retrain,
+        # deployed or rejected (ml/retrain_log)
+        from ml import retrain_log as _rl
+        from ml.retrain_log import append_retrain, retrain_record
+        # incumbent watermark for the orphan-ratio column. Read HERE, i.e.
+        # before any deploy swaps the champion, and getattr-guarded for the
+        # same reason as the retirement capture below: a report column may
+        # never be the reason a retrain aborts.
+        _tr_watermark = getattr(self.meta, "trained_rows", None)
+        append_retrain(
+            self.config.get("ml", {}).get(
+                "retrain_history_path",
+                _rl.RETRAIN_HISTORY_PATH_DEFAULT),
+            retrain_record(time.time(), "auto", results, len(X),
+                           int(_n_live), challenger_brier,
+                           self.monitor.champion_brier, _deploy_ok,
+                           trained_rows=(int(_tr_watermark)
+                                         if _tr_watermark else None)))
+        if not _deploy_ok:
+            return
+        from ml.interpret import background_sample
+        from ml.registry import sha256_array
+        saved = save_model(results["model"], self.meta.model_path,
+                extra={"calibration": cal.to_dict(),
+                        "oof_brier": challenger_brier,
+                        "feature_deciles": feature_deciles(X),
+                        # history-spanning background so interventional
+                        # SHAP (scripts/interpret_report.py) is defined
+                        # for THIS artifact without the training corpus
+                        "background": background_sample(
+                            X, int(self.config.get("ml", {})
+                                   .get("interpret", {})
+                                   .get("background_rows", 64))),
+                        # walk-forward importance under its OWN key:
+                        # "importance" would overwrite the gbt model's
+                        # internal {idx: gain} dict in save_model's
+                        # d.update(extra), so an auto-deployed gbt lost its
+                        # gain importance while a CLI-deployed one kept it.
+                        # Match scripts/train_meta.py's key.
+                        "wf_importance": results.get("importance", []),
+                        "rows": int(len(X)),
+                        "class_balance": round(float(y.mean()), 3),
+                        "train_data_sha": sha256_array(X)},
+                expect_prior_sha256=_prior_hash)
+        if not saved:
+            # W2-2: a concurrent writer (CLI train_meta.py) already
+            # deployed to model_path since this gate read the champion -
+            # this challenger was gated against a champion that no
+            # longer exists on disk. Discard it rather than clobber the
+            # newer artifact; the next cycle re-gates against whatever
+            # actually landed.
+            log.warning("auto-retrain challenger gated OK but a "
+                       "concurrent writer already deployed to %s since "
+                       "the gate read - discarding this challenger "
+                       "instead of overwriting the newer artifact",
+                       self.meta.model_path)
+            return
+        # Capture the OUTGOING champion BEFORE reload() swaps it: a
+        # retirement is only recordable while its identity is still the
+        # loaded one, and prev_trained_rows read AFTER reload would be the
+        # incoming model's watermark, which is the opposite of the number
+        # wanted. `note("retired")` has existed since the registry shipped
+        # and had never been called by anything.
+        # getattr-guarded because this is OBSERVABILITY: it must degrade to
+        # "unknown", never raise into the retrain path. Caught by
+        # test_auto_retrain_stale_gate_cas when a bare attribute read here
+        # aborted a deploy through the outer fail-safe — lineage has no
+        # business deciding whether a retrain completes.
+        _outgoing_id = str(getattr(self.meta, "model_id", "") or "")
+        _outgoing_rows = getattr(self.meta, "trained_rows", None)
+        self.meta.reload()
+        self.monitor.note_deployed(challenger_brier)
+        # ML-060 LINEAGE GAP (found 2026-08-14): outputs/models/
+        # registry.jsonl held 134 "registered" events and ZERO "deployed"
+        # ones, so the ledger could not answer the question its own
+        # docstring promises — "which model was making decisions at
+        # 3:47am on Tuesday". ml/models.py:404 registers on SAVE;
+        # becoming CHAMPION happens only here, so this is the one honest
+        # place to record it. Wrapped: lineage must never be able to take
+        # down the retrain path it is only observing.
+        try:
+            from ml.registry import get_registry
+            _reg = get_registry()
+            _new_id = str(self.meta.model_id or "")
+            _reg.note(
+                "deployed", _new_id,
+                {"oof_brier": float(challenger_brier),
+                 "family": str(results.get("selected")),
+                 "rows": int(len(X)),
+                 # the OUTGOING champion's watermark (captured pre-reload),
+                 # so a reader sees the orphan ratio that gated — or
+                 # bypassed — this promotion without joining another ledger
+                 "prev_trained_rows": (int(_outgoing_rows)
+                                       if _outgoing_rows else None),
+                 "source": "auto_retrain"})
+            # the other half of a lifecycle the ledger has never recorded:
+            # a promotion RETIRES the model it replaces. Guarded on a real
+            # change so a no-op reload cannot retire a live champion.
+            if _outgoing_id and _outgoing_id != _new_id:
+                _reg.note("retired", _outgoing_id,
+                          {"superseded_by": _new_id,
+                           "reason": "auto_retrain_promotion"})
+        except Exception:                        # noqa: BLE001
+            log.debug("registry deployed-note failed", exc_info=True)
+        log.warning(f"auto-retrain DEPLOYED {results['selected']} "
+                    f"(oof brier {challenger_brier:.4f})")
 
     def cycle_once(self, now: Optional[float] = None) -> None:
         """Exactly one engine cycle. The engine owns NO loop - runner.py
@@ -7080,6 +7163,9 @@ class LiquidityBot:
                 log.exception("hourly_cycle raised - isolated; fast-cycle exits "
                               "still run, retry next macro interval")
         self.fast_cycle(now)
+        # C5: a finished off-thread retrain is gated/deployed HERE, on the
+        # engine thread, after this cycle's stops already ran. Never raises.
+        self._poll_auto_retrain()
         if self._cycle % self.slow_every == 0:
             # slow work (data refresh + entry pipeline) is NEW risk, never an
             # escape. Isolate it too: an unguarded raise here would propagate,

@@ -807,6 +807,8 @@
       "_prior_skew_doc": "ML-074 one-sided-batch DETECTOR: if the trailing window_h of labels has a class prior deviating from the corpus prior by more than the threshold (the all-zero quiet-weekend batch), log + flag it in last_load_stats so calibration drift is visible. Detection only - never silently reweights."
     },
     "ensemble_seeds": 3,
+    "auto_retrain_async": true,
+    "_auto_retrain_async_doc": "C5 (2026-09-28): true = the auto-retrain's heavy half (corpus load, walk-forward selection, calibration) runs on one daemon worker and the deploy half (champion rescore, gate, save CAS, reload, lineage) runs on the engine thread at the next cycle. Measured before: the in-process retrain held the per-position stop loop 21-28 s (n=20). false = the old synchronous path, byte-identical logic.",
     "interpret": {
       "_doc": "Post-hoc interpretability (scripts/interpret_report.py, ml/interpret.py). REPORT-ONLY analysis knobs, not decision-path tunables: background_rows = history-spanning rows stashed in the model artifact for exact interventional SHAP; corr_cluster_thr = |pearson| union threshold for clustered (Hooker/de-Prado) permutation importance; eval_frac + purge_rows = time-ordered held-out tail; n_repeats = permutation repeats; profile_rows = rows in the attribution fingerprint; drift_cos_warn = fingerprint-rotation cosine below which the report flags attribution drift.",
       "background_rows": 64,

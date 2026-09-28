@@ -711,12 +711,15 @@ DONE; nothing in them decides anything.
   LATER trail arm, and it is worse (-22 bps [-40, -5]). The lever is
   entry edge, not geometry. Evidence: vault
   `raw/audits/2026-09-26_kimi_review/exit_replay/`.
-- **C5 — auto-retrain blocks the stop loop 21-28 s/hour (n=20; open).**
-  Deferred on purpose: training, champion compare, save and meta.reload()
-  are interleaved and self.meta serves every inference, so threading it
-  unsplit risks a mid-inference model swap. Design: train on a snapshot
-  in a worker, promote on the main thread at the next hourly via the
-  existing external-adopt path. Own change, own review.
+- **C5 — RESOLVED 2026-09-28: auto-retrain no longer blocks the stop loop.**
+  `_maybe_auto_retrain` split into `_retrain_compute` (heavy, touches no
+  model/champion state) + `_retrain_apply` (gate/save CAS/reload/lineage);
+  moved code byte-identical except a 4-space dedent; 593 retrain-suite
+  tests green on the split. Hourly now calls `_launch_auto_retrain` (gate
+  on the engine thread, compute on ONE daemon worker); `cycle_once` polls
+  AFTER `fast_cycle` and deploys on the engine thread, so the model is never
+  swapped mid-inference. `ml.auto_retrain_async: false` restores the sync
+  path. Pins `tests/test_retrain_async.py` (9; 4/4 mutants caught).
 - **C3** (slow-head fault skips the entry sweep) is DELIBERATELY left:
   fail-safe under invariant 5. Not a docket item; recorded so nobody
   "fixes" it.

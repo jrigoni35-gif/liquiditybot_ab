@@ -137,7 +137,7 @@ def test_failed_de_write_is_counted_not_silent(tmp_path):
 
 @pytest.mark.parametrize("fault", [None, "macro.update",
                                    "corr.update_turbulence",
-                                   "_maybe_auto_retrain"])
+                                   "_launch_auto_retrain"])
 def test_hourly_stage_failure_does_not_starve_its_peers(tmp_path, monkeypatch,
                                                         fault):
     """C4 (review 2026-09-26): one raise in the regime refresh (a poisoned
@@ -151,13 +151,13 @@ def test_hourly_stage_failure_does_not_starve_its_peers(tmp_path, monkeypatch,
                         lambda now: called.append("fee_recon"))
     monkeypatch.setattr(bot.monitor, "check_drift",
                         lambda *a, **k: called.append("drift"))
-    monkeypatch.setattr(bot, "_maybe_auto_retrain",
+    monkeypatch.setattr(bot, "_launch_auto_retrain",
                         lambda: called.append("retrain"))
     if fault:
         obj, _, meth = fault.rpartition(".")
 
         def boom(*a, **k):
-            if meth == "_maybe_auto_retrain":
+            if meth == "_launch_auto_retrain":
                 called.append("retrain")
             raise RuntimeError("injected")
         monkeypatch.setattr(getattr(bot, obj) if obj else bot, meth, boom)

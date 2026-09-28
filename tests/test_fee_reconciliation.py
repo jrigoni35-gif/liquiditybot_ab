@@ -428,7 +428,8 @@ def test_hourly_cycle_isolates_a_raising_fee_reconciliation_call():
         reload_if_changed=lambda: False, trained=True, oof_brier=0.2,
         model_id="m", feature_deciles=[])
     retrain_calls = []
-    b._maybe_auto_retrain = lambda: retrain_calls.append(1)
+    # the hourly retrain hook is _launch_auto_retrain since C5 (2026-09-28)
+    b._launch_auto_retrain = lambda: retrain_calls.append(1)
     b.state = PortfolioState(starting_capital=10_000.0)
 
     def _raising_recon(now):

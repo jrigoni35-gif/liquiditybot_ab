@@ -39,6 +39,7 @@ def _bot(meta):
     b.monitor = ModelMonitor({"min_trades_to_judge": 5, "window_trades": 30})
     b.meta = meta
     b._maybe_auto_retrain = _noop
+    b._launch_auto_retrain = _noop    # the hourly hook since C5 (2026-09-28)
     b.state = PortfolioState(starting_capital=10_000.0)
     b.orders = types.SimpleNamespace(open_orders=lambda: [])
     b.history = types.SimpleNamespace(row_count=lambda: 0)
