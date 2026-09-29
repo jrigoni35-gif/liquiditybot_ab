@@ -1,22 +1,22 @@
 {
-  "generated_at": 1790663016.799744,
+  "generated_at": 1790666620.0017948,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790663007.0,
-    "duration_h": 1942.5
+    "end": 1790666611.0,
+    "duration_h": 1943.5
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 739,
-      "signal_records": 442,
+      "records": 780,
+      "signal_records": 441,
       "by_src": {
-        "exploration": 305,
-        "ml_governor": 101,
+        "exploration": 347,
+        "ml_governor": 100,
         "entry_sweep": 98,
-        "long_book": 94,
-        "conviction": 79,
+        "long_book": 96,
+        "conviction": 77,
         "order_manager": 45,
         "exit": 12,
         "startup": 2,
@@ -26,11 +26,11 @@
       "top_codes": [
         [
           "ML-070",
-          141
+          162
         ],
         [
           "SZ-051",
-          140
+          161
         ],
         [
           "LB-010",
@@ -50,7 +50,7 @@
         ],
         [
           "ML-031",
-          34
+          33
         ],
         [
           "OM-000",
@@ -58,7 +58,11 @@
         ],
         [
           "CV-030",
-          21
+          19
+        ],
+        [
+          "OM-040",
+          19
         ],
         [
           "ML-016",
@@ -67,28 +71,25 @@
         [
           "ML-042",
           19
-        ],
-        [
-          "ML-041",
-          19
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.183,
+      "dominant_frac": 0.184,
       "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 8667,
+      "records": 9127,
       "by_level": {
-        "INFO": 8606,
-        "WARNING": 57,
-        "CRITICAL": 4
+        "INFO": 9062,
+        "WARNING": 60,
+        "CRITICAL": 4,
+        "ERROR": 1
       },
       "top_warnings": [
         [
           "turbulence spike: 19.6 (p98 >= p95)",
-          7
+          8
         ],
         [
           "ML-031: feature drift 20/64 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
@@ -128,24 +129,24 @@
         ]
       ],
       "liquidity_tally": {
-        "thin": 1375,
+        "thin": 1415,
         "spoofy": 122
       },
-      "spoofy_frac": 0.081,
+      "spoofy_frac": 0.079,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 698,
-      "feed_error_events": 1
+      "cycles_estimate": 727,
+      "feed_error_events": 2
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 755.16,
+    "equity_end": 755.3,
     "equity_min": 755.13,
     "equity_max": 806.91,
     "equity_range": 51.78,
     "capital_epochs": 5,
-    "epoch_samples": 263564,
+    "epoch_samples": 263800,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 755.13,
     "lifetime_equity_max": 100000.03,
@@ -153,23 +154,23 @@
     "realized_pnl_total": -28.55,
     "fees_paid_total": 40.6134,
     "open_positions": 4,
-    "samples": 431355
+    "samples": 431591
   },
   "activity": {
-    "signal_rows_total": 34527,
+    "signal_rows_total": 34569,
     "live_labeled_trades": 513,
-    "candidate_rows": 34014
+    "candidate_rows": 34056
   },
   "audit": {
-    "records": 89914,
-    "signal_records": 35641,
+    "records": 89965,
+    "signal_records": 35650,
     "by_src": {
-      "exploration": 77344,
-      "ml_governor": 3613,
-      "long_book": 3586,
+      "exploration": 77386,
+      "ml_governor": 3616,
+      "long_book": 3590,
       "order_manager": 2277,
       "conviction": 1201,
-      "entry_sweep": 612,
+      "entry_sweep": 614,
       "exit": 418,
       "startup": 347,
       "fault": 328,
@@ -181,11 +182,11 @@
     "top_codes": [
       [
         "ML-070",
-        28237
+        28258
       ],
       [
         "SZ-051",
-        25723
+        25744
       ],
       [
         "SZ-047",
@@ -193,7 +194,7 @@
       ],
       [
         "LB-010",
-        2339
+        2341
       ],
       [
         "OM-000",
@@ -209,7 +210,7 @@
       ],
       [
         "LB-050",
-        754
+        756
       ],
       [
         "OM-040",
@@ -217,15 +218,15 @@
       ],
       [
         "ML-016",
-        619
+        620
       ],
       [
         "ML-041",
-        585
+        586
       ],
       [
         "ML-042",
-        549
+        550
       ]
     ],
     "dominant_code": "SZ-047",
@@ -238,8 +239,8 @@
     "chain_seams": 63,
     "chain_torn_tail": false,
     "chain_error": null,
-    "records_all_lines": 92155,
-    "main_chain_records": 89914,
+    "records_all_lines": 92206,
+    "main_chain_records": 89965,
     "off_chain_records": 2241,
     "off_chain_codes": {
       "FW-050": 312,
@@ -368,16 +369,17 @@
     ]
   },
   "events": {
-    "records": 8667,
+    "records": 9127,
     "by_level": {
-      "INFO": 8606,
-      "WARNING": 57,
-      "CRITICAL": 4
+      "INFO": 9062,
+      "WARNING": 60,
+      "CRITICAL": 4,
+      "ERROR": 1
     },
     "top_warnings": [
       [
         "turbulence spike: 19.6 (p98 >= p95)",
-        7
+        8
       ],
       [
         "ML-031: feature drift 20/64 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
@@ -417,19 +419,19 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 1375,
+      "thin": 1415,
       "spoofy": 122
     },
-    "spoofy_frac": 0.081,
+    "spoofy_frac": 0.079,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 698,
-    "feed_error_events": 1
+    "cycles_estimate": 727,
+    "feed_error_events": 2
   },
   "model": {
     "monitor_level": 1,
     "use_model": true,
     "kelly_mult": 0.7,
-    "champion_brier": 0.22521597104664848,
+    "champion_brier": 0.22426031309278038,
     "brier": "n/a",
     "history_rows": 513,
     "cold": false
@@ -453,7 +455,7 @@
       "unavailable": "signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 24139,
+      "triple_barrier_h432": 24181,
       "triple_barrier": 5328,
       "exit_sim": 2820,
       "legacy": 1781,
@@ -473,10 +475,10 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 34527,
+    "corpus_rows": 34569,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-29T03:00:00Z",
-    "corpus_span_days": 77.6,
+    "corpus_last_ts": "2026-09-29T05:30:00Z",
+    "corpus_span_days": 77.7,
     "signal_ts_missing": 0
   },
   "streams_present": {
