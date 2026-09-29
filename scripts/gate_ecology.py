@@ -51,6 +51,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from core.cohort import cohort_of   # noqa: E402
 from core.fill_ledger import EXEC_ERA   # noqa: E402 - "12-10d4d0c2" (era-9)
 
 REFUSAL_CHAIN_TORN = "CHAIN_TORN"
@@ -480,6 +481,7 @@ def section5(fills_path, since: float) -> dict:
         return {"refused": None, "era_fills": 0,
                 "note": "no fills ledger in window"}
     fills = []
+    cohorts: set = set()
     with open(fills_path, newline="", encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
             if row.get("exec_era") != EXEC_ERA:
@@ -492,6 +494,7 @@ def section5(fills_path, since: float) -> dict:
                 continue
             if ts < since:
                 continue
+            cohorts.add(cohort_of(row.get("decision_fp")))
             fills.append((ts, row.get("position_id") or row["order_id"],
                           (row.get("symbol") or "").split("/")[0],
                           qty if row.get("side") == "buy" else -qty, px))
@@ -542,6 +545,11 @@ def section5(fills_path, since: float) -> dict:
         "open_residual_qty_at_window_end": open_resid,
         "note": "advisory shadow; cross-asset netting assumes offsettable "
                 "risk (correlation caveat in the record)",
+        # C1 (2026-09-28): EXEC_ERA no longer moves, so these fills span
+        # every decision cohort since the era mint. Pooled ON PURPOSE -
+        # exposure is the book the account carried, and one position's legs
+        # can span two cohorts - but never silently.
+        "decision_cohorts_pooled": sorted(cohorts),
     }
 
 

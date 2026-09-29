@@ -237,3 +237,29 @@ def test_epoch_excluded_counts_only_true_epoch_removals(
     # and never let the clash rows reach dedup at all)
     assert stats["epoch_excluded"] == 3
     assert len(X) == 3   # 2 surviving live rows + 1 post-cutoff candidate
+
+
+def test_load_stats_are_published_whole_never_half_built(tmp_path,
+                                                          monkeypatch):
+    """W1 (2026-09-28): since C5 the load runs on a worker thread while the
+    engine thread reads last_load_stats (main.py unlock-ETA telemetry,
+    runner status export). The old code reset it to {} and filled it in
+    place, so a mid-load reader saw an empty/partial dict. Now a reader sees
+    the previous COMPLETE stats until the new ones are published at once."""
+    import ml.history as history_mod
+    hs = _store(tmp_path)
+    _write_mixed_corpus(hs, monkeypatch, history_mod)
+    monkeypatch.setattr(history_mod.time, "time", lambda: 9500.0)
+    hs.load_training_data()
+    first = hs.last_load_stats
+    assert first.get("rows")
+    seen = []
+    real = history_mod._sim_divergence_stat
+
+    def spy(*a, **k):                     # runs mid-load, stats half-built
+        seen.append(hs.last_load_stats)
+        return real(*a, **k)
+    monkeypatch.setattr(history_mod, "_sim_divergence_stat", spy)
+    hs.load_training_data()
+    assert seen and seen[0] is first, "a reader saw half-built load stats"
+    assert hs.last_load_stats is not first and hs.last_load_stats.get("rows")

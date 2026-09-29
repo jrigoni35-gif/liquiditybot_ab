@@ -55,3 +55,13 @@ def test_payload_roundtrips_json(tmp_path):
     assert set(back["sections"]) == {
         "era_readout", "gradeability_census", "reject_bounds",
         "gate_ecology", "quant_db"}
+
+
+def test_meta_names_the_running_decision_cohort(monkeypatch):
+    """C1 (2026-09-28): the payload feeds a boundary decision; with EXEC_ERA
+    frozen, the era stamp alone no longer says which cohort is accruing."""
+    import core.cohort as cohort_mod
+    from scripts import boundary_payload as bp
+    monkeypatch.setattr(cohort_mod, "running_fp", lambda path: "abc123def456")
+    meta = bp._meta()
+    assert meta["decision_fp"] == "abc123def456" and meta["exec_era"]

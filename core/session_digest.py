@@ -794,6 +794,30 @@ def _eras_section(sig_rows: list, outputs: Path) -> dict:
                  if isinstance(n, int) and n > 0]
     out["pooling_hazard"] = len(live_keys) > 1
     out["pooling_hazard_source"] = src
+
+    # --- decision cohorts (C1, 2026-09-28) --------------------------------
+    # EXEC_ERA froze when fingerprint cohorts shipped (core/cohort.py), so
+    # the era hazard above can no longer see a cohort mix. Label rows carry
+    # no stamp: they map through the CG-000 boot timeline (main chain only)
+    # by signal_ts. Fill legs carry their own stamp. Additive keys only.
+    try:
+        from core.cohort import cohort_of, fp_at, fp_timeline
+        _tl = fp_timeline(outputs / "audit.jsonl")
+        out["rows_per_cohort"] = dict(Counter(
+            fp_at(_f(r.get("signal_ts"), 0.0), _tl)
+            for r in sig_rows).most_common())
+        _fpc: Counter = Counter()
+        if fills_path.exists():
+            with open(fills_path, encoding="utf-8", newline="") as f:
+                for r in csv.DictReader(f):
+                    _fpc[cohort_of(r.get("decision_fp"))] += 1
+        out["fills_per_cohort"] = dict(_fpc.most_common())
+        out["cohort_timeline"] = [[_iso(ts), fp] for ts, fp in _tl]
+        out["cohort_pooling_hazard"] = len(
+            [k for k, n in out["rows_per_cohort"].items() if n > 0]) > 1
+    except Exception:  # pragma: no cover - cohort view must not break the digest
+        out["rows_per_cohort"] = {"unavailable": "cohort timeline unreadable"}
+        out["cohort_pooling_hazard"] = None
     return out
 
 

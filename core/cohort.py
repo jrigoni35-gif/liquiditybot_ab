@@ -163,6 +163,83 @@ def load_equivalence(path: Path = EQUIVALENCE_PATH) -> dict:
     return out
 
 
+LEGACY_FP = "legacy"     # cohort of pre-fingerprint (blank-stamp) rows
+# docs/law/counting_standard.md - bump here AND there, same commit
+COUNTING_STANDARD = "CS-1"
+
+
+def reconcile(n: int, buckets: dict) -> dict:
+    """CS-1 §3: prove a classification dropped nothing. Never raises - a
+    report must still render; a MISMATCH is the finding, printed loudly.
+    Returns {"standard", "n", "sum", "ok", "buckets", "line"}."""
+    clean = {str(k): int(v) for k, v in (buckets or {}).items()}
+    total = sum(clean.values())
+    ok = total == int(n)
+    parts = " + ".join(f"{k}={v}" for k, v in clean.items()) or "(none)"
+    line = (f"counting {COUNTING_STANDARD}: n={int(n)} = {parts} "
+            f"[{'OK' if ok else f'MISMATCH: buckets sum to {total}'}]")
+    return {"standard": COUNTING_STANDARD, "n": int(n), "sum": total,
+            "ok": ok, "buckets": clean, "line": line}
+
+
+def cohort_of(stamp) -> str:
+    """A fills.csv decision_fp cell -> cohort key; blank/None = legacy."""
+    return str(stamp or "").strip() or LEGACY_FP
+
+
+def fp_timeline(audit_path) -> list:
+    """[(boot_ts, fp), ...] sorted, from CG-000 session records on the
+    audit trail's MAIN hash chain only. Harness/duplicate-runner boots write
+    CG-000 onto forks (2,241 off-chain records measured 2026-09-27); taking
+    those would invent cohorts that never traded. Rows that carry no
+    fingerprint of their own (signal_history.csv, DE-010 events) are mapped
+    through this by timestamp - no schema change. Never raises: [] on any
+    failure (every row then reads as legacy - the conservative direction)."""
+    try:
+        from core.audit import read_main_chain
+        records, main = read_main_chain(audit_path)
+    except Exception:  # noqa: BLE001 - a missing/torn trail is "no forks known"
+        return []
+    out = []
+    for i in sorted(main):
+        r = records[i]
+        if not isinstance(r, dict) or r.get("code") != "CG-000":
+            continue
+        fp = str(((r.get("data") or {}).get("decision_fp")) or "").strip()
+        raw_ts = r.get("ts")
+        if raw_ts is None:
+            continue
+        try:
+            ts = float(raw_ts)
+        except (TypeError, ValueError):
+            continue
+        if fp:
+            out.append((ts, fp))
+    return sorted(out)
+
+
+def fp_at(ts, timeline: list) -> str:
+    """The cohort whose process was running at `ts`: the latest boot at or
+    before it. Before the first fingerprinted boot -> legacy."""
+    import bisect
+    try:
+        t = float(ts)
+    except (TypeError, ValueError):
+        return LEGACY_FP
+    i = bisect.bisect_right([b for b, _ in timeline], t)
+    return timeline[i - 1][1] if i else LEGACY_FP
+
+
+def running_fp(status_path) -> str:
+    """The live process's fingerprint from status.json (AS-OF the read), or
+    "" when unreadable - callers must treat "" as unknown, never as legacy."""
+    try:
+        s = json.loads(Path(status_path).read_text(encoding="utf-8"))
+        return str(s.get("decision_fp") or "").strip()
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
 def canonical(fp: str, equiv: dict) -> str:
     """Follow equivalence links to the root fingerprint (cycle-safe)."""
     seen = set()

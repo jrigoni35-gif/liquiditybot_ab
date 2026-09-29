@@ -224,3 +224,42 @@ def test_single_era_cohort_reports_no_straddlers():
                         cohort_start=0.0)
     assert hg["era_straddling_trips"] == 0
     assert hg["by_era"] == {ERA9: 2}
+
+
+# --- C1 (2026-09-28): decision-fingerprint cohorts -----------------------
+ERA12 = "12-10d4d0c2"
+
+
+def _fp_trip(fp, eras=(ERA12,)):
+    t = _trip(eras)
+    t["decision_fp"] = fp
+    return t
+
+
+def test_forked_trips_never_count_toward_the_era_bucket():
+    """EXEC_ERA froze at 12-10d4d0c2 when fingerprint cohorts shipped, so a
+    forked trip still carries that stamp. Pooling it into the era count was
+    the contamination the adversarial review found."""
+    trips = [_fp_trip("legacy"), _fp_trip("legacy"),
+             _fp_trip("aaaaaa111111"), _fp_trip("bbbbbb222222"),
+             _fp_trip("bbbbbb222222")]
+    hg = ce.homogeneity(trips, epochs=[], cohort_start=0.0)
+    assert hg["by_era"].get(ERA12) == 2
+    assert hg["by_fp"] == {"aaaaaa111111": 1, "bbbbbb222222": 2}
+
+
+def test_buckets_stay_exhaustive_with_forks():
+    trips = _cohort() + [_fp_trip("aaaaaa111111"),
+                         _fp_trip("aaaaaa111111", eras=(ERA8, ERA12))]
+    hg = ce.homogeneity(trips, epochs=[], cohort_start=0.0)
+    total = (sum(hg["by_era"].values()) + sum(hg["by_fp"].values())
+             + hg["era_straddling_trips"] + hg["era_unstamped_trips"]
+             + hg["era_partial_stamp_trips"])
+    assert total == len(trips)
+
+
+def test_trip_without_a_stamp_field_reads_legacy():
+    """Old ledgers have no decision_fp column at all - that is legacy, not
+    an error and not a fork."""
+    hg = ce.homogeneity([_trip([ERA12])], epochs=[], cohort_start=0.0)
+    assert hg["by_era"].get(ERA12) == 1 and hg["by_fp"] == {}

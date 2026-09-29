@@ -254,3 +254,31 @@ def test_render_never_raises_on_a_fully_unavailable_collect(tmp_path,
     text = dl.render(dl.collect())
     assert "DISCARD LEDGER" in text
     assert text.count("UNAVAILABLE") >= 3
+
+
+def test_counted_by_cohort_attributes_each_trip_to_its_entry_leg(tmp_path):
+    """C1 (2026-09-28): 'pure current era' spans decision cohorts now that
+    EXEC_ERA froze. Each trip belongs to its ENTRY leg's cohort - including
+    a trip whose exit was stamped by a LATER cohort's process."""
+    import csv as _csv
+
+    from scripts.discard_ledger import trade_cohort
+    era = "12-10d4d0c2"
+    cols = ["ts", "position_id", "side", "purpose", "exec_era",
+            "decision_fp"]
+    rows = [
+        (100, "p1", "buy", "entry", era, ""),          # legacy trip
+        (110, "p1", "sell", "exit", era, ""),
+        (200, "p2", "buy", "entry", era, "aaa111"),    # fork, same-cohort exit
+        (210, "p2", "sell", "exit", era, "aaa111"),
+        (300, "p3", "buy", "entry", era, "aaa111"),    # fork, exit by next fork
+        (310, "p3", "sell", "exit", era, "bbb222"),
+    ]
+    f = tmp_path / "fills.csv"
+    with f.open("w", newline="", encoding="utf-8") as fh:
+        w = _csv.writer(fh)
+        w.writerow(cols)
+        w.writerows(rows)
+    out = trade_cohort(f, era)
+    assert out["counted_by_the_gate"] == 3
+    assert out["counted_by_cohort"] == {"legacy": 1, "aaa111": 2}

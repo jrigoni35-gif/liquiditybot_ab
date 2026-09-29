@@ -10,6 +10,7 @@ Measured defects these pin:
   * a degraded snapshot kept the last live numerics under available=False.
 """
 import calendar
+from pathlib import Path
 import subprocess
 import sys
 import time
@@ -41,6 +42,8 @@ def _mk_db(path):
 def _feed(path):
     return DarkPoolFeed({"enabled": True, "poll_minutes": 0,
                          "duckdb_path": str(path),
+                         # pytest tmp is outside the repo: opt in (W4)
+                         "trusted_external_path": True,
                          "tickers": [{"symbol": "MSTR", "weight": 1.0}]})
 
 
@@ -98,8 +101,52 @@ def test_stale_mirror_is_unavailable_when_gate_armed(tmp_path):
     assert off.maybe_poll(end + 151 * 86400).available      # default: no gate
     armed = DarkPoolFeed({"enabled": True, "poll_minutes": 0,
                           "duckdb_path": str(db), "max_data_age_days": 35,
+                          "trusted_external_path": True,
                           "tickers": [{"symbol": "MSTR", "weight": 1.0}]})
     assert armed.maybe_poll(end + 20 * 86400).available
     s = armed.maybe_poll(end + 151 * 86400)
     assert not s.available and s.dp_hhi == 0.0
     assert len(armed._surge_hist) == 1, "stale poll must not seed z windows"
+
+
+def test_out_of_repo_mirror_is_refused_unless_explicitly_trusted(tmp_path):
+    """W4 (2026-09-28): the live scorer read a DuckDB file from an
+    unversioned folder another agent could write. A path outside the repo
+    is now served UNAVAILABLE (neutral features) unless the config opts in
+    - and config_guard warns loudly on the opt-in."""
+    db = tmp_path / "dp.duckdb"
+    _mk_db(db)
+    end = calendar.timegm(time.strptime("2026-04-24", "%Y-%m-%d"))
+    cfg = {"enabled": True, "poll_minutes": 0, "duckdb_path": str(db),
+           "tickers": [{"symbol": "MSTR", "weight": 1.0}]}
+    refused = DarkPoolFeed(cfg).maybe_poll(end + 5 * 86400)
+    assert not refused.available and refused.dp_hhi == 0.0
+    trusted = DarkPoolFeed(dict(cfg, trusted_external_path=True))
+    assert trusted.maybe_poll(end + 5 * 86400).available
+
+
+def test_repo_relative_mirror_path_is_trusted_and_repo_anchored():
+    f = DarkPoolFeed({"enabled": True,
+                      "duckdb_path": "outputs/darkpool/darkpool_v2.duckdb"})
+    assert f._path_trusted
+    from data.darkpool_feed import REPO_ROOT
+    assert Path(f.db_path) == REPO_ROOT / "outputs/darkpool/darkpool_v2.duckdb"
+
+
+def test_config_guard_warns_on_out_of_repo_or_trusted_mirror_path():
+    import copy
+    import json
+
+    from core import config_guard as g
+    from data.darkpool_feed import REPO_ROOT
+    base = json.loads((REPO_ROOT / "config.json").read_text(encoding="utf-8"))
+
+    def dp_warns(c):
+        return [m for s, m in g.validate(c) if s == "WARN" and "W4" in m]
+    assert dp_warns(base) == [], "shipped config must point inside the repo"
+    out = copy.deepcopy(base)
+    out["darkpool"]["duckdb_path"] = str(REPO_ROOT.parent / "elsewhere.duckdb")
+    assert dp_warns(out)
+    opt = copy.deepcopy(base)
+    opt["darkpool"]["trusted_external_path"] = True
+    assert dp_warns(opt)

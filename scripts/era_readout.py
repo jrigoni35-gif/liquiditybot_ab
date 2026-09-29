@@ -89,7 +89,7 @@ CI_LO, CI_HI = 2.5, 97.5
 N_LEAN = 50
 N_VERDICT = 100
 SIZE_TOL = 0.02          # cohort_eval's fully-closed tolerance, kept identical
-LEGACY_FP = "legacy"     # cohort of pre-fingerprint (blank decision_fp) trips
+from core.cohort import LEGACY_FP, reconcile  # noqa: E402 - CS-1, one definition
 FEE_NULL_CUT11 = -0.33   # cut-#11 registration: 55 bps x $60
 FEE_NULL_CUT12 = -0.27   # CLAUDE.md era-9 block: 45 bps x $60
 # OPERATOR ADJUDICATION 2026-09-15, recorded before the n=50 read point:
@@ -767,6 +767,9 @@ def render(res: dict) -> str:
                     line = f"{line} {word}".strip()
             if line:
                 a(("  * " if first else "    ") + line)
+    _c = res.get("counting") or {}
+    if _c:
+        a(_c["line"] + "   (trips touching the era; independent n)")
     a("Report-only. No order path was read or touched.")
     return "\n".join(L)
 
@@ -779,6 +782,15 @@ def run(fills: Path, era: str, fee_null: float | None, reps: int = REPS,
     with open(fills, newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
     rec = reconstruct(rows, era)
+    # CS-1 §3: reconcile against an INDEPENDENT n - distinct position_ids
+    # with any leg stamped in this era, counted straight off the ledger.
+    _n_touch = len({r['position_id'] for r in rows if r.get('position_id')
+                    and (r.get('exec_era') or '').strip() == era})
+    counting = reconcile(_n_touch, {
+        'member': len(rec['members']),
+        'any-leg-extra': len(rec['anyleg_extra']),
+        'excluded': len(rec['excluded']),
+        'open-or-partial': len(rec['open_or_partial'])})
     # DECISION-FINGERPRINT COHORTS (operator ruling 2026-09-26). EXEC_ERA no
     # longer moves, so trips from a FORKED decision configuration would
     # otherwise land inside this era's registered population. The registered
@@ -853,6 +865,7 @@ def run(fills: Path, era: str, fee_null: float | None, reps: int = REPS,
                                    fee_null, reps, seed)
                          for fp, ts in sorted(forks.items())},
         "equivalences": len(equiv),
+        "counting": counting,
     }
 
 

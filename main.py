@@ -40,7 +40,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Deque, Optional
+from typing import Any, Callable, Deque, Optional, TypedDict
 
 import numpy as np
 
@@ -643,6 +643,19 @@ def _book_mid(book: dict) -> float:
     except (KeyError, IndexError, TypeError, ValueError):
         pass
     return 0.0
+
+
+class RetrainJob(TypedDict):
+    """The hand-off from _retrain_compute (worker thread) to _retrain_apply
+    (engine thread) - C5, typed so the contract is checked at both ends."""
+    rows: int                 # history row count when the job was gated
+    X: Any                    # np.ndarray training matrix (contract-screened)
+    y: Any                    # np.ndarray labels
+    results: dict             # walk-forward selection results
+    cal: Any                  # IsotonicCalibrator fitted on the selected OOF
+    oof_cal: Any              # cross-fitted calibrated OOF vector (gate score)
+    challenger_brier: float
+    n_live: int               # live labels behind the evidence gate
 
 
 class LiquidityBot:
@@ -6664,7 +6677,10 @@ class LiquidityBot:
         here on the engine thread, the heavy half (_retrain_compute) runs on
         ONE daemon worker, and _poll_auto_retrain applies the result on the
         engine thread. Daemon: a `stop` is never held hostage by training
-        (an interrupted job is simply retried by a later gate).
+        (an interrupted job is simply retried by a later gate). The deploy
+        half still runs on the engine thread: measured ~0.2 s on a copy of
+        the live corpus (2026-09-28: 23,930 rows; rescore 139 ms of 205 ms),
+        vs the 21-28 s the whole retrain used to hold it.
         ml.auto_retrain_async=false restores the synchronous path."""
         if not bool((self.config.get("ml", {}) or {})
                     .get("auto_retrain_async", True)):
@@ -6769,11 +6785,14 @@ class LiquidityBot:
             log.exception("auto-retrain failed - keeping current model "
                           "(retrain_failures=%d)", self._retrain_failures)
 
-    def _retrain_compute(self, rows: int) -> Optional[dict]:
+    def _retrain_compute(self, rows: int) -> Optional[RetrainJob]:
         """HEAVY half of the auto-retrain (C5): load the corpus, run the
         walk-forward selection, fit calibration, score the challenger.
         Touches NO model/champion/monitor state, so it is safe on a worker
-        thread; its audit records go through AuditTrail's own lock. Returns
+        thread; its audit records go through AuditTrail's own lock. The one
+        shared object it DOES write is history.last_load_stats, which the
+        load publishes in a single rebind (W1) so engine-thread readers see
+        old-complete or new-complete stats, never a half-built dict. Returns
         None when there is nothing to gate (too few rows / unscoreable)."""
         from ml.walkforward import evaluate_and_select
         from ml.retrain_log import family_metric
@@ -6898,7 +6917,7 @@ class LiquidityBot:
                 "challenger_brier": challenger_brier,
                 "n_live": _n_live}
 
-    def _retrain_apply(self, job: dict) -> None:
+    def _retrain_apply(self, job: RetrainJob) -> None:
         """MAIN-THREAD half (C5): rescore the CURRENT champion, gate, log the
         learning curve, save with the stale-gate CAS, reload, and record
         lineage. Runs on the engine thread only, so the loaded model is

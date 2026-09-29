@@ -1693,8 +1693,9 @@ class HistoryStore:
         outputs/signal_history.csv; flipping era_cfg off (or the config's
         forced_off) restores the exact pre-exclusion training set,
         including these two counts."""
-        self.last_load_stats = {}
+        stats: dict = {}   # W1: built locally, published whole
         if not self.path.exists():
+            self.last_load_stats = stats
             return _empty_training_tuple(return_sig, return_label_times)
         # SYNTHETIC-vs-REAL clash guard. A taken trade is written TWICE: once
         # as a live row (realized close = REAL label, full weight) and once as
@@ -2020,7 +2021,7 @@ class HistoryStore:
         ess_kish = (_sw * _sw / _sw2) if _sw2 > 0.0 else 0.0
         log.info("training load: %d rows, mean_uniqueness %.3f, "
                  "Kish ESS %.1f", len(w), uniq_mean, ess_kish)
-        self.last_load_stats = {
+        stats = {
             "rows": len(w), "dropped_dirty": dropped_dirty,
             "dropped_parse": dropped_parse,
             "parse_drop_share": round(
@@ -2060,12 +2061,12 @@ class HistoryStore:
                     f"untouched"))
         else:
             la = {"n_pairs": 0, "agreement": None, "wilson95": None}
-        self.last_load_stats["lineage_agreement"] = la
+        stats["lineage_agreement"] = la
         # live-covered-window divergence score (T2.2a, ML-078): candidate-
         # vs-live label-mean divergence inside windows where BOTH sources
         # appear in the surviving corpus, plus the coverage stat. Report-
         # only - no reweighting, no authority over what trains.
-        self.last_load_stats["sim_live_divergence"] = _sim_divergence_stat(
+        stats["sim_live_divergence"] = _sim_divergence_stat(
             _div_t, _div_s, _div_y, _tele_cfg)
         # era-gated training exclusion (operator decision, 2026-07-26,
         # docs/quant/2026-07-26_era_exclusion.md): the LAST filter applied,
@@ -2088,7 +2089,7 @@ class HistoryStore:
                 f"(operator decision, "
                 f"docs/quant/2026-07-26_era_exclusion.md)"))
         self._era_exclusion_active_seen = era_excl_stats["active"]
-        self.last_load_stats["era_exclusion"] = era_excl_stats
+        stats["era_exclusion"] = era_excl_stats
         # "rows"/"live_clean" describe what actually feeds the fit (the
         # SAME convention the epoch filter above already established -
         # its exclusions are baked into these two counts because they
@@ -2103,9 +2104,13 @@ class HistoryStore:
         # healthier corpus than exists) on stale pre-exclusion evidence.
         # A no-op when inactive: w/meta are the SAME objects, so these
         # recompute to the identical values already set above.
-        self.last_load_stats["rows"] = len(w)
-        self.last_load_stats["live_clean"] = sum(
+        stats["rows"] = len(w)
+        stats["live_clean"] = sum(
             1 for m in meta if m[2] == "live")
+        # W1 (2026-09-28): ONE rebind publishes the finished stats - a reader
+        # on another thread (C5 worker vs engine telemetry) sees old-complete
+        # or new-complete, never half-built. A raise mid-load keeps the old.
+        self.last_load_stats = stats
         X, y, w = (np.array(X, float), np.array(y, float),
                    np.array(w, float))
         sig = np.array(sig, float)

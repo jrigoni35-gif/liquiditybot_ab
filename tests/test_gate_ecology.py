@@ -258,3 +258,19 @@ def test_ecology_end_to_end(tmp_path):
     # never a fabricated per-gate verdict
     s4 = rep["section4"]
     assert s4["events_evaluated"] + s4["events_unidentified"] == 1
+
+
+def test_section5_discloses_every_pooled_decision_cohort(tmp_path):
+    """C1 (2026-09-28): EXEC_ERA froze when fingerprint cohorts shipped, so
+    'era fills' now span decision cohorts. Pooled on purpose (exposure is
+    the book), but the report must SAY which cohorts it pooled."""
+    hdr = FILLS_HEADER + ",decision_fp"
+    rows = [
+        f"1000,o1,p1,entry,BTC/USD,buy,limit,0,1,0.1,50000,,0,0,0,,{EXEC_ERA},,",
+        f"1010,o2,p2,entry,ETH/USD,sell,limit,0,1,2.0,3000,,0,0,0,,{EXEC_ERA},,aaa111",
+        f"1020,o3,p1,exit,BTC/USD,sell,limit,0,1,0.1,50000,,0,0,0,,{EXEC_ERA},,bbb222",
+    ]
+    fp = tmp_path / "fills.csv"
+    fp.write_text(hdr + "\n" + "\n".join(rows) + "\n")
+    out = section5(fp, since=0.0)
+    assert out["decision_cohorts_pooled"] == ["aaa111", "bbb222", "legacy"]

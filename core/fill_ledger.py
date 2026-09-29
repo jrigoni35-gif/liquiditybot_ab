@@ -142,6 +142,12 @@ def set_decision_fp(fp: str) -> None:
 # operator's real trading (Tier 3 on 08-29, Tier 5 on 09-08): every fill
 # after this stamp is booked at 15/30 - re-read the tier at each cohort
 # readout and name the drift; never pool across this stamp.
+# AUTHORITY NOTE (cut #13, 2026-09-26): EXEC_ERA is FROZEN as a human epoch
+# label and GATES NOTHING. The decision cohort is the derived fingerprint
+# (DECISION_FP below, core/cohort.py). Do NOT bump this to mark a change -
+# a change forks a cohort by itself - and do NOT group trips by exec_era
+# alone: docs/law/counting_standard.md §2. Kept (not renamed) because every
+# reader and the fills.csv column carry it (hard invariant 7).
 EXEC_ERA = "12-10d4d0c2"
 
 # --- restart-replay guard (owed 62 / CDO review 2026-08-10) ---------------

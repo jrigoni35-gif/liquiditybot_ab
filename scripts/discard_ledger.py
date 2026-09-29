@@ -42,6 +42,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from core.cohort import cohort_of, reconcile  # noqa: E402
 
 UNKNOWN = "UNKNOWN"
 
@@ -159,6 +160,7 @@ def trade_cohort(fills_path: Path, current_era: str) -> dict:
         return out
 
     closed = pure = straddling = previous = unstamped = 0
+    by_cohort: Counter = Counter()
     for rows in legs.values():
         sides = {(r.get("side") or "").strip().lower() for r in rows}
         if len(sides) < 2:               # one-sided: never closed
@@ -167,6 +169,11 @@ def trade_cohort(fills_path: Path, current_era: str) -> dict:
         eras = {(r.get("exec_era") or "").strip() for r in rows}
         if eras == {current_era}:
             pure += 1
+            # C1 (2026-09-28): EXEC_ERA froze when fingerprint cohorts
+            # shipped, so 'pure current era' spans decision cohorts. Each
+            # trip belongs to its ENTRY leg's cohort (earliest leg).
+            _entry = min(rows, key=lambda r: float(r.get("ts") or 0.0))
+            by_cohort[cohort_of(_entry.get("decision_fp"))] += 1
         elif current_era in eras:
             straddling += 1              # touched this era, not purely
         elif eras == {""}:
@@ -188,6 +195,14 @@ def trade_cohort(fills_path: Path, current_era: str) -> dict:
         "closed_trips_stamped": stamped,
         "predate_stamping": unstamped,
         "counted_by_the_gate": pure,
+        # which gate: legacy -> the registered era read; any other key ->
+        # that fingerprint cohort's own read (scripts/era_readout.py).
+        # Under COHORT-FORKING a fork refuses nothing - no straddler is
+        # created by a fork, because trips attribute by entry leg.
+        "counted_by_cohort": dict(by_cohort),
+        "counting": reconcile(closed, {
+            "counted": pure, "censored-in-flight": straddling,
+            "previous-era": previous, "predates-stamping": unstamped}),
         "censored_in_flight": straddling,
         "belong_to_a_previous_era": previous,
         # BOTH denominators, named. The lifetime share is the one a reader

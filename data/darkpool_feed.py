@@ -36,6 +36,21 @@ from pathlib import Path
 
 import numpy as np
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def path_inside_repo(p) -> bool:
+    """True iff `p` (absolute or repo-relative) resolves under REPO_ROOT.
+    Resolution follows symlinks/junctions, so a link out of the repo does
+    not pass. Any resolution error = not trusted (fail closed)."""
+    try:
+        q = Path(p)
+        q = q if q.is_absolute() else REPO_ROOT / q
+        q.resolve().relative_to(REPO_ROOT.resolve())
+        return True
+    except (ValueError, OSError, RuntimeError):
+        return False
+
 log = logging.getLogger("liquiditybot.data.darkpool")
 
 EPS = 1e-9
@@ -121,7 +136,16 @@ class DarkPoolFeed:
     def __init__(self, config: dict, con=None):
         cfg = config or {}
         self.enabled = bool(cfg.get("enabled", False))
-        self.db_path = str(cfg.get("duckdb_path", "darkpool.duckdb"))
+        # W4 TRUST BOUNDARY (2026-09-28): this file feeds the live scorer, so
+        # it must live inside the repo (relative paths anchor to REPO_ROOT,
+        # never the process cwd). A path outside is served UNAVAILABLE unless
+        # `trusted_external_path` opts in - which config_guard warns on. The
+        # 09-21 mirror sat in an unversioned folder another agent could write.
+        _raw = Path(str(cfg.get("duckdb_path", "darkpool.duckdb")))
+        _abs = _raw if _raw.is_absolute() else REPO_ROOT / _raw
+        self.db_path = str(_abs)
+        self._path_trusted = (bool(cfg.get("trusted_external_path", False))
+                              or path_inside_repo(_abs))
         # weekly regulatory data: a slow cadence is honest; the frozen
         # gate makes faster polling harmless but pointless
         self.poll_sec = float(cfg.get("poll_minutes", 360.0)) * 60.0
@@ -172,6 +196,14 @@ class DarkPoolFeed:
         if self._con is not None:
             return True
         if not self.enabled:
+            return False
+        if not self._path_trusted:
+            if not self._warned:
+                log.warning(f"darkpool mirror {self.db_path} is OUTSIDE the "
+                            f"repo - refused (W4 trust boundary); promote it "
+                            f"into outputs/darkpool/ or set "
+                            f"darkpool.trusted_external_path")
+                self._warned = True
             return False
         try:
             if not Path(self.db_path).exists():

@@ -30,6 +30,7 @@ Returns a list of (severity, message); severity is "FATAL" or "WARN".
 import logging
 import math
 import re
+from pathlib import Path
 from typing import Any
 
 from regime.vol_regime import FAST_WARMUP_BARS
@@ -769,7 +770,20 @@ def _label_cost_vs_booked_checks(config: dict) -> list:
              f"together (scripts/cut12_stage.py) or not at all.")]
 
 
-def _validate_darkpool(config: dict, fatal) -> None:
+def _repo_contains(p) -> bool:
+    """True iff `p` (absolute or repo-relative) resolves under this repo.
+    Fail closed on any resolution error."""
+    root = Path(__file__).resolve().parents[1]
+    try:
+        q = Path(str(p))
+        q = q if q.is_absolute() else root / q
+        q.resolve().relative_to(root.resolve())
+        return True
+    except (ValueError, OSError, RuntimeError):
+        return False
+
+
+def _validate_darkpool(config: dict, fatal, warn=None) -> None:
     """darkpool weekly mirror (optional, read-only; F1 2026-09-26).
     max_data_age_days gates a STALE mirror to unavailable (neutral dp_*
     features). Absent/None = gate off; a non-positive value would mark
@@ -784,6 +798,21 @@ def _validate_darkpool(config: dict, fatal) -> None:
     if d_age is not None and not (float(d_age) > 0):
         fatal(f"darkpool.max_data_age_days={d_age} must be > 0 or "
               f"absent (gate off)")
+    # W4 trust boundary (2026-09-28): the mirror feeds the live scorer. The
+    # feed refuses an out-of-repo path on its own; say so at boot instead of
+    # letting the features go quietly neutral - and flag the opt-in.
+    if warn is not None:
+        d_path = _f(config, "darkpool.duckdb_path", "darkpool.duckdb")
+        trusted = bool(_f(config, "darkpool.trusted_external_path", False))
+        if trusted:
+            warn("darkpool.trusted_external_path is TRUE - the live scorer "
+                 f"reads {d_path}, which may be outside version control and "
+                 "writable by other processes (W4). Promote the mirror into "
+                 "outputs/darkpool/ instead.")
+        elif not _repo_contains(d_path):
+            warn(f"darkpool.duckdb_path={d_path} is outside the repo - the "
+                 "feed will REFUSE it and dp_* features read neutral (W4). "
+                 "Promote the mirror into outputs/darkpool/.")
 
 
 def validate(config: dict) -> list:
@@ -3833,7 +3862,7 @@ def validate(config: dict) -> list:
                              f"{ck_cap} exceeds 300s - a systematic desync "
                              f"could go uncorrected for a long time"))
 
-    _validate_darkpool(config, fatal)
+    _validate_darkpool(config, fatal, warn)
 
     # --- moomoo equities context (optional, read-only) -------------------
     # Degrades to neutral on any failure, so bad config can't stop the bot -

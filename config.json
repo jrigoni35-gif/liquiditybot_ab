@@ -1177,7 +1177,8 @@
   "darkpool": {
     "description": "Read-only weekly dark-pool (FINRA ATS) context from the external mirror (darkpool.duckdb, table ats_venue_weekly). SHADOW-FIRST: feeds only the v10 dp_* shadow features + avail_darkpool bookkeeping; no gate/sizer/exit may read it until pre-registered promotion criteria pass. Neutral-on-failure, same contract as moomoo (41a/41c): duckdb missing / DB absent / query error -> neutrals + avail_darkpool=0, ts frozen at last REAL observation. Weekly regulatory data: 6h polling is generous; the freeze gate makes faster polling harmless but pointless. Requires pip install duckdb (present in .venv).",
     "enabled": true,
-    "duckdb_path": "C:\\Users\\haird\\Documents\\kimi\\tasks\\2026-09-20\\19-59-23-0f9af856\\darkpool_v2.duckdb",
+    "duckdb_path": "outputs/darkpool/darkpool_v2.duckdb",
+    "_duckdb_path_doc": "W4 (2026-09-28): repo-relative, anchored to the repo root (never the process cwd). The mirror feeds the live scorer, so it must live inside the repo; the feed REFUSES an out-of-repo path unless trusted_external_path is set (config_guard warns on that opt-in). Promoted 2026-09-28 from the unversioned Kimi task folder C:\\Users\\haird\\Documents\\kimi\\tasks\\2026-09-20\\19-59-23-0f9af856\\ (byte copy, sha256 recorded in the cut-14 record). To refresh: verify a new mirror, then copy it here deliberately.",
     "poll_minutes": 360,
     "max_data_age_days": 35,
     "_max_data_age_days_doc": "F1 (2026-09-26, operator ruling): a mirror whose newest period_end is older than this is served UNAVAILABLE (dp_* neutral, avail_darkpool=0). The 09-21 mirror is a one-off snapshot ending 2026-04-24 and nothing refreshes it, so ungated its block was a constant date flag the model ranked #3 of 68 features. 35 d = one missed weekly FINRA publication of slack. Measured effect at arming: served p_win +2.2pp mean on v10 rows, 0 threshold crossings.",

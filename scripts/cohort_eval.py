@@ -65,6 +65,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+import sys  # noqa: E402
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from core.cohort import (LEGACY_FP, cohort_of, reconcile,  # noqa: E402
+                         running_fp)
 
 
 def out_dir() -> Path:
@@ -298,6 +303,7 @@ def era4_trips(fills_path, since: float | None = None,
         # untouched: changing which trips count after the cohort accrues is
         # the exact thing pre-registration exists to prevent.
         eras, stale_legs, prestamp_legs = set(), 0, 0
+        entry_fp = None     # decision cohort = the ENTRY leg's stamp (C1)
         sig, ok = [], True
         for r in legs:
             sz, px = _f(r, "fill_size"), _f(r, "fill_price")
@@ -320,6 +326,7 @@ def era4_trips(fills_path, since: float | None = None,
                 if opened_by is None:
                     opened_by = r.get("purpose")
                     topen = _f(r, "ts")
+                    entry_fp = r.get("decision_fp")
             elif r.get("purpose") == "exit":
                 xsz += sz
                 tclose = _f(r, "ts")
@@ -352,7 +359,8 @@ def era4_trips(fills_path, since: float | None = None,
                     "gross_pct": 100.0 * cash / enot,
                     "net_pct": 100.0 * (cash - fees) / enot,
                     "eras": sorted(eras), "stale_legs": stale_legs,
-                    "prestamp_legs": prestamp_legs})
+                    "prestamp_legs": prestamp_legs,
+                    "decision_fp": cohort_of(entry_fp)})
     return out
 
 
@@ -565,13 +573,23 @@ def homogeneity(trips: list, epochs: list, cohort_start: float = 0.0) -> dict:
     # unstamped leg. Era-9 happened to have none, so the reported count was
     # right by luck, not by construction - and this report already records
     # that the stamp HAS failed before.
+    # C1 (2026-09-28): EXEC_ERA no longer moves (core/cohort.py), so a trip
+    # from a FORKED decision cohort still carries the era stamp. It is read
+    # in by_fp, never folded into an era bucket - the era buckets are the
+    # registered legacy read. Buckets stay exhaustive: sum(by_era) +
+    # sum(by_fp) + straddling + unstamped + partial == n.
     by_era: dict = {}
+    by_fp: dict = {}
     era_straddling = 0
     era_unstamped = 0
     era_partial = 0
     for t in trips:
         te = t.get("eras") or []
         unstamped_legs = (t.get("stale_legs") or 0) + (t.get("prestamp_legs") or 0)
+        _fp = t.get("decision_fp") or LEGACY_FP
+        if _fp != LEGACY_FP:
+            by_fp[_fp] = by_fp.get(_fp, 0) + 1
+            continue
         if len(te) > 1:
             era_straddling += 1
         elif len(te) == 1 and not unstamped_legs:
@@ -609,7 +627,13 @@ def homogeneity(trips: list, epochs: list, cohort_start: float = 0.0) -> dict:
         verdict = "CLEAN"
     return {"verdict": verdict, "n": len(trips),
             "stale_trips": len(stale), "prestamp_trips": len(prestamp),
-            "by_era": by_era, "current_era": current_era,
+            "by_era": by_era, "current_era": current_era, "by_fp": by_fp,
+            "counting": reconcile(len(trips), {
+                "era-pure": sum(by_era.values()),
+                "forked-cohort": sum(by_fp.values()),
+                "straddling": era_straddling,
+                "unstamped": era_unstamped,
+                "partial-stamp": era_partial}),
             "era_straddling_trips": era_straddling,
             "era_unstamped_trips": era_unstamped,
             "era_partial_stamp_trips": era_partial,
@@ -892,6 +916,27 @@ def main() -> int:
                   % (_hg["by_era"].get(_cur, 0), MIN_COHORT_N))
             print("    The pre-registered machinery is UNCHANGED; this line")
             print("    only says which of the pooled trips are era-current.")
+            print("    (LEGACY decision cohort only since 2026-09-26: EXEC_ERA")
+            print("     no longer moves - forked cohorts are listed below.)")
+    _by_fp = _hg.get("by_fp") or {}
+    _run = running_fp(out_dir() / "status.json")
+    print("\n  DECISION-FINGERPRINT COHORTS (core/cohort.py; entry-leg stamp):")
+    if not _by_fp:
+        print("    (no forked cohort has closed trips in this population)")
+    for _fp in sorted(_by_fp):
+        print("    %-14s %3d trip(s)%s" % (
+            _fp, _by_fp[_fp],
+            "   <-- RUNNING now (status.json), this is what is accruing"
+            if _fp == _run else ""))
+    if _run and _run != LEGACY_FP:
+        print("    CURRENT-COHORT ACCRUAL: %d/%d toward the gate (running %s;"
+              % (_by_fp.get(_run, 0), MIN_COHORT_N, _run))
+        print("    as-of the status.json read - re-derive, never recall).")
+    elif not _run:
+        print("    running cohort UNKNOWN (status.json unreadable) - no")
+        print("    current-cohort line is printed rather than a guessed one.")
+    if (res["homogeneity"].get("counting") or {}).get("line"):
+        print("  " + res["homogeneity"]["counting"]["line"])
     print("  COHORT HOMOGENEITY: %s" % res["homogeneity"]["verdict"])
     if e4["n"]:
         print("  gross  mean %+.4f%%  (SE %.4f%%)  median %+.4f%%  win %.1f%%"

@@ -166,6 +166,13 @@ def qa_redirect_paths(cfg: dict, tag: str) -> dict:
     ml.setdefault("monitor", {})
     ml["monitor"]["retrain_flag_path"] = str(d / "retrain.flag")
     cfg.setdefault("context", {})["enabled"] = False
+    # W4 (2026-09-28): the darkpool mirror now lives under outputs/ - a QA
+    # engine must never read the live one. The redirect target is outside
+    # the repo, so the feed refuses it (unavailable, neutral dp_* features):
+    # a harness has no business reading dark-pool data at all. Before W4 the
+    # config held an absolute path, and QA runs read the live mirror.
+    cfg.setdefault("darkpool", {})["duckdb_path"] = str(
+        d / "darkpool" / "darkpool_v2.duckdb")
     # No config key exists for this one - retrain_log resolves it through the
     # MODULE attribute precisely so it can be rebound, and both callers
     # (main.py's auto path and scripts/train_meta.py) read it that way, so one

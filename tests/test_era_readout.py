@@ -720,3 +720,22 @@ def test_evidenced_equivalence_pools_a_fork_back(tmp_path, monkeypatch):
     res = er.run(_fp_ledger(tmp_path), ERA, None, reps=200, seed=7)
     assert _reg(res)["n"] == 16 and res["fingerprints"] == {}
     assert res["equivalences"] == 1
+
+
+def test_counting_line_catches_a_silently_dropped_trip(tmp_path, monkeypatch):
+    """CS-1 §3: the reconciliation n is derived INDEPENDENTLY of the
+    classifier (distinct position_ids with an era-stamped leg), so a
+    reconstruction that loses a trip is reported, not hidden."""
+    path = _fp_ledger(tmp_path)
+    ok = er.run(path, ERA, None, reps=50, seed=7)
+    assert ok["counting"]["ok"] and ok["counting"]["n"] == 16
+    real = er.reconstruct
+
+    def lossy(rows, era):
+        out = real(rows, era)
+        out["members"] = out["members"][1:]        # one trip vanishes
+        return out
+    monkeypatch.setattr(er, "reconstruct", lossy)
+    bad = er.run(path, ERA, None, reps=50, seed=7)
+    assert not bad["counting"]["ok"]
+    assert "MISMATCH" in er.render(bad)

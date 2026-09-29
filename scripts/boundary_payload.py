@@ -65,12 +65,17 @@ def run_era_readout(repo_root: Path,
 
 
 def _meta() -> dict:
+    from core.cohort import running_fp  # noqa: PLC0415 - lazy, scripts-only
     from core.fill_ledger import EXEC_ERA  # noqa: PLC0415 - lazy, scripts-only
     head = subprocess.run(  # nosec B603 B607 - fixed argv; git resolved from PATH exactly as the operator's own shell does
         ["git", "rev-parse", "HEAD"], capture_output=True, text=True,
         cwd=str(ROOT), check=False).stdout.strip()
+    # C1 (2026-09-28): EXEC_ERA no longer moves - the decision COHORT is the
+    # running process's fingerprint (as-of the status.json read). "" means
+    # unknown; a boundary read must never guess it.
     return {"generated_at": _iso(time.time()), "git_head": head,
-            "exec_era": EXEC_ERA}
+            "exec_era": EXEC_ERA,
+            "decision_fp": running_fp(ROOT / "outputs" / "status.json")}
 
 
 def collect(*, meta_fn, era_fn, census_fn, bounds_fn, ecology_fn,
@@ -152,7 +157,8 @@ def main(argv=None) -> int:
     print(f"boundary payload -> {out_path}")
     print(f"generated {payload['meta']['generated_at']} "
           f"git={payload['meta']['git_head'][:9]} "
-          f"era={payload['meta']['exec_era']}")
+          f"era={payload['meta']['exec_era']} "
+          f"cohort={payload['meta'].get('decision_fp') or 'UNKNOWN'}")
     for name, sec in payload["sections"].items():
         line = f"  {name}: {sec['status']}"
         if sec["status"] == "refused":

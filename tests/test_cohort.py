@@ -158,3 +158,123 @@ def test_boot_stamps_the_ledger_and_the_session_record(tmp_path, monkeypatch):
                                0.0, 1.0)
     assert list(row)[-1] == "decision_fp" and row["decision_fp"] == fp
     assert fill_ledger.COLS[-1] == "decision_fp"
+
+
+# ------------------------------------------- timeline (C1, 2026-09-28)
+def _trail(tmp_path, monkeypatch):
+    """A real hash-chained trail: legacy boot, fp 'aaa' boot, fp 'bbb' boot,
+    plus a CG-000 'fork' record hanging off the FIRST record (off-chain)."""
+    import core.audit as audit_mod
+    from core.audit import AuditTrail
+    p = tmp_path / "audit.jsonl"
+    at = AuditTrail(str(p), fsync=False)
+    clock = iter([100.0, 200.0, 300.0, 400.0])
+    monkeypatch.setattr(audit_mod.time, "time", lambda: next(clock))
+    at.log("startup", "CG-000", "boot", {"dry_run": True})          # legacy
+    at.log("startup", "CG-000", "boot", {"decision_fp": "aaa"})
+    at.log("startup", "CG-000", "boot", {"decision_fp": "bbb"})
+    at.log("entry", "EN-000", "tick", {})
+    first = json.loads(p.read_text(encoding="utf-8").splitlines()[0])
+    fork = {"seq": 99, "ts": 250.0, "src": "startup", "code": "CG-000",
+            "msg": "harness boot", "data": {"decision_fp": "fork"},
+            "prev": first["h"], "h": "f0f0f0f0f0f0f0f0"}
+    with open(p, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(fork) + "\n")
+    return p
+
+
+def test_timeline_reads_main_chain_boots_and_ignores_forks(tmp_path,
+                                                          monkeypatch):
+    tl = cohort.fp_timeline(_trail(tmp_path, monkeypatch))
+    assert tl == [(200.0, "aaa"), (300.0, "bbb")]
+
+
+def test_fp_at_maps_timestamps_to_the_running_cohort():
+    tl = [(200.0, "aaa"), (300.0, "bbb")]
+    assert cohort.fp_at(150.0, tl) == cohort.LEGACY_FP
+    assert cohort.fp_at(200.0, tl) == "aaa"
+    assert cohort.fp_at(299.9, tl) == "aaa"
+    assert cohort.fp_at(1e12, tl) == "bbb"
+    assert cohort.fp_at("garbage", tl) == cohort.LEGACY_FP
+    assert cohort.fp_at(500.0, []) == cohort.LEGACY_FP
+
+
+def test_timeline_on_a_missing_trail_is_empty_not_a_crash(tmp_path):
+    assert cohort.fp_timeline(tmp_path / "absent.jsonl") == []
+
+
+def test_cohort_of_and_running_fp(tmp_path):
+    assert cohort.cohort_of("") == cohort.cohort_of(None) == cohort.LEGACY_FP
+    assert cohort.cohort_of(" abc ") == "abc"
+    st = tmp_path / "status.json"
+    st.write_text(json.dumps({"decision_fp": "abc"}), encoding="utf-8")
+    assert cohort.running_fp(st) == "abc"
+    assert cohort.running_fp(tmp_path / "none.json") == ""
+
+
+def test_digest_counts_rows_and_legs_per_decision_cohort(tmp_path,
+                                                          monkeypatch):
+    """C1 (2026-09-28): the digest's era hazard cannot see a cohort mix once
+    EXEC_ERA froze. Label rows (no stamp) map via the boot timeline; legs
+    use their own stamp; the cohort hazard fires on a real mix."""
+    import csv as _csv
+
+    import core.audit as audit_mod
+    from core.audit import AuditTrail
+    from core.session_digest import _eras_section
+    out = tmp_path / "outputs"
+    out.mkdir()
+    at = AuditTrail(str(out / "audit.jsonl"), fsync=False)
+    clock = iter([200.0, 300.0])
+    monkeypatch.setattr(audit_mod.time, "time", lambda: next(clock))
+    at.log("startup", "CG-000", "boot", {"decision_fp": "aaa"})
+    at.log("startup", "CG-000", "boot", {"decision_fp": "bbb"})
+    sig = [{"signal_ts": "100"}, {"signal_ts": "250"}, {"signal_ts": "350"},
+           {"signal_ts": "360"}]
+    with open(out / "fills.csv", "w", newline="", encoding="utf-8") as fh:
+        w = _csv.writer(fh)
+        w.writerow(["ts", "exec_era", "decision_fp"])
+        w.writerows([["1", "12-x", ""], ["2", "12-x", "aaa"],
+                     ["3", "12-x", "bbb"]])
+    e = _eras_section(sig, out)
+    assert e["rows_per_cohort"] == {"bbb": 2, "legacy": 1, "aaa": 1}
+    assert e["fills_per_cohort"] == {"legacy": 1, "aaa": 1, "bbb": 1}
+    assert e["cohort_pooling_hazard"] is True
+
+
+# ------------------------------------------ counting standard CS-1
+def test_reconcile_ok_and_mismatch_never_raises():
+    ok = cohort.reconcile(5, {"member": 3, "straddler": 1, "open": 1})
+    assert ok["ok"] and ok["standard"] == cohort.COUNTING_STANDARD
+    assert ok["line"].endswith("[OK]") and "n=5" in ok["line"]
+    bad = cohort.reconcile(6, {"member": 3, "open": 1})
+    assert not bad["ok"] and "MISMATCH: buckets sum to 4" in bad["line"]
+    assert cohort.reconcile(0, {})["ok"]
+
+
+def test_every_decision_fp_reader_uses_core_cohort():
+    """CS-1 §2: attribution lives in ONE place. Any shipped module that
+    reads the decision_fp field must interpret it through core.cohort - the
+    five hand-rolled readers are how the cut-13 contamination happened.
+    The writer (core/fill_ledger.py) and core/cohort.py itself are exempt."""
+    import re
+    from pathlib import Path
+    root = Path(cohort.__file__).resolve().parents[1]
+    exempt = {"core/cohort.py", "core/fill_ledger.py"}
+    read = re.compile(r"""\.get\(\s*["']decision_fp["']|\[\s*["']decision_fp["']\s*\]""")
+    offenders = []
+    for sub in ("core", "scripts", "execution", "ml", "risk", "data"):
+        for f in sorted((root / sub).rglob("*.py")):
+            rel = f.relative_to(root).as_posix()
+            if rel in exempt or "__pycache__" in rel:
+                continue
+            src = f.read_text(encoding="utf-8", errors="replace")
+            if read.search(src) and "core.cohort" not in src:
+                offenders.append(rel)
+    for f in (root / "main.py", root / "runner.py"):
+        src = f.read_text(encoding="utf-8", errors="replace")
+        if read.search(src) and "core.cohort" not in src:
+            offenders.append(f.name)
+    assert offenders == [], (
+        f"these read decision_fp without core.cohort: {offenders} - "
+        f"see docs/law/counting_standard.md §2")

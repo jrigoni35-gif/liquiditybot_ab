@@ -122,6 +122,17 @@ core:
   retrain loop itself continues by design. Do not retune on accruing
   gate numbers.
 
+## Counting standard — `docs/law/counting_standard.md` (CS-1)
+
+Before reporting ANY count of legs, trips, label rows or events, read
+`docs/law/counting_standard.md`. Name the unit; attribute cohorts ONLY
+through `core/cohort.py` (a trip belongs to its ENTRY leg's fingerprint;
+unstamped rows map through the main-chain boot timeline); never group by
+`exec_era` alone (it froze at cut #13); and print a `reconcile()` line
+proving the buckets sum to n. Selection stays per-registration - CS-1
+governs attribution and reconciliation, never which trips a
+pre-registered population selects.
+
 ## Definition of done — `docs/law/definition_of_done.md`
 
 ## Definition of done (every change, every session)
