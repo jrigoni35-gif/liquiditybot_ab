@@ -2590,13 +2590,13 @@ class CandidateLabeler:
 
     def _cost_pct(self, cand: dict) -> float:
         """Round-trip cost for this candidate's label: the fee floor plus,
-        when enabled, the asset's own (capped) execution spread."""
-        cost = self.rt_cost_pct
-        if self.label_include_spread:
-            spread = min(float(cand.get("spread_bps", 0.0)),
-                         self.spread_cap_bps)
-            cost += spread / 100.0     # bps -> percent
-        return cost
+        when enabled, the asset's own (capped) execution spread. Delegates
+        to ml.labeling.label_cost_pct - the SAME function the live bracket
+        calls (1a), so the traded bet is the labeled bet."""
+        from ml.labeling import label_cost_pct
+        return label_cost_pct(self.rt_cost_pct,
+                              float(cand.get("spread_bps", 0.0) or 0.0),
+                              self.label_include_spread, self.spread_cap_bps)
 
     def poll(self, now: "float | None" = None) -> int:
         """Label candidates. Returns rows written.

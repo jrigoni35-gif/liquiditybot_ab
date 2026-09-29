@@ -69,6 +69,7 @@ def position_to_dict(pos) -> dict:
         "book": pos.book,
         # geometry-alignment T5: bracket geometry, legacy-inert 0.0 default
         "bracket_pt_frac": pos.bracket_pt_frac,
+        "bracket_label_cost_pct": pos.bracket_label_cost_pct,
         "bracket_sl_frac": pos.bracket_sl_frac,
         "bracket_deadline_ts": pos.bracket_deadline_ts,
         # decisioning-coupling R2: frozen tier triggers survive restarts
@@ -125,6 +126,8 @@ def position_from_dict(d: dict):
         # frac<=0, so a restored legacy position keeps trading the tier
         # engine exactly as before).
         bracket_pt_frac=float(d.get("bracket_pt_frac", 0.0)),
+        bracket_label_cost_pct=float(
+            d.get("bracket_label_cost_pct", 0.0) or 0.0),
         bracket_sl_frac=float(d.get("bracket_sl_frac", 0.0)),
         bracket_deadline_ts=float(d.get("bracket_deadline_ts", 0.0)),
         # decisioning-coupling R2: pre-R2 snapshots lack this key ->

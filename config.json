@@ -808,6 +808,11 @@
     },
     "ensemble_seeds": 3,
     "auto_retrain_async": true,
+    "shadow_policy": {
+      "enabled": true,
+      "path": "outputs/shadow_policy.csv",
+      "_doc": "Items 1b+3 (2026-09-29): SHADOW-ONLY. One row per real candidate registration with the model p AT that moment; scripts/shadow_policy_report.py joins outcomes from signal_history.csv and grades the rule enter-iff-predicted-traded-value>0 WALK-FORWARD against live, CS-1 reconciled. Nothing in the order path reads it. Promotion to a live decision input only via docs/law/shadow_policy_promotion.md."
+    },
     "_auto_retrain_async_doc": "C5 (2026-09-28): true = the auto-retrain's heavy half (corpus load, walk-forward selection, calibration) runs on one daemon worker and the deploy half (champion rescore, gate, save CAS, reload, lineage) runs on the engine thread at the next cycle. Measured before: the in-process retrain held the per-position stop loop 21-28 s (n=20). false = the old synchronous path, byte-identical logic.",
     "interpret": {
       "_doc": "Post-hoc interpretability (scripts/interpret_report.py, ml/interpret.py). REPORT-ONLY analysis knobs, not decision-path tunables: background_rows = history-spanning rows stashed in the model artifact for exact interventional SHAP; corr_cluster_thr = |pearson| union threshold for clustered (Hooker/de-Prado) permutation importance; eval_frac + purge_rows = time-ordered held-out tail; n_repeats = permutation repeats; profile_rows = rows in the attribution fingerprint; drift_cos_warn = fingerprint-rotation cosine below which the report flags attribution drift.",

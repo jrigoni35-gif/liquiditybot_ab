@@ -30,6 +30,21 @@ from risk.profit_tiers import (conviction_runner_params, conviction_trail_mult,
 EPS = 1e-12
 
 
+def label_cost_pct(rt_cost_pct: float, spread_bps: float,
+                   include_spread: bool, spread_cap_bps: float) -> float:
+    """Round-trip cost (PERCENT) that sets the barrier geometry: the fee
+    floor plus, when enabled, the asset's own spread capped at
+    spread_cap_bps. THE ONE DEFINITION shared by the candidate labeler and
+    the live bracket (1a, 2026-09-29): the bracket used the pretrade
+    est_cost (fees+spread+impact+adverse selection) instead, so the model
+    predicted a 181/136 bps bet while the bot traded 200/151 (era-9 medians).
+    A negative spread (garbage) is clamped to 0 - it never discounts cost."""
+    cost = float(rt_cost_pct)
+    if include_spread:
+        cost += max(0.0, min(float(spread_bps), float(spread_cap_bps))) / 100.0
+    return cost
+
+
 def barrier_geometry(sigma_bar: float, cost_pct: float, pt_mult: float,
                      sl_mult: float, pt_cost_mult: float) -> tuple:
     """(pt_frac, sl_frac) for the triple-barrier bet, cost-floored.

@@ -67,6 +67,9 @@ class Position:
     # identical to before this task (the long book, book=="long", never
     # sets these either - brackets are a 5m/model-lane concept only).
     bracket_pt_frac: float = 0.0
+    # 1a (2026-09-29): the LABEL cost (percent) this bracket was built on;
+    # 0.0 = unknown/legacy -> ML-082 falls back to est_cost_bps.
+    bracket_label_cost_pct: float = 0.0
     bracket_sl_frac: float = 0.0
     bracket_deadline_ts: float = 0.0
     # decisioning-coupling R2 (2026-09-19): the effective tier trigger for

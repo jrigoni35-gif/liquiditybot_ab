@@ -99,7 +99,7 @@ from ml.features import FEATURE_NAMES, REGIME_LABELS, build_features
 from ml.meta_model import MetaModelService
 from ml.history import (HistoryStore, CandidateLabeler,
                         HorizonShadowStore, triple_barrier_era)
-from ml.labeling import ExitPolicy, barrier_geometry
+from ml.labeling import ExitPolicy, barrier_geometry, label_cost_pct
 from ml.event_sampler import StateChangeSampler
 from ml.monitor import ModelMonitor
 from core.performance import PerformanceTracker
@@ -1074,6 +1074,21 @@ class LiquidityBot:
         self._label_pt_vol_mult = float(_ml_cfg_t5.get("label_pt_vol_mult", 8.0))
         self._label_sl_vol_mult = float(_ml_cfg_t5.get("label_sl_vol_mult", 6.0))
         self._label_pt_cost_mult = float(_ml_cfg_t5.get("label_pt_cost_mult", 0.0))
+        # item 3 (2026-09-29): shadow policy store - the model's p at every
+        # real candidate registration, joined to outcomes by
+        # scripts/shadow_policy_report.py. Report-only.
+        from ml.shadow_policy import ShadowPolicyStore
+        _sp = (_ml_cfg_t5.get("shadow_policy") or {})
+        self.shadow_policy = (
+            ShadowPolicyStore(str(_sp.get("path",
+                                          "outputs/shadow_policy.csv")))
+            if bool(_sp.get("enabled", True)) else None)
+        # 1a (2026-09-29): the bracket's cost basis is the LABELER's - the
+        # same keys CandidateLabeler reads (ml/history.py), same function.
+        self._label_cost_cfg = (
+            float(_ml_cfg_t5.get("label_round_trip_cost_pct", 0.5)),
+            bool(_ml_cfg_t5.get("label_include_spread", True)),
+            float(_ml_cfg_t5.get("label_spread_cap_bps", 60.0)))
         self._label_max_bars = int(_ml_cfg_t5.get("label_max_bars", 96))
         # THALES lazy-bot insecurity model (docs/THALES.md): detector bank
         # over public books/candles; shadow by default (telemetry only),
@@ -1592,6 +1607,8 @@ class LiquidityBot:
                   "algo_child_seq": child.seq,
                   "bracket_pt_frac": meta_t.get("bracket_pt_frac", 0.0),
                   "bracket_sl_frac": meta_t.get("bracket_sl_frac", 0.0),
+                  "bracket_label_cost_pct": meta_t.get(
+                      "bracket_label_cost_pct", 0.0),
                   "bracket_deadline_ts": meta_t.get(
                       "bracket_deadline_ts", 0.0)},
             now=now,
@@ -1824,7 +1841,11 @@ class LiquidityBot:
             pos.position_id, total_net, barrier=barrier,
             pt_frac=pos.bracket_pt_frac, sl_frac=pos.bracket_sl_frac,
             entry_usd=pos.entry_price * pos.original_size,
-            cost_pct=pos.est_cost_bps / 100.0,
+            # 1a: the labeled counterfactual nets the LABEL cost the bracket
+            # was built on; legacy positions (0.0) keep the old basis
+            cost_pct=(pos.bracket_label_cost_pct
+                      if getattr(pos, "bracket_label_cost_pct", 0.0) > 0
+                      else pos.est_cost_bps / 100.0),
             telemetry_cfg=getattr(self, "config", {})
             .get("ml", {}).get("telemetry", {}),
             # price anchor (2026-08-04): entry only. A multi-tier close
@@ -2182,6 +2203,8 @@ class LiquidityBot:
                     # as "this position trades the bracket".
                     bracket_pt_frac=order.meta.get("bracket_pt_frac", 0.0),
                     bracket_sl_frac=order.meta.get("bracket_sl_frac", 0.0),
+                    bracket_label_cost_pct=order.meta.get(
+                        "bracket_label_cost_pct", 0.0),
                     bracket_deadline_ts=order.meta.get(
                         "bracket_deadline_ts", 0.0),
                 )
@@ -4368,6 +4391,33 @@ class LiquidityBot:
                 "[%s] sizer veto: %s", asset,
                 "; ".join(str(r) for r in reasons) or "(no reason recorded)")
 
+    def _shadow_policy_log(self, now: float, asset: str, direction: str,
+                           model_p) -> None:
+        """Item 3: one shadow row per real candidate registration. Never
+        raises and never feeds an order decision (pinned)."""
+        store = getattr(self, "shadow_policy", None)
+        if store is None:
+            return
+        try:
+            cid = self.candidates.open_candidate_id(asset, direction)
+            store.log(ts=now, candidate_id=cid or "", asset=asset,
+                      direction=direction, model_p=model_p,
+                      decision_fp=(getattr(self, "decision_fp", None)
+                                   or {}).get("fp", ""))
+        except Exception:  # noqa: BLE001 - telemetry never breaks the loop
+            log.debug("shadow policy log failed", exc_info=True)
+
+    def _bracket_label_cost(self, liq_state) -> float:
+        """1a: the LABEL cost basis (percent) for a bracket on this
+        asset - ml.labeling.label_cost_pct on the spread registration
+        passes. 0.0 when the bot carries no label-cost config (stubs)."""
+        _lcc = getattr(self, "_label_cost_cfg", None)
+        if _lcc is None:
+            return 0.0
+        return label_cost_pct(_lcc[0], getattr(liq_state, "spread_bps",
+                                               0.0) or 0.0,
+                              _lcc[1], _lcc[2])
+
     def _bracket_for_entry(self, *, asset: str, symbol: str, direction: str,
                           price: float, p_win: float, equity: float,
                           macro_state, vol_state, liq_state, verdict,
@@ -4407,7 +4457,13 @@ class LiquidityBot:
             return 0.0, 0.0, 0.0, sized, []
         from ml.walkforward import BAR_SECONDS
         sigma_bar = vol_state.sigma_bar_pct / 100.0
-        cost_pct = decision.est_cost_bps / 100.0
+        # 1a: the LABEL's cost basis on the SAME spread registration passes
+        # (candidates.register(..., spread_bps=liq_state.spread_bps)), so the
+        # traded bracket is exactly the labeled bet. The pretrade est_cost
+        # (impact + adverse selection on top) stays the entry VETO's input.
+        cost_pct = (self._bracket_label_cost(liq_state)
+                    if getattr(self, "_label_cost_cfg", None) is not None
+                    else decision.est_cost_bps / 100.0)
         pt_frac, sl_frac = barrier_geometry(
             sigma_bar, cost_pct, self._label_pt_vol_mult,
             self._label_sl_vol_mult, self._label_pt_cost_mult)
@@ -4912,6 +4968,10 @@ class LiquidityBot:
                     # candle dedup no-op keeps the event pending so the
                     # state-change lesson registers at the next bar
                     self._scs_pending[asset] = False
+                    # item 3: the model's p AT registration, for the
+                    # shadow traded-value rule. Report-only, guarded.
+                    self._shadow_policy_log(now, asset, signal.direction,
+                                            model_p)
             self.monitor.note_features(feats)
             if not can_enter:
                 self._mark_cand(asset, signal.direction, "capped")
@@ -5165,6 +5225,9 @@ class LiquidityBot:
                     "gate_components": dict(getattr(signal, "components", None) or {}),
                     "bracket_pt_frac": bracket_pt_frac,
                     "bracket_sl_frac": bracket_sl_frac,
+                    "bracket_label_cost_pct": (
+                        self._bracket_label_cost(liq_state)
+                        if bracket_pt_frac > 0 else 0.0),
                     "bracket_deadline_ts": bracket_deadline_ts}
                 if explored:
                     self._pending_probe_asset = None
@@ -5254,6 +5317,9 @@ class LiquidityBot:
                     "gate_components": dict(getattr(signal, "components", None) or {}),
                     "bracket_pt_frac": bracket_pt_frac,
                     "bracket_sl_frac": bracket_sl_frac,
+                    "bracket_label_cost_pct": (
+                        self._bracket_label_cost(liq_state)
+                        if bracket_pt_frac > 0 else 0.0),
                     "bracket_deadline_ts": bracket_deadline_ts,
                     **({"probe_cost": _spbr_cost}
                        if _spbr_cost is not None else {})},
@@ -6187,6 +6253,9 @@ class LiquidityBot:
                       "gate_components": dict(getattr(signal, "components", None) or {}),
                       "bracket_pt_frac": bracket_pt_frac,
                       "bracket_sl_frac": bracket_sl_frac,
+                      "bracket_label_cost_pct": (
+                          self._bracket_label_cost(liq_state)
+                          if bracket_pt_frac > 0 else 0.0),
                       "bracket_deadline_ts": bracket_deadline_ts},
                 now=now)
             if not rung_order:

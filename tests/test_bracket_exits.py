@@ -1161,3 +1161,69 @@ def test_full_engine_probe_entry_also_stamps_bracket(tmp_path, monkeypatch):
     assert any(p.is_probe and p.bracket_pt_frac > 0.0 for p in open_5m), (
         "a probe entry must ALSO carry a stamped bracket (operator "
         "decision 1: ALL model-lane entries trade the bracket)")
+
+
+# ===========================================================================
+# 1a (2026-09-29): the traded bracket uses the LABEL's cost basis
+# ===========================================================================
+
+def test_bracket_geometry_is_the_labelers_geometry_not_the_pretrade_cost():
+    """Measured 2026-09-29 (era-9): candidate LABEL rows median 181/136 bps
+    vs live TRADE rows 200/151. The bracket fed barrier_geometry the pretrade
+    est_cost (fees+spread+impact+adverse), the labeler fed it rt_cost+capped
+    spread, so the model predicted one bet and the bot traded another. The
+    bracket must use label_cost_pct() on the SAME spread registration passes;
+    est_cost stays the entry veto's business."""
+    from ml.history import CandidateLabeler
+    from ml.labeling import label_cost_pct
+    bot = _bracket_bot()
+    bot._label_cost_cfg = (0.45, True, 60.0)       # rt %, include spread, cap
+    vol_state = VolState("ETH", sigma_bar_pct=0.1)
+    liq = LiquidityState("ETH")
+    liq.spread_bps = 2.0
+    sized1 = _pass1(bot, vol_state=vol_state)
+    out = []
+    for est in (50.0, 80.0):                       # the veto's cost moves...
+        decision = types.SimpleNamespace(est_cost_bps=est,
+                                         size_units=sized1.units)
+        pt, sl, _d, _s, _r = bot._bracket_for_entry(
+            asset="ETH", symbol="ETH/USD", direction="long", price=2000.0,
+            p_win=0.75, equity=EQUITY, macro_state=_bull(),
+            vol_state=vol_state, liq_state=liq,
+            verdict=types.SimpleNamespace(risk_multiplier=1.0),
+            lev_decision=_lev(), now=1000.0, decision=decision,
+            explored=False, aggressive=False, explore_scale=1.0,
+            manip_scale=1.0, sized=sized1)
+        out.append((pt, sl))
+    assert out[0] == out[1], "the bracket followed the pretrade cost"
+    cost = label_cost_pct(0.45, 2.0, True, 60.0)
+    assert abs(cost - 0.47) < 1e-12
+    lab = CandidateLabeler.__new__(CandidateLabeler)
+    lab.rt_cost_pct, lab.label_include_spread, lab.spread_cap_bps = (
+        0.45, True, 60.0)
+    assert abs(lab._cost_pct({"spread_bps": 2.0}) - cost) < 1e-12
+    assert out[0] == barrier_geometry(0.001, cost, 8.0, 6.0, 4.0)
+
+
+def test_label_cost_pct_caps_and_can_exclude_spread():
+    from ml.labeling import label_cost_pct
+    assert abs(label_cost_pct(0.45, 90.0, True, 60.0) - 1.05) < 1e-12
+    assert abs(label_cost_pct(0.45, 90.0, False, 60.0) - 0.45) < 1e-12
+    assert abs(label_cost_pct(0.45, -5.0, True, 60.0) - 0.45) < 1e-12
+
+
+def test_bracket_label_cost_survives_a_restart_and_legacy_restores_zero():
+    """1a: ML-082 nets the LABEL cost a bracket was built on; that value must
+    survive snapshot/restore, and a pre-1a snapshot must read 0.0 (-> the
+    comparator's legacy est_cost fallback), never a guessed cost."""
+    from core.persistence import position_from_dict, position_to_dict
+    from core.state import Position
+    from datetime import datetime, timezone
+    p = Position(position_id="p", symbol="ETH/USD", direction="long",
+                 entry_price=2000.0, size=0.01, original_size=0.01,
+                 opened_at=datetime(2026, 9, 29, tzinfo=timezone.utc),
+                 bracket_pt_frac=0.0181, bracket_label_cost_pct=0.47)
+    d = position_to_dict(p)
+    assert position_from_dict(d).bracket_label_cost_pct == 0.47
+    d.pop("bracket_label_cost_pct")
+    assert position_from_dict(d).bracket_label_cost_pct == 0.0
