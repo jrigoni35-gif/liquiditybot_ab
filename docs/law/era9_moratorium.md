@@ -123,9 +123,10 @@ is an operator docket item, not law. Until it reads out:
 - Do not read the accruing gate numbers as a trend; do not retune on
   them. The registration is the law; the readout names which decision has
   become decidable â€” it never decides.
-- Model-side investment is FROZEN per the 2026-08-10 operator
-  adjudication (no new families, features, or meta-labeling); the
-  retrain loop itself continues by design.
+- ~~Model-side investment is FROZEN per the 2026-08-10 operator
+  adjudication~~ **LIFTED 2026-09-29 by operator ruling** ("Lift the
+  model freeze"). New families, features and meta-labeling are allowed
+  under overfit_discipline.md, cohort forking (core/cohort.py) and CS-1.
 - **WHAT THE LAW DOES NOT NAME (mirrored 2026-09-18, from HANDOFF's
   09-16 firing audit).** The 09-16 audit found ZERO hard-invariant
   breaches and stated the drift precisely: *"the bot is SAFE and is

@@ -122,12 +122,12 @@ decision paths — knobs live in `config.json`, validated by
    docs, telemetry = SAFE. The era number advances at every cut — read
    CLAUDE.md's moratorium heading for the live one, not this sentence's
    memory of it.
-2. **Model freeze** — authority is the **2026-08-10 operator
-   adjudication**: no new model families, features, or meta-labeling.
-   **This fence has NO gate condition and no expiry.** A cohort readout
-   does not lift it: era-4 already read out (COST_BOUND at n=54) and the
-   freeze stands unchanged. Only a further operator adjudication lifts
-   it. The retrain loop continues; the schema does not grow.
+2. **Model freeze — LIFTED 2026-09-29.** The 2026-08-10 adjudication (no
+   new families, features or meta-labeling) was lifted by a further
+   operator ruling, exactly as this entry said only such a ruling could.
+   Model work is open, gated by `docs/law/overfit_discipline.md`; a feature
+   or schema change forks the decision cohort (`core/cohort.py`) and uses
+   the history-schema migration path.
 
 **Reading accrual — a live trap.** The VS Code task is still labelled
 `Bot: era-4 accrual (n/50)` and `pc_status.json` still publishes an

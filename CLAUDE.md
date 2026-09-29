@@ -113,9 +113,14 @@ core:
   alter which orders are placed or how they fill.
 - Read points are REGISTERED: **n=50 = the lean** (sign + CI), **n=100 =
   the verdict**. The registration is the law; readouts never decide.
-- Model-side investment is FROZEN (2026-08-10 operator adjudication); the
-  retrain loop itself continues by design. Do not retune on accruing
-  gate numbers.
+- **Model freeze LIFTED 2026-09-29** (operator, verbatim: "Lift the model
+  freeze"; supersedes the 2026-08-10 adjudication). New model families,
+  features and meta-labeling are allowed, under the guardrails that STAY:
+  `docs/law/overfit_discipline.md` (overfit battery + PBO/quant-trial gates
+  green, no fitted literals in decision paths); a feature or schema change
+  forks the decision cohort and goes through the history-schema migration
+  path; CS-1 for every count. Still binding: do not retune on a cohort's
+  own accruing gate numbers - the registration is the law.
 
 ## Counting standard — `docs/law/counting_standard.md` (CS-1)
 

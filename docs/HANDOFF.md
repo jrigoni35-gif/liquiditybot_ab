@@ -694,9 +694,9 @@ DONE; nothing in them decides anything.
   only through entries the model EARNS, which needs live labels (504/1200
   at 09-27); exploration is dry-run hard-gated paper tuition that buys
   exactly those. Graduating now would freeze the model at its ~0.51
-  ceiling with no label flow. Entry-signal work needs the 2026-08-10
-  model freeze lifted - an operator ruling, NOT overturned by inference;
-  reopen on one operator word. History of the question:
+  ceiling with no label flow. Entry-signal work needed the 2026-08-10
+  model freeze lifted - **LIFTED 2026-09-29 by operator ruling**, so
+  entry-signal work is now the open lever. History of the question:
 - **PROBE LANE vs THE FAIR-GAME BAR (2026-09-26; operator choice, open).**
   Every era-9 5m entry was an exploration probe admitted at forced
   p_win 0.85 while the model said 0.39-0.51. At PT 180 / SL 135 the
@@ -1052,9 +1052,10 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — **REFUTE
   > $60 probe ticket or touched the 0.35 heat cap believing all four SAFE,
   > and restarted era-9 from zero. The 2026-09-05 pass renamed the era and
   > certified the terms without diffing them.
-- **Model freeze** (2026-08-10 adjudication) — no new families,
-  features, or meta-labeling. The retrain loop itself keeps running by
-  design.
+- ~~**Model freeze** (2026-08-10 adjudication)~~ — **LIFTED 2026-09-29**
+  (operator: "Lift the model freeze"). New families, features and
+  meta-labeling are open, gated by overfit_discipline.md, cohort forking
+  and CS-1. The retrain loop keeps running as before.
 - **Hard invariants** — dry_run default true, `arm_live` never remote,
   Kraken sole venue, withdrawals impossible, exits always allowed.
   These are not negotiable at any boundary.
