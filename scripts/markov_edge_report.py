@@ -39,6 +39,14 @@ seeing output is a new registration and must say so):
            AUC of the row's predicted drift vs up-first (resolved rows) -
            does the state RANK outcomes within a day. 0.5 = no information.
            Same null and CI machinery.
+  POWER 2026-09-30 (scripts/markov_edge_power.py, planted edges on the real
+           corpus structure): metric (1) is BLIND under the real day level -
+           0/40 detections even at delta 2.0 - so its negatives are NOT
+           evidence of no edge. Metric (3) detects delta 0.6 in 38/40 and
+           1.2 (break-even) in 40/40: READ (3). And with NULL_REPS 200 the
+           smallest printable p is 1/201 = 0.004975, above the 12-test
+           Bonferroni bar 0.05/12 = 0.004167 - no result could clear it.
+           Both facts print in every render.
   counting CS-1: every corpus row lands in exactly one bucket.
   CORRECTION 2026-09-30 (instrument bug, found by the first forward render):
            a row is written only once its label RESOLVES, so a day younger
@@ -195,6 +203,9 @@ def _operator_spec(d, tr):
     bin edges may only be fitted on rows where `tr` is True.
     Available market-absolute columns: d["basis"], d["disloc"], d["regime"]
     (-1..4), d["sigma"], d["asset"].
+    PRIMARY METRIC (registered 2026-09-30, before its first mature day): the
+    within-day AUC. The calibration gain is reported but is blind under the
+    day-level drift (scripts/markov_edge_power.py).
 
     Design: persistence first. Run 1 showed short-lived states (basis, stay
     ~0.4/step) wash out over a ~48-step hold, while the macro HMM regime
@@ -395,6 +406,7 @@ def run(history: Path, null_reps: int = NULL_REPS, as_of=None) -> dict:
     loglik = me.outcome_loglik(d["up_first"], d["r"])
     rng = np.random.default_rng(SEED)
     out = {"report": "markov_edge", "counting_standard": COUNTING_STANDARD,
+           "null_reps": null_reps,
            "rows": int(len(d["ts"])), "days": int(len(np.unique(d["day"]))),
            "base_up_first": float(d["up_first"][d["resolved"]].mean()),
            "specs": {}}
@@ -475,6 +487,16 @@ def render(rep: dict) -> str:
                 f"{x['auc_ci'][1]:.3f}]  {x['auc_null_p']:.3f}  | "
                 f"{x['uplift_mean'] * 1e4:+8.1f}  [{x['uplift_ci'][0] * 1e4:+.1f},"
                 f"{x['uplift_ci'][1] * 1e4:+.1f}]  {x['taken']}/{x['rows']}")
+    n_tests = 2 * sum(1 for e in rep["specs"].values()
+                      if not e.get("forward_from"))
+    reps = rep.get("null_reps", NULL_REPS)
+    L.append(f"READ THIS: gain(nats/row) is BLIND under the day-level drift "
+             f"(power run: 0/40 at a planted delta 2.0) - its negatives are "
+             f"not evidence; read within-day AUC. p floor = 1/({reps}+1) = "
+             f"{1 / (reps + 1):.6f} vs Bonferroni 0.05/{n_tests} = "
+             f"{0.05 / max(n_tests, 1):.6f}"
+             + (" - NO p here can clear it" if 1 / (reps + 1) >
+                0.05 / max(n_tests, 1) else ""))
     if any(e.get("forward_from") for e in rep["specs"].values()):
         L.append("* FORWARD-REGISTERED: scored only on test days from "
                  "2026-09-30T00:00Z, first mature 2026-10-02T12:00Z; "

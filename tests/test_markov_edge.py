@@ -279,3 +279,33 @@ def test_immature_test_days_are_never_scored():
                                  as_of=as_of)
     assert tested.any()
     assert d["day"][tested].max() == 19
+
+
+
+def test_render_states_its_own_blind_spots():
+    fake = {"rows": 1, "days": 1, "base_up_first": 0.5, "as_of": 0.0,
+            "null_reps": 200, "counting": {"line": "counting CS-1: ok"},
+            "specs": {n: {"static": {}, "chain": {}, "states": []}
+                      for n in rep.SPECS}}
+    for e in fake["specs"].values():
+        for v in ("static", "chain"):
+            e[v] = {"test_days": 0, "gain_mean": 0.0, "gain_ci": (0.0, 0.0),
+                    "null_p": 1.0, "auc_mean": 0.5, "auc_ci": (0.5, 0.5),
+                    "auc_null_p": 1.0, "uplift_mean": 0.0,
+                    "uplift_ci": (0.0, 0.0), "taken": 0, "rows": 0}
+    txt = rep.render(fake)
+    assert "BLIND" in txt and "NO p here can clear it" in txt
+    fake["null_reps"] = 1000
+    assert "NO p here can clear it" not in rep.render(fake)
+
+
+def test_power_simulation_plants_the_edge_it_claims():
+    import markov_edge_power as mp
+    rng = np.random.default_rng(4)
+    n = 20000
+    d = {"r": np.full(n, 3 / 7)}
+    state = np.repeat([0, 2], n // 2)
+    up = mp.simulate(d, state, np.zeros(n), 1.2, rng)
+    lo, hi = up[: n // 2].mean(), up[n // 2:].mean()
+    assert lo == pytest.approx(float(me.hit_prob(-1.2, 3 / 7)), abs=0.015)
+    assert hi == pytest.approx(float(me.hit_prob(1.2, 3 / 7)), abs=0.015)
