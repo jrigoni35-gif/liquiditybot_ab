@@ -160,6 +160,11 @@ class ModelMonitor:
         self.drift_measurable = 0
         self.drift_degenerate = 0
         self.drift_share_measurable = 0.0
+        # ADJUDICATED 2026-09-30 (the evidence the note above asked for): the
+        # in-sample null. drift_share is calibrated per feature when the
+        # artifact carries feature_psi_null; the legacy number lives on here.
+        self.drift_share_uncalibrated = 0.0
+        self.drift_calibrated = False
         self._records: deque = deque(maxlen=self.window * 3)
         # champion shadow scores (p, label) recorded ONLY while killed; used
         # solely by _try_shadow_recovery, never by the kill path.
@@ -480,19 +485,34 @@ class ModelMonitor:
     def note_features(self, feats):
         self._feat_buffer.append(np.asarray(feats, float))
 
-    def check_drift(self, train_deciles: list, feature_names: list):
+    def check_drift(self, train_deciles: list, feature_names: list,
+                    psi_null: "list | None" = None):
         """Input drift is a LEADING indicator: distributions shift before
-        outcome metrics can react (outcomes lag by the label horizon)."""
+        outcome metrics can react (outcomes lag by the label horizon).
+
+        CALIBRATED MODE (2026-09-30, operator "Execute 1"): when the model
+        artifact carries `psi_null` (ml.calibration.feature_psi_null - the
+        PSI a CONSECUTIVE window of the training corpus itself shows, per
+        feature, q95), a feature drifts only when its live PSI beats
+        max(drift_psi_threshold, its own null), and the share divides by the
+        MEASURABLE features only (a tied-decile feature cannot score). The
+        in-sample null showed the fixed 0.25 line fires on 42% of measurable
+        features with NO real change. `drift_share_uncalibrated` keeps the
+        legacy number published beside it. No null (an older artifact) ->
+        legacy behaviour exactly, until the next retrain writes one."""
         if not train_deciles or len(self._feat_buffer) < self.drift_min_rows:
             return
         X = np.array(self._feat_buffer, float)
         if X.shape[1] != len(train_deciles):
             return
+        calibrated = (isinstance(psi_null, (list, tuple))
+                      and len(psi_null) == len(train_deciles))
         # only MARKET features vote: clock/counter features (hour_sin/cos,
         # funding_dist, regime_age) drift on any finite window by construction
         # (their PSI reads window phase, not market state), so counting them
         # kept the share pinned above the retrain trigger on clean data.
         drifting, n_voting = [], 0
+        drifting_cal: list = []
         n_degenerate = 0
         for j, edges in enumerate(train_deciles):
             name = feature_names[j] if j < len(feature_names) else f"f{j}"
@@ -502,21 +522,37 @@ class ModelMonitor:
             # A tied-edge feature can never reach the threshold (psi returns
             # 0.0 by construction), so it is counted for provenance rather
             # than silently diluting the share.
-            if np.unique(np.asarray(edges, dtype=float)).size < len(edges):
+            degenerate = (np.unique(np.asarray(edges, dtype=float)).size
+                          < len(edges))
+            if degenerate:
                 n_degenerate += 1
-            if psi(edges, X[:, j]) >= self.drift_psi_threshold:
+            v = psi(edges, X[:, j])
+            if v >= self.drift_psi_threshold:
                 drifting.append(name)
-        self.drifting = drifting
-        self.drift_share = len(drifting) / max(n_voting, 1)
+            if calibrated and not degenerate and psi_null is not None:
+                if v >= max(self.drift_psi_threshold, float(psi_null[j])):
+                    drifting_cal.append(name)
+        self.drift_share_uncalibrated = len(drifting) / max(n_voting, 1)
         self.drift_degenerate = n_degenerate
         self.drift_measurable = n_voting - n_degenerate
         self.drift_share_measurable = (
             len(drifting) / self.drift_measurable if self.drift_measurable
             else 0.0)
+        self.drift_calibrated = bool(calibrated)
+        if calibrated:
+            drifting = drifting_cal
+            self.drift_share = (len(drifting) / self.drift_measurable
+                                if self.drift_measurable else 0.0)
+        else:
+            self.drift_share = self.drift_share_uncalibrated
+        self.drifting = drifting
         if self.drift_share >= self.drift_frac_features:
             log.warning("ML-031: feature drift %d/%d shifted "
-                        "(PSI>=%.2f): %s", len(drifting),
-                        n_voting, self.drift_psi_threshold,
+                        "(%s): %s", len(drifting),
+                        self.drift_measurable if calibrated else n_voting,
+                        "beyond each feature's in-sample consecutive null"
+                        if calibrated else
+                        f"PSI>={self.drift_psi_threshold:.2f}",
                         drifting[:6])
             get_audit().log("ml_governor", Code.ML_DRIFT,
                             f"{self.drift_share:.0%} of features drifted",
@@ -802,6 +838,11 @@ class ModelMonitor:
                "drift_measurable": self.drift_measurable,
                "drift_degenerate": self.drift_degenerate,
                "drift_share_measurable": round(self.drift_share_measurable, 3),
+               # calibrated = drift_share measured against each feature's
+               # in-sample consecutive null; uncalibrated = the legacy share
+               "drift_calibrated": getattr(self, "drift_calibrated", False),
+               "drift_share_uncalibrated": round(
+                   getattr(self, "drift_share_uncalibrated", 0.0), 3),
                "drifting_features": self.drifting[:8],
                "kelly_mult": self.kelly_mult, "use_model": self.use_model,
                "edge_ratio_bump": self.edge_ratio_bump,

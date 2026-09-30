@@ -40,7 +40,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Deque, Optional, TypedDict
+from typing import Any, Callable, Deque, NotRequired, Optional, TypedDict
 
 import numpy as np
 
@@ -656,6 +656,10 @@ class RetrainJob(TypedDict):
     oof_cal: Any              # cross-fitted calibrated OOF vector (gate score)
     challenger_brier: float
     n_live: int               # live labels behind the evidence gate
+    # per-feature in-sample CONSECUTIVE-window PSI null (q95) over the
+    # training rows in signal-time order - the drift monitor's calibrated
+    # alarm line (ml.calibration.feature_psi_null). [] = too few rows.
+    psi_null: NotRequired[list]
 
 
 class LiquidityBot:
@@ -4972,7 +4976,12 @@ class LiquidityBot:
                     # shadow traded-value rule. Report-only, guarded.
                     self._shadow_policy_log(now, asset, signal.direction,
                                             model_p)
-            self.monitor.note_features(feats)
+                    # drift buffer = the SAME sampling process as the corpus
+                    # rows its deciles/null came from (2026-09-30): one
+                    # vector per real registration, not one per cycle. The
+                    # per-cycle feed made a dense, autocorrelated snapshot
+                    # that read as drift on unchanged data (in-sample null).
+                    self.monitor.note_features(feats)
             if not can_enter:
                 self._mark_cand(asset, signal.direction, "capped")
                 continue          # book full: lesson recorded, no new risk
@@ -6700,7 +6709,8 @@ class LiquidityBot:
             self._launch_auto_retrain()          # C5: heavy half off-thread
         except Exception:
             log.exception("auto-retrain raised - isolated; drift still runs")
-        self.monitor.check_drift(self.meta.feature_deciles, FEATURE_NAMES)
+        _deciles, _null = self._drift_reference()
+        self.monitor.check_drift(_deciles, FEATURE_NAMES, psi_null=_null)
 
         st = self.monitor.status()
         log.info(f"health: equity=${self._equity():,.2f} "
@@ -6854,6 +6864,19 @@ class LiquidityBot:
             log.exception("auto-retrain failed - keeping current model "
                           "(retrain_failures=%d)", self._retrain_failures)
 
+    def _drift_reference(self) -> tuple:
+        """(train_deciles, psi_null) for the drift monitor. The loaded
+        champion's own pair when its artifact carries a null; else the
+        latest retrain's corpus pair (_retrain_apply); else the champion's
+        deciles with no null - the monitor's legacy fixed threshold."""
+        meta_null = list(getattr(self.meta, "feature_psi_null", None) or [])
+        if meta_null:
+            return self.meta.feature_deciles, meta_null
+        ref = getattr(self, "_drift_ref", None)
+        if ref and ref[1]:
+            return ref[0], ref[1]
+        return self.meta.feature_deciles, None
+
     def _retrain_compute(self, rows: int) -> Optional[RetrainJob]:
         """HEAVY half of the auto-retrain (C5): load the corpus, run the
         walk-forward selection, fit calibration, score the challenger.
@@ -6981,10 +7004,19 @@ class LiquidityBot:
                         "champion until more labels accrue", len(X))
             return None
         challenger_brier = brier_score(sel["oof_y"], oof_cal)
+        # drift alarm line (2026-09-30): the PSI a CONSECUTIVE window of THIS
+        # corpus shows against its own deciles, rows in signal-time order -
+        # the order the monitor's buffer fills. Worker thread: pure numpy.
+        from ml.calibration import feature_deciles, feature_psi_null
+        _order = np.argsort(np.asarray(sig, float), kind="stable")
+        psi_null = feature_psi_null(
+            np.asarray(X)[_order], feature_deciles(X),
+            window=int(getattr(self.monitor._feat_buffer, "maxlen", 300)
+                       or 300))
         return {"rows": rows, "X": X, "y": y, "results": results,
                 "cal": cal, "oof_cal": oof_cal,
                 "challenger_brier": challenger_brier,
-                "n_live": _n_live}
+                "n_live": _n_live, "psi_null": psi_null}
 
     def _retrain_apply(self, job: RetrainJob) -> None:
         """MAIN-THREAD half (C5): rescore the CURRENT champion, gate, log the
@@ -6995,6 +7027,12 @@ class LiquidityBot:
         from ml.models import save_model
         from ml.calibration import feature_deciles
         rows, X, y = job["rows"], job["X"], job["y"]
+        # drift reference from THIS corpus, set before any gate: the null is
+        # a property of the corpus, not of the model, and a rejected
+        # challenger never saves an artifact - without this an old champion
+        # (no feature_psi_null) would keep drift uncalibrated indefinitely.
+        # Both halves come from the same X, so the pair is consistent.
+        self._drift_ref = (feature_deciles(X), list(job.get("psi_null") or []))
         results, cal, oof_cal = job["results"], job["cal"], job["oof_cal"]
         challenger_brier, _n_live = job["challenger_brier"], job["n_live"]
         self._rows_at_last_train = rows
@@ -7150,6 +7188,7 @@ class LiquidityBot:
                 extra={"calibration": cal.to_dict(),
                         "oof_brier": challenger_brier,
                         "feature_deciles": feature_deciles(X),
+                        "feature_psi_null": list(job.get("psi_null") or []),
                         # history-spanning background so interventional
                         # SHAP (scripts/interpret_report.py) is defined
                         # for THIS artifact without the training corpus

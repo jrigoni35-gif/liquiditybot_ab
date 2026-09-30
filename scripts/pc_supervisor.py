@@ -103,6 +103,19 @@ except ValueError:
     TELEM_BACKUP_SEC = 3600.0
 _VAULT_GUARD_STAMP = OUT / ".vault_guard_stamp"
 _TELEM_BACKUP_STAMP = OUT / ".telem_backup_stamp"
+# 5m CANDLE COLLECTOR (scripts/candle_collect.py --once, SAFE, zero API):
+# recover the bot's own 5m ring (state.json, ~7.5 days deep) into the candle
+# store. It was never scheduled - the intraday lanes ended 2026-09-01..09-07
+# and every unrun day is 5m path lost from the world (its docstring). An S4U
+# scheduled task needs an elevated registration, so it rides this always-on
+# loop instead (operator, 2026-09-30: "Execute 1 and 2"). 6h against a
+# ~7.5-day ring. LB_NO_CANDLE_COLLECT=1 disables.
+try:
+    CANDLE_COLLECT_SEC = float(os.environ.get("LB_CANDLE_COLLECT_SEC",
+                                              "21600"))
+except ValueError:
+    CANDLE_COLLECT_SEC = 21600.0
+_CANDLE_COLLECT_STAMP = OUT / ".candle_collect_stamp"
 _CORPUS_SYNC_STAMP = OUT / ".corpus_sync_stamp"
 # rotation-hazard fast path (task-rotation-report.md): ml/history.py's
 # _ensure_schema rotates the corpus to a fresh .bak_<ts> the instant it sees
@@ -871,6 +884,9 @@ def tick() -> None:
     if (not os.environ.get("LB_NO_VAULT_GUARD")
             and _stamp_due(_VAULT_GUARD_STAMP, VAULT_GUARD_SEC)):
         _spawn([PY, "scripts/vault_guard.py"], own_log=False)
+    if (not os.environ.get("LB_NO_CANDLE_COLLECT")
+            and _stamp_due(_CANDLE_COLLECT_STAMP, CANDLE_COLLECT_SEC)):
+        _spawn([PY, "scripts/candle_collect.py", "--once"], own_log=False)
     if (not os.environ.get("LB_NO_TELEM_BACKUP")
             and _stamp_due(_TELEM_BACKUP_STAMP, TELEM_BACKUP_SEC)):
         _spawn([PY, "scripts/telemetry_backup.py", "--once",

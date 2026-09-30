@@ -999,7 +999,7 @@
       "id": 12,
       "type": "timeseries",
       "title": "Feature drift share",
-      "description": "Share of the model's inputs that look different from what it trained on. High AND stuck means the market moved and the model has not. Empty means: not in this cycle's status write.",
+      "description": "Share of the model's MEASURABLE inputs that differ from what it trained on by MORE than the training data differs from itself over time (each feature's own in-sample consecutive-window null, 2026-09-30). The old fixed line flagged ~13 features even when nothing changed; status.json keeps it as drift_share_uncalibrated. Uncalibrated until a retrain writes the null (drift_calibrated). High AND stuck means the market moved and the model has not. Empty means: not in this cycle's status write.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"

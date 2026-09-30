@@ -126,6 +126,40 @@ def feature_deciles(X) -> list:
     return [np.quantile(X[:, j], qs).tolist() for j in range(X.shape[1])]
 
 
+def feature_psi_null(X_time_ordered, edges: list, window: int = 300,
+                     n_windows: int = 200, q: float = 0.95,
+                     seed: int = 0) -> list:
+    """Per-feature PSI a CONSECUTIVE `window`-row slice of the training
+    corpus shows against the corpus's own deciles - drift with no drift.
+
+    WHY (2026-09-30 in-sample null, raw/2026-09-30_drift_share_in_sample_
+    null.md): 300 random rows read 1.4% drift share, but 300 CONSECUTIVE rows
+    (~10.8 h) read 18.4% mean / 25.1% p95 - 42% of measurable features -
+    on data that by definition had not drifted. Slow features (vol,
+    drawdown, turbulence, sentiment) barely move within hours, so any
+    recent window looks "different" from months of spread. The live buffer
+    fills consecutively, so its alarm line must be THIS null, per feature.
+
+    `X_time_ordered` rows must be in registration (signal-time) order - the
+    order the live buffer fills. Returns the q-quantile per feature (0.0 for
+    a degenerate, tied-decile feature, which psi() scores 0 anyway), or []
+    when the corpus is shorter than 2 windows (caller keeps the fixed
+    threshold). Deterministic: seeded, so an artifact is reproducible."""
+    X = np.asarray(X_time_ordered, float)
+    if X.ndim != 2 or len(X) < 2 * window or X.shape[1] != len(edges):
+        return []
+    rng = np.random.default_rng(seed)
+    starts = rng.integers(0, len(X) - window + 1, int(n_windows))
+    out = []
+    for j, e in enumerate(edges):
+        if np.unique(np.asarray(e, float)).size < len(e):
+            out.append(0.0)
+            continue
+        vals = [psi(e, X[s:s + window, j]) for s in starts]
+        out.append(float(np.quantile(vals, q)))
+    return out
+
+
 def psi(train_edges: list, recent_col) -> float:
     """Population Stability Index of one feature vs its training deciles.
     Rule of thumb: <0.10 stable, 0.10-0.25 drifting, >0.25 major shift."""

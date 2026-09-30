@@ -1240,9 +1240,15 @@ def _author_learning():
                     "position size reads these probabilities literally.")
     timeseries("Feature drift share", M("liquiditybot_ml_drift_share"), 6, 8,
                unit="percentunit", legend="drift share", decimals=1,
-               desc="Share of the model's inputs that look different from "
-                    "what it trained on. High AND stuck means the market "
-                    "moved and the model has not.")
+               desc="Share of the model's MEASURABLE inputs that differ from "
+                    "what it trained on by MORE than the training data "
+                    "differs from itself over time (each feature's own "
+                    "in-sample consecutive-window null, 2026-09-30). The "
+                    "old fixed line flagged ~13 features even when nothing "
+                    "changed; status.json keeps it as "
+                    "drift_share_uncalibrated. Uncalibrated until a retrain "
+                    "writes the null (drift_calibrated). High AND stuck "
+                    "means the market moved and the model has not.")
 
     # ---- supply: is there anything to learn from? ------------------------
     row("Is the pipeline filling?")

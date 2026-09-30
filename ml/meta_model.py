@@ -47,6 +47,9 @@ class MetaModelService:
         self.model_id = ""
         self.calibrator = IsotonicCalibrator()
         self.feature_deciles: list = []
+        # per-feature in-sample consecutive-window PSI null (q95); [] on an
+        # artifact that predates it -> the monitor's legacy fixed threshold
+        self.feature_psi_null: list = []
         self.contract = get_contract()
         self.fallbacks = 0            # ML-020 count: prior served instead
         self.infer_faults = 0
@@ -66,6 +69,7 @@ class MetaModelService:
         self.trained_rows = 0
         self.calibrator = IsotonicCalibrator()
         self.feature_deciles = []
+        self.feature_psi_null = []
         p = Path(self.model_path)
         if not p.exists():
             self._loaded_mtime = 0.0
@@ -123,6 +127,7 @@ class MetaModelService:
         self.model_id = v.get("model_id", "")
         self.calibrator = IsotonicCalibrator.from_dict(d.get("calibration"))
         self.feature_deciles = d.get("feature_deciles") or []
+        self.feature_psi_null = d.get("feature_psi_null") or []
         try:
             self.oof_brier = float(d["oof_brier"])
         except (KeyError, TypeError, ValueError):

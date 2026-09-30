@@ -112,6 +112,9 @@ _REDIRECTED_PATH_ATTRS = (
     # tests/test_corpus_rotation_marker.py::
     # test_tick_spawns_corpus_sync_immediately_on_marker caught it.
     "_VAULT_GUARD_STAMP",
+    # 5m candle-collector cadence stamp (2026-09-30) - registered on
+    # introduction, not discovered later as the 11th leak.
+    "_CANDLE_COLLECT_STAMP",
     # SHADOW_WEIGHTS_PATH (scripts/shadow_gate_weights.py, sandbox
     # prototype, 2026-08-27): the sidecar's own output path constant -
     # registered on introduction per this file's own rule above, not
