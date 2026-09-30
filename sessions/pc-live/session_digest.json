@@ -1,26 +1,26 @@
 {
-  "generated_at": 1790781942.3428621,
+  "generated_at": 1790785543.250235,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790781940.0,
-    "duration_h": 1975.53
+    "end": 1790785536.421,
+    "duration_h": 1976.53
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 2414,
-      "signal_records": 455,
+      "records": 2421,
+      "signal_records": 462,
       "by_src": {
         "exploration": 1965,
         "long_book": 190,
-        "entry_sweep": 96,
-        "ml_governor": 87,
+        "entry_sweep": 98,
+        "ml_governor": 90,
         "order_manager": 35,
         "conviction": 27,
         "exit": 7,
-        "startup": 3,
-        "fault": 3,
+        "startup": 4,
+        "fault": 4,
         "circuit_breaker": 1
       },
       "top_codes": [
@@ -42,15 +42,15 @@
         ],
         [
           "EN-000",
-          48
+          49
         ],
         [
           "DE-010",
-          48
+          49
         ],
         [
           "ML-031",
-          39
+          38
         ],
         [
           "CV-000",
@@ -66,23 +66,23 @@
         ],
         [
           "ML-016",
-          12
+          13
         ],
         [
           "ML-042",
-          12
+          13
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.222,
+      "dominant_frac": 0.219,
       "retrain_requests": 7,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 21551,
+      "records": 21714,
       "by_level": {
-        "INFO": 21400,
-        "WARNING": 142,
+        "INFO": 21553,
+        "WARNING": 152,
         "CRITICAL": 7,
         "ERROR": 2
       },
@@ -93,60 +93,60 @@
         ],
         [
           "DF-020: building feature rows with degraded context (darkpool) - the affected features read neutral; rows carry avail_* flags",
-          6
+          7
         ],
         [
           "ML-031: feature drift 21/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
           5
         ],
         [
+          "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
+          4
+        ],
+        [
+          "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (680 = 68 features x 10 row",
+          4
+        ],
+        [
+          "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
+          4
+        ],
+        [
+          "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
+          4
+        ],
+        [
+          "op-state INIT -> ARMED (startup validation passed)",
+          4
+        ],
+        [
           "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 159d old (> 35d)) - snapshot degraded",
           4
         ],
         [
-          "ML-031: feature drift 26/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
+          "TH-016: BTC: candle hole 30000s (~100 bars) - swing/sweep context fenced",
           4
-        ],
-        [
-          "ML-031: feature drift 23/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
-        ],
-        [
-          "DF-020: building feature rows with degraded context (darkpool, frozen) - the affected features read neutral; rows carry avail_* flags",
-          3
-        ],
-        [
-          "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 158d old (> 35d)) - snapshot degraded",
-          3
-        ],
-        [
-          "ML-031: feature drift 22/64 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
-          3
-        ],
-        [
-          "ML-031: feature drift 22/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
-          3
         ]
       ],
       "liquidity_tally": {
-        "thin": 3216,
-        "spoofy": 189
+        "thin": 3210,
+        "spoofy": 195
       },
-      "spoofy_frac": 0.056,
+      "spoofy_frac": 0.057,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1421,
+      "cycles_estimate": 1413,
       "feed_error_events": 5
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 753.73,
+    "equity_end": 753.79,
     "equity_min": 752.64,
     "equity_max": 806.91,
     "equity_range": 54.27,
     "capital_epochs": 5,
-    "epoch_samples": 271337,
+    "epoch_samples": 271562,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 752.64,
     "lifetime_equity_max": 100000.03,
@@ -154,26 +154,26 @@
     "realized_pnl_total": -28.99,
     "fees_paid_total": 42.208,
     "open_positions": 5,
-    "samples": 439128
+    "samples": 439353
   },
   "activity": {
-    "signal_rows_total": 35150,
+    "signal_rows_total": 35155,
     "live_labeled_trades": 519,
-    "candidate_rows": 34631
+    "candidate_rows": 34636
   },
   "audit": {
-    "records": 92213,
-    "signal_records": 36019,
+    "records": 92223,
+    "signal_records": 36029,
     "by_src": {
       "exploration": 79268,
       "long_book": 3764,
-      "ml_governor": 3678,
+      "ml_governor": 3682,
       "order_manager": 2303,
       "conviction": 1228,
-      "entry_sweep": 678,
+      "entry_sweep": 682,
       "exit": 424,
-      "startup": 350,
-      "fault": 331,
+      "startup": 351,
+      "fault": 332,
       "engine": 67,
       "firewall": 60,
       "circuit_breaker": 59,
@@ -218,15 +218,15 @@
       ],
       [
         "ML-016",
-        628
+        629
       ],
       [
         "ML-041",
-        594
+        595
       ],
       [
         "ML-042",
-        558
+        559
       ]
     ],
     "dominant_code": "SZ-047",
@@ -239,8 +239,8 @@
     "chain_seams": 63,
     "chain_torn_tail": false,
     "chain_error": null,
-    "records_all_lines": 94454,
-    "main_chain_records": 92213,
+    "records_all_lines": 94464,
+    "main_chain_records": 92223,
     "off_chain_records": 2241,
     "off_chain_codes": {
       "FW-050": 312,
@@ -369,10 +369,10 @@
     ]
   },
   "events": {
-    "records": 26165,
+    "records": 26580,
     "by_level": {
-      "INFO": 25986,
-      "WARNING": 168,
+      "INFO": 26389,
+      "WARNING": 180,
       "CRITICAL": 9,
       "ERROR": 2
     },
@@ -383,7 +383,31 @@
       ],
       [
         "DF-020: building feature rows with degraded context (darkpool) - the affected features read neutral; rows carry avail_* flags",
-        8
+        9
+      ],
+      [
+        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
+        5
+      ],
+      [
+        "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (680 = 68 features x 10 row",
+        5
+      ],
+      [
+        "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
+        5
+      ],
+      [
+        "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
+        5
+      ],
+      [
+        "op-state INIT -> ARMED (startup validation passed)",
+        5
+      ],
+      [
+        "TH-016: BTC: candle hole 30000s (~100 bars) - swing/sweep context fenced",
+        5
       ],
       [
         "ML-031: feature drift 21/64 shifted (PSI>=0.25): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile']",
@@ -392,39 +416,15 @@
       [
         "ML-031: feature drift 22/64 shifted (PSI>=0.25): ['ret_6_dir', 'ret_12_dir', 'ret_48_dir', 'sigma_bar_pct', 'vol_percentile', 'imbalance_dir",
         4
-      ],
-      [
-        "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
-        4
-      ],
-      [
-        "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (680 = 68 features x 10 row",
-        4
-      ],
-      [
-        "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
-        4
-      ],
-      [
-        "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
-        4
-      ],
-      [
-        "op-state INIT -> ARMED (startup validation passed)",
-        4
-      ],
-      [
-        "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 158d old (> 35d)) - snapshot degraded",
-        4
       ]
     ],
     "liquidity_tally": {
-      "thin": 3704,
-      "spoofy": 268
+      "thin": 3741,
+      "spoofy": 282
     },
-    "spoofy_frac": 0.067,
+    "spoofy_frac": 0.07,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1663,
+    "cycles_estimate": 1693,
     "feed_error_events": 5
   },
   "model": {
@@ -455,7 +455,7 @@
       "unavailable": "signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 24761,
+      "triple_barrier_h432": 24766,
       "triple_barrier": 5328,
       "exit_sim": 2821,
       "legacy": 1781,
@@ -475,17 +475,18 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 35150,
+    "corpus_rows": 35155,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-09-30T14:00:28Z",
-    "corpus_span_days": 79.06,
+    "corpus_last_ts": "2026-09-30T14:45:00Z",
+    "corpus_span_days": 79.09,
     "signal_ts_missing": 0,
     "rows_per_cohort": {
       "legacy": 34330,
-      "75e19fa38ffb": 354,
-      "6709bb74df3e": 250,
+      "75e19fa38ffb": 356,
+      "6709bb74df3e": 251,
       "0f773bf5fc67": 162,
-      "281334f23604": 54
+      "281334f23604": 54,
+      "6709bb58cd7c": 2
     },
     "fills_per_cohort": {
       "legacy": 1458,
@@ -514,6 +515,10 @@
       [
         "2026-09-30T14:34:47Z",
         "6709bb58cd7c"
+      ],
+      [
+        "2026-09-30T15:55:21Z",
+        "6709bbc2778d"
       ]
     ],
     "cohort_pooling_hazard": true
