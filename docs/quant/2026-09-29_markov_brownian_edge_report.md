@@ -29,7 +29,38 @@ code, no cohort fork.
   purity. Mutation sweep 7/7 caught against a green control (one pin was
   strengthened after it missed "prior ignored").
 
-## Result (snapshot of `outputs/signal_history.csv` 2026-09-29T20:10:58Z,
+## CORRECTION 2026-09-30 — test-side censoring (read this before the numbers below)
+
+The first forward render scored 7 rows from a 10-hour-old day. A row reaches
+`signal_history.csv` only when its label RESOLVES, so any day younger than
+`day_end + 36 h` holds only its fast-resolving rows. The purge guarded train;
+nothing guarded test. Run 1's 14 test days included two such days (09-28,
+09-29; 497 rows). Fixed: `mature_day()`, as-of = corpus mtime (`--as-of`),
+CS-1 bucket `immature_day`, two pins, mutation 13/14 (the survivor is an
+equivalent mutant: skipping null reps on empty data changes runtime, not
+output). Re-run on the SAME snapshot, 12 mature test days, 4,355 rows scored
+(`raw` in the vault: 2026-09-30_markov_brownian_edge_walkforward_corrected):
+
+- Calibration gain: still negative in all 12 cells (-0.029 .. -0.055).
+- Within-day AUC: basis static 0.543 [0.515, 0.572] p=0.020 (was 0.533);
+  hmm_x_basis static 0.562 [0.512, 0.615] p=0.005 (was 0.558) - still at the
+  null-resolution floor, still not Bonferroni-clean.
+- NEW: disloc chain 0.439 and basis_x_disloc chain 0.437, both p=0.005 - the
+  chained dislocation drift ranks outcomes BACKWARDS out of sample (the
+  in-sample sign does not persist).
+- Decision uplift: no positive CI; basis_x_disloc static -54.5 bps
+  [-100.7, -11.5] (was -47.8).
+
+Conclusions 1-5 below STAND; their numbers are run 1's and are kept for the
+record, superseded by the list above.
+
+Forward-registered spec `operator` (2026-09-30, written by Claude at the
+operator's delegation, BEFORE its state table was seen): macro regime in 3
+groups x volatility half vs the train median = 6 states, chosen for
+persistence. Scored only on test days from 2026-09-30T00:00Z; first mature day
+2026-10-02T12:00Z; 0 days today.
+
+## Result, run 1 (snapshot of `outputs/signal_history.csv` 2026-09-29T20:10:58Z,
 sha256 prefix c732f653e3d853b, 34,771 lines; 200 null reps)
 
 Corpus: 6,929 era-9 triple-barrier candidate rows over 22 days; 14 test days;

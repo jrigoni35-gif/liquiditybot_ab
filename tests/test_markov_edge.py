@@ -197,3 +197,85 @@ def test_research_only_nothing_in_the_order_path_imports_it():
             if "markov_edge" in f.read_text(encoding="utf-8", errors="ignore"):
                 offenders.append(str(f.relative_to(ROOT)))
     assert offenders == []
+
+
+# ---------------- forward-registered operator spec ----------------
+def test_operator_spec_states_and_train_only_cut():
+    d = {"regime": np.array([-1, 0, 1, 2, 3, 4, 0, 4]),
+         "sigma": np.array([1.0, 1.0, 1.0, 1.0, 9.0, 9.0, 9.0, 9.0])}
+    tr = np.array([True] * 4 + [False] * 4)       # train median = 1.0
+    s, k = rep._operator_spec(d, tr)
+    assert k == 6 and s.min() >= 0 and s.max() < k
+    # none->range, bull, bull, range, bear, bear(crisis), bull, bear
+    assert (s // 2).tolist() == [1, 0, 0, 1, 2, 2, 0, 2]
+    # the cut is the TRAIN median (1.0): every test row (9.0) is high-vol.
+    # An all-rows median (5.0) would also split the train rows - it doesn't.
+    assert (s % 2).tolist() == [0, 0, 0, 0, 1, 1, 1, 1]
+    d2 = dict(d, sigma=np.array([1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0]))
+    s2, _ = rep._operator_spec(d2, tr)            # train median 2.5
+    assert (s2 % 2).tolist() == [0, 0, 1, 1, 0, 0, 0, 0]
+
+
+def test_forward_spec_never_scores_a_day_before_its_registration():
+    d = _synthetic([-2.5, 0.0, 2.5], days=24)
+    L = me.outcome_loglik(d["up_first"], d["r"])
+    _, tested = rep.walk_forward(d, L, _state_spec(3), horizon_sec=H,
+                                 min_test_day=20)
+    assert tested.any()
+    assert d["day"][tested].min() >= 20
+    _, none = rep.walk_forward(d, L, _state_spec(3), horizon_sec=H,
+                               min_test_day=10_000)
+    assert not none.any()
+
+
+def test_no_test_days_reads_nan_never_a_significant_p(tmp_path):
+    # a corpus that ends before FORWARD_FROM: the forward spec has zero test
+    # days, and its p must be nan - not the 1/(1+R) floor that reads as 0.005
+    import csv
+    rng = np.random.default_rng(11)
+    path = tmp_path / "sh.csv"
+    cols = ["source", "label_era", "signal_ts", "direction", "pt_frac",
+            "sl_frac", "label_ret_pct", "sigma_bar_pct", "barrier", "asset",
+            "basis_dir", "venue_disloc_dir"] + rep.REGIMES
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(cols)
+        for i in range(12 * 60):
+            side = 1 if i % 2 else -1
+            bar = ["tb_pt", "tb_sl", "tb_time"][int(rng.integers(0, 3))]
+            ret = {"tb_pt": 1.8 - 0.45, "tb_sl": -1.35 - 0.45,
+                   "tb_time": 0.1}[bar]
+            reg = [0.0] * 5
+            reg[int(rng.integers(0, 5))] = 1.0
+            w.writerow(["candidate", "triple_barrier_h432",
+                        rep.ERA9_START + 100 + i * 1440, side, 0.018,
+                        0.0135, ret, 0.225, bar, "X",
+                        rng.normal(), rng.normal(), *reg])
+    out = rep.run(path, null_reps=2)
+    fwd = out["specs"]["operator"]
+    assert fwd["scored_rows"] == 0 and fwd["forward_from"] == rep.FORWARD_FROM
+    for v in ("static", "chain"):
+        assert fwd[v]["test_days"] == 0
+        assert np.isnan(fwd[v]["null_p"]) and np.isnan(fwd[v]["auc_null_p"])
+    assert out["specs"]["pooled"]["static"]["test_days"] > 0
+    assert out["counting"]["ok"]
+    # the CS-1 line counts the REGISTERED specs' scoring, never the forward's
+    assert out["counting"]["buckets"]["scored"] ==         out["specs"]["pooled"]["scored_rows"] > 0
+
+
+# ---------------- test-side censoring (correction 2026-09-30) ----------------
+def test_a_day_is_mature_only_after_its_last_label_could_resolve():
+    end5 = 6 * 86400.0                     # day 5 ends here
+    assert rep.mature_day(5, end5 + H, H)
+    assert not rep.mature_day(5, end5 + H - 1, H)
+    assert rep.mature_day(5, None, H)      # no as-of = caller's own risk
+
+
+def test_immature_test_days_are_never_scored():
+    d = _synthetic([-2.5, 0.0, 2.5], days=24)
+    L = me.outcome_loglik(d["up_first"], d["r"])
+    as_of = 20 * 86400.0 + H               # days 0..19 mature, 20..23 not
+    _, tested = rep.walk_forward(d, L, _state_spec(3), horizon_sec=H,
+                                 as_of=as_of)
+    assert tested.any()
+    assert d["day"][tested].max() == 19

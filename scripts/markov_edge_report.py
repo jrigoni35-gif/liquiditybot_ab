@@ -40,6 +40,13 @@ seeing output is a new registration and must say so):
            does the state RANK outcomes within a day. 0.5 = no information.
            Same null and CI machinery.
   counting CS-1: every corpus row lands in exactly one bucket.
+  CORRECTION 2026-09-30 (instrument bug, found by the first forward render):
+           a row is written only once its label RESOLVES, so a day younger
+           than day_end + H holds only its fast-resolving rows - a censored
+           sample. The purge guarded train; nothing guarded test. A test day
+           is now scored only when day_end + H <= AS_OF (default: the corpus
+           file's mtime; --as-of overrides). Run 1's 14 test days included
+           two such immature days (09-28, 09-29); results re-derived.
 
 Usage:  python scripts/markov_edge_report.py [--history PATH] [--json]
 """
@@ -49,6 +56,7 @@ import argparse
 import csv
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -180,6 +188,30 @@ def _cross(f, g):
     return spec
 
 
+def _operator_spec(d, tr):
+    """FORWARD-REGISTERED 2026-09-29 (operator-designed). Scored ONLY on test
+    days >= FORWARD_FROM: its author saw run 1, so the snapshot days are
+    burned for it. Must return (state int array over all rows, n_states);
+    bin edges may only be fitted on rows where `tr` is True.
+    Available market-absolute columns: d["basis"], d["disloc"], d["regime"]
+    (-1..4), d["sigma"], d["asset"].
+
+    Design: persistence first. Run 1 showed short-lived states (basis, stay
+    ~0.4/step) wash out over a ~48-step hold, while the macro HMM regime
+    persists (stay 0.92-0.98). So: regime in 3 groups (bull = bull_quiet |
+    bull_vol, bear = bear | crisis, else range incl. no regime) x volatility
+    half (per-bar sigma vs its TRAIN median; volatility clusters) = 6."""
+    reg = d["regime"]
+    group = np.where(reg <= 1, 0, np.where(reg >= 3, 2, 1))
+    group = np.where(reg < 0, 1, group)          # no regime -> range
+    med = float(np.median(d["sigma"][tr])) if tr.any() else 0.0
+    hi_vol = (d["sigma"] > med).astype(int)
+    return group * 2 + hi_vol, 6
+
+
+FORWARD_FROM = 1790726400.0    # 2026-09-30T00:00:00Z
+FORWARD_SPECS = {"operator": _operator_spec}
+
 SPECS = {
     "pooled": _pooled,
     "hmm": _hmm,
@@ -242,7 +274,14 @@ def _auc(score, y) -> float:
     return float((ranks[pos].sum() - n1 * (n1 + 1) / 2.0) / (n1 * n0))
 
 
-def walk_forward(d, loglik, spec, rng=None, horizon_sec=None):
+def mature_day(day: int, as_of, horizon_sec: float) -> bool:
+    """True when every label of `day` had time to resolve by `as_of`. A
+    younger day holds only its fast-resolving rows - a censored sample."""
+    return as_of is None or (day + 1) * 86400.0 + horizon_sec <= as_of
+
+
+def walk_forward(d, loglik, spec, rng=None, horizon_sec=None,
+                 min_test_day=None, as_of=None):
     """One walk-forward pass. Returns per-test-row arrays and per-day
     aggregates for both variants. `rng` set = permutation null: states are
     shuffled within each UTC day before anything is fitted."""
@@ -256,6 +295,10 @@ def walk_forward(d, loglik, spec, rng=None, horizon_sec=None):
         train = train_mask(d, day, horizon_sec)
         test = d["day"] == day
         if len(np.unique(d["day"][train])) < MIN_TRAIN_DAYS or not test.any():
+            continue
+        if min_test_day is not None and day < min_test_day:
+            continue
+        if not mature_day(int(day), as_of, horizon_sec):
             continue
         if (train & test).any():       # look-ahead is a bug, never a result
             raise RuntimeError(f"walk-forward look-ahead on day {day}")
@@ -345,7 +388,9 @@ def describe(d, loglik, spec) -> list:
     return out
 
 
-def run(history: Path, null_reps: int = NULL_REPS) -> dict:
+def run(history: Path, null_reps: int = NULL_REPS, as_of=None) -> dict:
+    as_of = float(as_of) if as_of is not None else history.stat().st_mtime
+    horizon = _label_horizon_sec()
     d, drops = load(history)
     loglik = me.outcome_loglik(d["up_first"], d["r"])
     rng = np.random.default_rng(SEED)
@@ -354,14 +399,20 @@ def run(history: Path, null_reps: int = NULL_REPS) -> dict:
            "base_up_first": float(d["up_first"][d["resolved"]].mean()),
            "specs": {}}
     tested_any = None
-    for name, spec in SPECS.items():
-        res, tested = walk_forward(d, loglik, spec)
-        tested_any = tested
-        entry = {}
+    fwd_day = int(FORWARD_FROM // 86400)
+    runs = [(n, f, None) for n, f in SPECS.items()] +         [(n, f, fwd_day) for n, f in FORWARD_SPECS.items()]
+    for name, spec, min_day in runs:
+        res, tested = walk_forward(d, loglik, spec, min_test_day=min_day,
+                                   as_of=as_of)
+        if min_day is None:
+            tested_any = tested     # CS-1 line = the registered specs' scoring
+        entry = {"forward_from": FORWARD_FROM if min_day is not None
+                 else None, "scored_rows": int(tested.sum())}
         nulls = {"static": [], "chain": []}
         nulls_auc = {"static": [], "chain": []}
-        for _ in range(null_reps):
-            nres, _ = walk_forward(d, loglik, spec, rng=rng)
+        for _ in range(null_reps if tested.any() else 0):
+            nres, _ = walk_forward(d, loglik, spec, rng=rng,
+                                   min_test_day=min_day, as_of=as_of)
             for v in nulls:
                 nulls[v].append(float(np.mean(nres[v]["gain"]))
                                 if nres[v]["gain"] else 0.0)
@@ -373,8 +424,9 @@ def run(history: Path, null_reps: int = NULL_REPS) -> dict:
             entry[v] = {
                 "test_days": len(g),
                 "gain_mean": obs, "gain_ci": _boot_ci(g, rng),
+                # no test days = no evidence: nan, never the 1/(1+R) floor
                 "null_p": (1 + sum(n >= obs for n in nulls[v]))
-                / (1 + len(nulls[v])) if null_reps else float("nan"),
+                / (1 + len(nulls[v])) if nulls[v] and g else float("nan"),
                 "auc_mean": float(np.mean(res[v]["auc"]))
                 if res[v]["auc"] else float("nan"),
                 "auc_ci": _boot_ci(res[v]["auc"], rng),
@@ -382,17 +434,21 @@ def run(history: Path, null_reps: int = NULL_REPS) -> dict:
                                                  - 0.5)
                                        for n in nulls_auc[v]))
                 / (1 + len(nulls_auc[v]))
-                if null_reps and res[v]["auc"] else float("nan"),
+                if nulls_auc[v] and res[v]["auc"] else float("nan"),
                 "uplift_mean": float(np.mean(u)) if u else float("nan"),
                 "uplift_ci": _boot_ci(u, rng),
                 "taken": res[v]["taken"], "rows": res[v]["rows"]}
         entry["states"] = describe(d, loglik, spec)
         out["specs"][name] = entry
     n_scored = int(tested_any.sum()) if tested_any is not None else 0
+    n_immature = int(sum(not mature_day(int(dd), as_of, horizon)
+                         for dd in d["day"]))
+    out["as_of"] = as_of
     out["counting"] = reconcile(drops["n_read"], {
         "not_candidate_tb": drops["not_candidate_tb"],
         "pre_era9": drops["pre_era9"], "unparseable": drops["unparseable"],
-        "burn_in_train_only": len(d["ts"]) - n_scored,
+        "immature_day": n_immature,
+        "burn_in_train_only": len(d["ts"]) - n_scored - n_immature,
         "scored": n_scored})
     return out
 
@@ -400,21 +456,29 @@ def run(history: Path, null_reps: int = NULL_REPS) -> dict:
 def render(rep: dict) -> str:
     L = [f"markov_edge - walk-forward, {rep['rows']} rows over "
          f"{rep['days']} days; base P(up first) resolved = "
-         f"{rep['base_up_first']:.3f}", rep["counting"]["line"], ""]
+         f"{rep['base_up_first']:.3f}; corpus as-of "
+         f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(rep['as_of']))}"
+         " (days younger than day_end + label horizon are not scored)",
+         rep["counting"]["line"], ""]
     L.append("spec            variant  days  gain(nats/row)  [95% CI]"
              "              null_p  | within-day AUC [95% CI]      null_p"
              "  | uplift(bps)  [95% CI]        taken/rows")
     for name, e in rep["specs"].items():
+        tag = name + ("*" if e.get("forward_from") else "")
         for v in ("static", "chain"):
             x = e[v]
             L.append(
-                f"{name:15s} {v:7s} {x['test_days']:5d}  "
+                f"{tag:15s} {v:7s} {x['test_days']:5d}  "
                 f"{x['gain_mean']:+.5f}  [{x['gain_ci'][0]:+.5f},"
                 f"{x['gain_ci'][1]:+.5f}]  {x['null_p']:.3f}  | "
                 f"{x['auc_mean']:.3f} [{x['auc_ci'][0]:.3f},"
                 f"{x['auc_ci'][1]:.3f}]  {x['auc_null_p']:.3f}  | "
                 f"{x['uplift_mean'] * 1e4:+8.1f}  [{x['uplift_ci'][0] * 1e4:+.1f},"
                 f"{x['uplift_ci'][1] * 1e4:+.1f}]  {x['taken']}/{x['rows']}")
+    if any(e.get("forward_from") for e in rep["specs"].values()):
+        L.append("* FORWARD-REGISTERED: scored only on test days from "
+                 "2026-09-30T00:00Z, first mature 2026-10-02T12:00Z; "
+                 "0 days = nothing to read yet")
     L += ["", "IN-SAMPLE state tables (descriptive, NOT evidence):"]
     for name, e in rep["specs"].items():
         L.append(f"-- {name}")
@@ -431,9 +495,11 @@ def main(argv=None) -> int:
     ap.add_argument("--history", type=Path,
                     default=ROOT / "outputs" / "signal_history.csv")
     ap.add_argument("--null-reps", type=int, default=NULL_REPS)
+    ap.add_argument("--as-of", type=float, default=None,
+                    help="corpus as-of epoch (default: the file's mtime)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-    rep = run(args.history, args.null_reps)
+    rep = run(args.history, args.null_reps, args.as_of)
     print(json.dumps(rep, indent=1, default=float) if args.json
           else render(rep))
     return 0
