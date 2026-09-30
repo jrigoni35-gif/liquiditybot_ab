@@ -872,6 +872,16 @@ class HistoryStore:
         # with-defaults: the default IS the shipped 96, so every existing
         # caller writes the same un-suffixed era it always did.
         self.max_bars = int(max_bars)
+        # HELD WRITES (2026-09-30, one-writer rule). None = rows go to disk.
+        # A list = the runner lost outputs/runner.lock to a live peer: rows
+        # are rendered and HELD here instead. Measured: losing runners wrote
+        # 8 duplicate corpus rows on 09-10/09-18 (RT-010 at the same second)
+        # while cycling toward forfeit. Regained lock -> release_writes()
+        # flushes them in order (nothing lost); forfeit -> discard_held()
+        # (the live peer owns the corpus and writes its own copy).
+        self._held: "list | None" = None
+        self.held_flushed = 0
+        self.held_discarded = 0
         self._pending: dict = {}      # position_id -> features
         # stats of the most recent load_training_data pass (clean live count
         # for the evidence gate, uniqueness mean, prior-skew flag)
@@ -1217,6 +1227,37 @@ class HistoryStore:
         # corpus lost TWO labelled outcomes per kill, invisibly. The
         # header is already guaranteed by _ensure_schema above, so this
         # only needs the isolation write and the fsync.
+        held = getattr(self, "_held", None)
+        if held is not None:
+            held.append((row, source, asset, fa))   # one-writer rule: HOLD
+            return
+        self._commit_row(row, source, asset, fa)
+
+    def hold_writes(self) -> None:
+        """Start holding rows in memory (runner lost its lock). Idempotent."""
+        if getattr(self, "_held", None) is None:
+            self._held = []
+
+    def release_writes(self) -> int:
+        """Lock regained: write every held row, in order. Returns count."""
+        held = getattr(self, "_held", None) or []
+        self._held = None
+        for args in held:
+            self._commit_row(*args)
+        self.held_flushed = getattr(self, "held_flushed", 0) + len(held)
+        return len(held)
+
+    def discard_held(self) -> int:
+        """Forfeited to a live peer: drop held rows and keep holding, so
+        nothing this duplicate process computes can reach the corpus.
+        Returns the number dropped."""
+        n = len(getattr(self, "_held", None) or [])
+        self._held = []
+        self.held_discarded = getattr(self, "held_discarded", 0) + n
+        return n
+
+    def _commit_row(self, row: list, source: str, asset: str, fa) -> None:
+        """The ONE place a corpus row reaches disk."""
         durable_append(self.path, lambda f: csv.writer(f).writerow(row))
         # Task 4 (#103): fold a LIVE row straight into the per-regime
         # counter incrementally - never wait for the next admission's
@@ -1751,6 +1792,16 @@ class HistoryStore:
         dropped_clash = 0
         dropped_dirty = 0
         dropped_parse = 0      # cells that would not parse (ML-087)
+        # CS-1 (2026-09-30): two exits from this loop used to be uncounted.
+        # long_book_skipped - the book=="long" rows below (by design, a
+        # different trading process). dropped_duplicate - the SAME row
+        # written twice (losing duplicate runners, 09-10/09-18: identical
+        # but for the write ts). Keyed on the full identity, never the id
+        # alone: bare pre-salt ids were REUSED for distinct signals after
+        # the 2026-07-14 rollback, and those must both survive.
+        long_book_skipped = 0
+        dropped_duplicate = 0
+        _seen_rows: set = set()
         # T3.6 loader seam (config ml.epoch, SHIPPED OFF): resolved ONCE
         # here, not per-row, so the per-row check below is a single call.
         epoch_cutoff = _epoch_cutoff(epoch_cfg)
@@ -1781,7 +1832,15 @@ class HistoryStore:
                 # contamination pin (the prescan's copy is defense in
                 # depth for the dedup keys, this one is the real gate).
                 if (row.get("book") or "5m") == "long":
+                    long_book_skipped += 1
                     continue
+                _rid = (row.get("source"), row.get("position_id"),
+                        row.get("signal_ts"), row.get("asset"),
+                        row.get("side"))
+                if _rid in _seen_rows:
+                    dropped_duplicate += 1
+                    continue
+                _seen_rows.add(_rid)
                 # Clash-dedup runs BEFORE the epoch check (reordered - see
                 # note below): this is the only branch that populates
                 # pair_flags, so every candidate row - pre- or post-cutoff -
@@ -2028,6 +2087,8 @@ class HistoryStore:
                 dropped_parse / (len(w) + dropped_parse + dropped_dirty), 6)
             if (len(w) + dropped_parse + dropped_dirty) else 0.0,
             "dropped_clash": dropped_clash,
+            "dropped_duplicate": dropped_duplicate,
+            "long_book_skipped": long_book_skipped,
             "live_clean": sum(1 for m in meta if m[2] == "live"),
             "mean_uniqueness": round(uniq_mean, 4),
             "ess_kish": round(ess_kish, 1),
@@ -2447,6 +2508,13 @@ class CandidateLabeler:
             cfg.get("candidate_evict_margin_bars", 24))
         self._bars: dict = {}          # asset -> {"t":[], "c":[], "h":[], "l":[]}
         self._cands: list = []
+        # CS-1 (2026-09-30): the two candidate exits that wrote no row, no
+        # log and no code. Measured era-9 funnel: 7,725 ids minted = 7,278
+        # written + 177 pending + 270 never written - these two (plus the
+        # coded ML-085 zombie path) are where the 270 go. Process-lifetime
+        # counters, published in status.json ml.candidate_drops.
+        self.evicted_pool_cap = 0      # register(): pool full, newest popped
+        self.dropped_entry_slid = 0    # poll(): entry bar left the bar cache
         self._seq = 0
         # per-instance salt in the candidate id. _seq is persisted and
         # restored, but a filesystem rollback (lived 2026-07-14) reverts
@@ -2506,6 +2574,7 @@ class CandidateLabeler:
             # behavior) killed the about-to-ripen row exactly when
             # signal flow was busiest, biasing labels toward quiet hours
             self._cands.pop()
+            self.evicted_pool_cap = getattr(self, "evicted_pool_cap", 0) + 1
         self._seq += 1
         self._cands.append({"disp": "confirmed",
                             "id": f"cand-{self._id_salt}-{self._seq}",
@@ -2641,6 +2710,8 @@ class CandidateLabeler:
                 # entry bar evicted or never cached: unlabelable, drop
                 if b and b["t"] and cand["bar_time"] < b["t"][0]:
                     self._cands.remove(cand)
+                    self.dropped_entry_slid = \
+                        getattr(self, "dropped_entry_slid", 0) + 1
                 else:
                     # bars absent, or the entry bar never arrived and the
                     # feed has since gone stale: the slide-drop above can

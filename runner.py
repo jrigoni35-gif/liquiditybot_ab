@@ -530,6 +530,46 @@ class BotRunner:
             log.exception("lock_lost fault-latch failed - new risk is NOT "
                           "sealed; stop one of the runners manually")
 
+    # ONE-WRITER RULE for the training corpus (2026-09-30). Losing runners
+    # wrote 8 duplicate rows to signal_history.csv (09-10, 09-18) while
+    # cycling toward forfeit. From the first lost heartbeat the store HOLDS
+    # rows in memory; a regained lock flushes them (nothing lost), a forfeit
+    # drops them (the live peer writes its own). Orders/exits untouched.
+    def _corpus(self):
+        return getattr(getattr(self, "bot", None), "history", None)
+
+    def _hold_corpus_writes(self) -> None:
+        h = self._corpus()
+        if h is not None and hasattr(h, "hold_writes"):
+            try:
+                h.hold_writes()
+                log.warning("instance lock lost - HOLDING training-corpus "
+                            "rows in memory until the lock is regained or "
+                            "forfeited (one-writer rule)")
+            except Exception:
+                log.exception("corpus hold failed - rows may duplicate")
+
+    def _release_corpus_writes(self) -> None:
+        h = self._corpus()
+        if h is not None and hasattr(h, "release_writes"):
+            try:
+                n = h.release_writes()
+                log.info("instance lock regained - flushed %d held "
+                         "training-corpus row(s)", n)
+            except Exception:
+                log.exception("corpus release failed")
+
+    def _discard_corpus_writes(self) -> None:
+        h = self._corpus()
+        if h is not None and hasattr(h, "discard_held"):
+            try:
+                n = h.discard_held()
+                log.warning("duplicate runner: discarded %d held training-"
+                            "corpus row(s) - the live peer owns the corpus",
+                            n)
+            except Exception:
+                log.exception("corpus discard failed")
+
     # ------------------------------------------------------------------
     def _cfg_dry_run(self) -> bool:
         """The CONFIGURED mode for this session. force_dry never touches it -
@@ -1358,6 +1398,20 @@ class BotRunner:
                    "labels_by_source": bot.history.source_counts(),
                    "pending_labels": len(bot.history._pending),
                    "open_candidates": len(bot.candidates._cands),
+                   # CS-1 (2026-09-30): candidate exits that write no row,
+                   # and rows held/flushed/discarded under the one-writer
+                   # rule (a lost runner.lock). Process-lifetime counts.
+                   "candidate_drops": {
+                       "evicted_pool_cap": getattr(
+                           bot.candidates, "evicted_pool_cap", 0),
+                       "dropped_entry_slid": getattr(
+                           bot.candidates, "dropped_entry_slid", 0)},
+                   "held_writes": {
+                       "holding": getattr(bot.history, "_held",
+                                          None) is not None,
+                       "flushed": getattr(bot.history, "held_flushed", 0),
+                       "discarded": getattr(bot.history, "held_discarded",
+                                            0)},
                    "retrain_flag": bot.monitor.flag_path.exists(),
                    "retrain_calib_gap": getattr(bot, "_last_retrain_calib_gap", {}),
                    # failure-visibility counters: each event logs, but only
@@ -1641,6 +1695,10 @@ class BotRunner:
                 # read as crashed inside the 30s stale window.
                 if self._lock is not None:
                     if self._lock.lost_count == 0:
+                        if self._lock_lost_latched:
+                            # lock regained: this runner IS the owner -
+                            # write the corpus rows held while contended
+                            self._release_corpus_writes()
                         self._lock_lost_latched = False
                     elif not self._lock_lost_latched:
                         # do not wait for LOST_LIMIT: one lost heartbeat is
@@ -1648,6 +1706,8 @@ class BotRunner:
                         # exits keep running (invariant #5).
                         self._lock_lost_latched = True
                         self._note_lock_lost()
+                        # one-writer rule: hold corpus rows from here on
+                        self._hold_corpus_writes()
                     if self._lock.forfeited:
                         # a LIVE peer owns this outputs/ dir - we are the
                         # duplicate. Exiting stops new risk only (the peer
@@ -1666,6 +1726,7 @@ class BotRunner:
                             "instance lock to live peer)",
                             {"pid": self._lock.pid,
                              "lost_count": self._lock.lost_count})
+                        self._discard_corpus_writes()
                         self._forfeited = True
                         self._stop = True
                         break
