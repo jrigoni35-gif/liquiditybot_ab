@@ -15,12 +15,18 @@ classes using CME rules as the model) and `docs/law/conduct_standard.md`.
 
 ## Pre-live blockers found (none matters while dry-run; each must clear before ARM LIVE)
 
-1. **State of residence — UNKNOWN, and a precondition for the whole bot.**
-   Kraken is reported (secondary sources, June 2026) to exclude NY, WA and ME
-   from the platform entirely, not just margin. If the operator lives in one,
-   the sole execution venue is unavailable. Verify against Kraken's current
-   terms. [SECONDARY]
-2. **`leverage.region_max_leverage: 10` exceeds Kraken's PAXG cap.** Kraken's
+1. **State of residence: ALABAMA (operator, 2026-10-01) - CLEARED.** Kraken's
+   geographic-restrictions page (read by this session 2026-10-01): Kraken "does not
+   offer services to residents of" **Maine and New York** only; margin is "available to
+   eligible US retail clients" with no US state excluded; Alabama is not restricted.
+   [VENUE, VERIFIED-BY-SESSION]. CORRECTION: the research agent's secondary claim that
+   Washington is excluded is NOT on Kraken's own page.
+2. **`leverage.region_max_leverage: 10` exceeds Kraken's PAXG cap.** OPERATOR (2026-10-01):
+   "correlate all assets with the leverage options appropriate for my location" - per-asset
+   US caps staged for the 10-12 review (branch `claude/per-asset-leverage`). Full Kraken US
+   margin table read 2026-10-01: 20x BTC; 10x ADA AVAX DOGE ETH LINK LTC SOL SUI USDC XRP;
+   5x AAVE BCH CRV DOT HBAR HYPE PEPE PAXG SHIB TRX UNI ZEC; 3x PENGU NEAR RENDER; 2x ALGO
+   XLM. ARB, MINA, FLOW are NOT marginable for US clients. Kraken's
    US margin page, read by this session 2026-10-01: BTC up to 20x, ETH 10x,
    LINK 10x, **PAXG 5x**. A flat scalar cannot represent per-asset venue caps.
    [VENUE, VERIFIED-BY-SESSION]. Changing the config forks the decision cohort -
