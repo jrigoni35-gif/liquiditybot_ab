@@ -1,45 +1,45 @@
 {
-  "generated_at": 1790853977.5006135,
+  "generated_at": 1790857576.5626307,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790853962.0,
-    "duration_h": 1995.54
+    "end": 1790857571.0,
+    "duration_h": 1996.54
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 1960,
-      "signal_records": 445,
+      "records": 1864,
+      "signal_records": 437,
       "by_src": {
-        "exploration": 1531,
-        "long_book": 160,
+        "exploration": 1443,
+        "long_book": 154,
         "entry_sweep": 98,
-        "ml_governor": 82,
-        "conviction": 37,
-        "order_manager": 32,
-        "exit": 9,
+        "ml_governor": 81,
+        "conviction": 39,
+        "order_manager": 31,
+        "exit": 8,
         "startup": 4,
         "fault": 4,
-        "circuit_breaker": 2,
-        "engine": 1
+        "engine": 1,
+        "circuit_breaker": 1
       },
       "top_codes": [
         [
           "ML-070",
-          754
+          710
         ],
         [
           "SZ-051",
-          753
+          709
         ],
         [
           "LB-010",
-          90
+          88
         ],
         [
           "LB-050",
-          58
+          54
         ],
         [
           "EN-000",
@@ -51,15 +51,15 @@
         ],
         [
           "CV-000",
-          37
+          39
         ],
         [
           "ML-031",
-          28
+          27
         ],
         [
           "OM-000",
-          23
+          22
         ],
         [
           "ML-016",
@@ -75,14 +75,14 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.202,
+      "dominant_frac": 0.201,
       "retrain_requests": 5,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 5446,
+      "records": 5772,
       "by_level": {
-        "INFO": 5422,
+        "INFO": 5748,
         "WARNING": 23,
         "CRITICAL": 1
       },
@@ -129,24 +129,24 @@
         ]
       ],
       "liquidity_tally": {
-        "thin": 1313,
+        "thin": 1393,
         "spoofy": 15
       },
       "spoofy_frac": 0.011,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 536,
+      "cycles_estimate": 576,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 753.47,
+    "equity_end": 753.7,
     "equity_min": 752.64,
     "equity_max": 806.91,
     "equity_range": 54.27,
     "capital_epochs": 5,
-    "epoch_samples": 276053,
+    "epoch_samples": 276289,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 752.64,
     "lifetime_equity_max": 100000.03,
@@ -154,23 +154,23 @@
     "realized_pnl_total": -29.86,
     "fees_paid_total": 42.9252,
     "open_positions": 4,
-    "samples": 443844
+    "samples": 444080
   },
   "activity": {
-    "signal_rows_total": 35362,
+    "signal_rows_total": 35369,
     "live_labeled_trades": 522,
-    "candidate_rows": 34840
+    "candidate_rows": 34847
   },
   "audit": {
-    "records": 92339,
-    "signal_records": 36138,
+    "records": 92345,
+    "signal_records": 36144,
     "by_src": {
       "exploration": 79289,
-      "long_book": 3776,
+      "long_book": 3778,
       "ml_governor": 3706,
       "order_manager": 2309,
-      "conviction": 1238,
-      "entry_sweep": 720,
+      "conviction": 1240,
+      "entry_sweep": 722,
       "exit": 427,
       "startup": 351,
       "fault": 332,
@@ -194,7 +194,7 @@
       ],
       [
         "LB-010",
-        2444
+        2446
       ],
       [
         "OM-000",
@@ -239,8 +239,8 @@
     "chain_seams": 63,
     "chain_torn_tail": false,
     "chain_error": null,
-    "records_all_lines": 94580,
-    "main_chain_records": 92339,
+    "records_all_lines": 94586,
+    "main_chain_records": 92345,
     "off_chain_records": 2241,
     "off_chain_codes": {
       "FW-050": 312,
@@ -369,9 +369,9 @@
     ]
   },
   "events": {
-    "records": 5446,
+    "records": 5772,
     "by_level": {
-      "INFO": 5422,
+      "INFO": 5748,
       "WARNING": 23,
       "CRITICAL": 1
     },
@@ -418,12 +418,12 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 1313,
+      "thin": 1393,
       "spoofy": 15
     },
     "spoofy_frac": 0.011,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 536,
+    "cycles_estimate": 576,
     "feed_error_events": 0
   },
   "model": {
@@ -454,7 +454,7 @@
       "unavailable": "signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 24971,
+      "triple_barrier_h432": 24978,
       "triple_barrier": 5328,
       "exit_sim": 2823,
       "legacy": 1781,
@@ -474,18 +474,18 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 35362,
+    "corpus_rows": 35369,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-10-01T07:00:00Z",
-    "corpus_span_days": 79.77,
+    "corpus_last_ts": "2026-10-01T10:00:00Z",
+    "corpus_span_days": 79.89,
     "signal_ts_missing": 0,
     "rows_per_cohort": {
       "legacy": 34330,
       "75e19fa38ffb": 395,
-      "6709bb74df3e": 297,
+      "6709bb74df3e": 298,
       "0f773bf5fc67": 162,
       "281334f23604": 90,
-      "6709bbc2778d": 78,
+      "6709bbc2778d": 84,
       "6709bb58cd7c": 10
     },
     "fills_per_cohort": {
