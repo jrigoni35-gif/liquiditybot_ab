@@ -529,6 +529,128 @@ def _long_book_checks(config: dict) -> list:
 _ABSENT = object()
 
 
+def _target_book_checks(config: dict) -> list:
+    """SHADOW target-inventory book + idea lab coherence (core/target_book.py,
+    core/idea_lab.py). An absent block is clean. FATAL = a value the band /
+    aim / pressure math cannot mean, or a switch that claims a live path
+    which does not exist (no decision module reads this section - pinned by
+    tests/test_target_book_shadow_pin.py)."""
+    out: list = []
+    tb = _f(config, "target_book")
+    if not isinstance(tb, dict) or not tb:
+        return out
+
+    def bad(msg: str) -> None:
+        out.append(("FATAL", f"target_book: {msg}"))
+
+    def num(key: str, sub: dict | None = None) -> float | None:
+        raw: Any = (sub if sub is not None else tb).get(key)
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            bad(f"{key}={raw!r} is not a number")
+            return None
+        if not math.isfinite(v):
+            bad(f"{key}={raw!r} is not finite")
+            return None
+        return v
+
+    if tb.get("enabled") is True or tb.get("mode", "shadow") != "shadow":
+        bad("enabled/mode claim a live path - none exists; wiring the book "
+            "into the order path is a cohort fork that needs an operator "
+            "decision record and removes this check in the same commit")
+    pairs = _f(config, "exchanges.kraken.trading_pairs") or []
+    bases = {str(p).split("/")[0] for p in pairs}
+    assets = tb.get("assets")
+    if not isinstance(assets, list) or len(assets) < 2:
+        bad("assets must list >= 2 base symbols (a basket of one cannot rebalance)")
+    elif bases and not set(map(str, assets)) <= bases:
+        bad(f"assets {sorted(set(map(str, assets)) - bases)} are outside "
+            f"the Kraken trading universe {sorted(bases)} (invariant 3)")
+    g = num("gamma")
+    if g is not None and g <= 0:
+        bad(f"gamma={g} must be > 0 (band ~ gamma^-1/3)")
+    a = num("aim_rate")
+    if a is not None and not 0 < a <= 1:
+        bad(f"aim_rate={a} must be in (0, 1]")
+    tc = num("tilt_cap")
+    if tc is not None and not 0 <= tc < 1:
+        bad(f"tilt_cap={tc} must be in [0, 1) - a cap >= 1 can zero a weight")
+    if tb.get("weighting") not in ("equal", "inverse_vol"):
+        bad(f"weighting={tb.get('weighting')!r} not in equal|inverse_vol")
+    inv = num("invest_frac")
+    if inv is not None and not 0 < inv <= 1:
+        bad(f"invest_frac={inv} must be in (0, 1] (long-only, no leverage)")
+    mo = num("min_order_usd")
+    if mo is not None and mo <= 0:
+        bad(f"min_order_usd={mo} must be > 0")
+    qo = num("quote_offset_bps")
+    if qo is not None and qo < 0:
+        bad(f"quote_offset_bps={qo} must be >= 0 (a negative offset crosses)")
+    for k in ("sigma_lookback_bars", "tilt_lookback_bars", "vol_short_bars",
+              "floor_lookback_bars", "pressure_window_orders"):
+        v = num(k)
+        if v is not None and (v < 2 or v != int(v)):
+            bad(f"{k}={v} must be an integer >= 2")
+    vs, sl = num("vol_short_bars"), num("sigma_lookback_bars")
+    if vs is not None and sl is not None and vs >= sl:
+        bad(f"vol_short_bars={vs} must be < sigma_lookback_bars={sl}")
+    fd = num("asset_floor_drawdown")
+    if fd is not None and not 0 < fd < 1:
+        bad(f"asset_floor_drawdown={fd} must be in (0, 1)")
+    pr = tb.get("pressure") or {}
+    if not isinstance(pr, dict):
+        bad("pressure must be an object")
+        pr = {}
+    for k, lo, hi in (("min_fill_ratio", 0, 1), ("drawdown_brake", 0, 1)):
+        v = num(k, pr)
+        if v is not None and not lo < v < hi:
+            bad(f"pressure.{k}={v} must be in ({lo}, {hi})")
+    v = num("adverse_markout_bps", pr)
+    if v is not None and v <= 0:
+        bad(f"pressure.adverse_markout_bps={v} must be > 0")
+    v = num("vol_shock_ratio", pr)
+    if v is not None and v <= 1:
+        bad(f"pressure.vol_shock_ratio={v} must be > 1")
+    v = num("max_band_mult", pr)
+    if v is not None and v < 1:
+        bad(f"pressure.max_band_mult={v} must be >= 1 (pressure only widens)")
+    v = num("min_aim_mult", pr)
+    if v is not None and not 0 < v <= 1:
+        bad(f"pressure.min_aim_mult={v} must be in (0, 1] (pressure only slows)")
+    lab = tb.get("idea_lab") or {}
+    if not isinstance(lab, dict):
+        bad("idea_lab must be an object")
+        return out
+    for k in ("gamma_grid", "aim_grid", "weightings", "tilt_sources"):
+        if not isinstance(lab.get(k), list) or not lab.get(k):
+            bad(f"idea_lab.{k} must be a non-empty list")
+            return out
+    if any(not isinstance(x, (int, float)) or x <= 0 for x in lab["gamma_grid"]):
+        bad("idea_lab.gamma_grid values must be > 0")
+    if any(not isinstance(x, (int, float)) or not 0 < x <= 1
+           for x in lab["aim_grid"]):
+        bad("idea_lab.aim_grid values must be in (0, 1]")
+    if not set(lab["weightings"]) <= {"equal", "inverse_vol"}:
+        bad("idea_lab.weightings must be a subset of equal|inverse_vol")
+    if not set(lab["tilt_sources"]) <= {"none", "xs_reversal", "xs_momentum"}:
+        bad("idea_lab.tilt_sources must be a subset of "
+            "none|xs_reversal|xs_momentum")
+    for k in ("reading_window_bars", "max_alive", "max_births_per_reading",
+              "retire_after_steps", "min_evidence_steps"):
+        v = num(k, lab)
+        if v is not None and (v < 1 or v != int(v)):
+            bad(f"idea_lab.{k}={v} must be an integer >= 1")
+    ra, me = num("retire_after_steps", lab), num("min_evidence_steps", lab)
+    if ra is not None and me is not None and me < ra:
+        bad(f"idea_lab.min_evidence_steps={me} < retire_after_steps={ra}: "
+            f"an idea could read EVIDENCE before it could be retired")
+    db = num("dsr_bar", lab)
+    if db is not None and not 0.5 <= db < 1:
+        bad(f"idea_lab.dsr_bar={db} must be in [0.5, 1)")
+    return out
+
+
 def _era_key_absence_checks(config: dict) -> list:
     """Era-booked keys whose ABSENCE reads a code default the era was never
     booked at (config debug 2026-09-08; the fee-key failure class, six more
@@ -4067,6 +4189,7 @@ def validate(config: dict) -> list:
     findings.extend(_conviction_checks(config))
     findings.extend(_context_checks(config))
     findings.extend(_long_book_checks(config))
+    findings.extend(_target_book_checks(config))
     return findings
 
 
