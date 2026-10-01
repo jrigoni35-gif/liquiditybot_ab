@@ -587,6 +587,13 @@ def _target_book_checks(config: dict) -> list:
     qo = num("quote_offset_bps")
     if qo is not None and qo < 0:
         bad(f"quote_offset_bps={qo} must be >= 0 (a negative offset crosses)")
+    if not isinstance(tb.get("seed_at_target", True), bool):
+        bad("seed_at_target must be true/false")
+    if "fill_penetration_bps" in tb:
+        fp = num("fill_penetration_bps")
+        if fp is not None and fp < 0:
+            bad(f"fill_penetration_bps={fp} must be >= 0 (negative fills "
+                f"orders the market never reached)")
     for k in ("sigma_lookback_bars", "tilt_lookback_bars", "vol_short_bars",
               "floor_lookback_bars", "pressure_window_orders"):
         v = num(k)

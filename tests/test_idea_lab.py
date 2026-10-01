@@ -202,3 +202,21 @@ def test_read_market_sees_reversion_and_trend():
     trd = Bars(list(range(n)), {"A": a, "B": b}, {"A": a, "B": b},
                {"A": a, "B": b})
     assert read_market(trd, n - 1, 42, 6, 2.0).state == "trending"
+
+
+def test_state_classifier_false_positive_rate_on_noise():
+    """Measured 2026-10-01: the naive 1/sqrt(n) cut fired on 14.2% of pure
+    GBM windows (design 4.6%). The self-normalised statistic must hold the
+    design rate on independent, heteroskedastic, correlated noise."""
+    import numpy as np
+    from scripts.target_book_validation import gbm_bars
+    rng = np.random.default_rng(11)
+    vol = np.array([0.02, 0.04, 0.08, 0.005])        # PAXG-like to LINK-like
+    corr = np.full((4, 4), 0.6) + 0.4 * np.eye(4)
+    corr[3, :3] = corr[:3, 3] = 0.05
+    cov = corr * np.outer(vol, vol)
+    names = ["A", "B", "C", "D"]
+    n = 1500
+    fired = sum(read_market(gbm_bars(np.zeros(4), cov, 44, names, rng), 43, 42,
+                            6, 1e9).state != "neutral" for _ in range(n))
+    assert 0.02 <= fired / n <= 0.075, fired / n

@@ -84,8 +84,16 @@ def read_market(bars: Bars, i: int, window: int, short: int,
 
     Cross-sectional relative returns r_it - mean_j r_jt; their pooled lag-1
     autocorrelation says whether leaders keep leading (trending) or give
-    back (reverting). The cut is the null standard error 1/sqrt(n) at 2
-    sigma - structural, not fitted."""
+    back (reverting). The cut is 2 standard errors of the SELF-NORMALISED
+    statistic z = sum_k c_k / sqrt(sum_k c_k^2), c_k = sum_a x_ak x_a,k-1
+    (under independent bars the c_k are mean-zero and uncorrelated).
+
+    Why not 1/sqrt(n): measured 2026-10-01, the naive cut over 4 pooled
+    relative-return series fired on 14.2% of 4,000 pure-GBM windows against
+    a 4.6% design rate - relative returns sum to zero across assets and the
+    pooled ratio is dominated by the highest-vol asset, so the true spread
+    was 0.107, not the assumed 0.078. scripts/target_book_validation.py
+    re-measures this false-positive rate every run."""
     lo = max(0, i + 1 - window - 1)
     rets = {a: _rets(bars.close[a][lo:i + 1]) for a in bars.close}
     n = min((len(r) for r in rets.values()), default=0)
@@ -93,16 +101,16 @@ def read_market(bars: Bars, i: int, window: int, short: int,
         return MarketReading("neutral", False, None, None, n)
     rel = {a: [r[k] - sum(rets[b][k] for b in rets) / len(rets)
                for k in range(n)] for a, r in rets.items()}
-    num = den = 0.0
-    pairs = 0
+    num = den = ss = 0.0
+    for k in range(1, n):
+        c = sum(x[k] * x[k - 1] for x in rel.values())
+        num += c
+        ss += c * c
     for x in rel.values():
-        for k in range(1, n):
-            num += x[k] * x[k - 1]
-            pairs += 1
         den += sum(v * v for v in x)
     ac = num / den if den > 0 else 0.0
-    se = 1.0 / math.sqrt(max(pairs, 1))
-    state = "reverting" if ac < -2 * se else "trending" if ac > 2 * se else "neutral"
+    z = num / math.sqrt(ss) if ss > 0 else 0.0
+    state = "reverting" if z < -2 else "trending" if z > 2 else "neutral"
     ratios = []
     for r in rets.values():
         s_long, s_short = _sd(r), _sd(r[-short:])
@@ -232,7 +240,8 @@ def decide(book: ShadowBook, bars: Bars, i: int, base: BookParams,
             book.note(Code.TB_ASSET_FLOOR.value)
     eq = book.equity(px)
     fee = params.maker_fee_bps / 1e4
-    if not book.rets and not book.units and eq > 0:
+    if (cfg.get("seed_at_target", True) and not book.rets
+            and not book.units and eq > 0):
         # Seed at target on the birth close (maker fee paid) so a grade
         # measures the rebalancing POLICY, not a cash ramp-up.
         for a in assets:
@@ -274,6 +283,9 @@ def step_book(book: ShadowBook, bars: Bars, i: int, base: BookParams,
     eq = book.equity(px)
     fee = base.maker_fee_bps / 1e4
     off = float(cfg["quote_offset_bps"]) / 1e4
+    # Queue-pessimism: price must trade THROUGH the limit by this much
+    # before a resting maker order is assumed filled (0 = any trade-through).
+    pen = float(cfg.get("fill_penetration_bps", 0.0)) / 1e4
     j = i + 1
     for o in p.orders:
         book.note(o.code)
@@ -281,7 +293,7 @@ def step_book(book: ShadowBook, bars: Bars, i: int, base: BookParams,
         a = o.asset
         if o.side == "buy":
             lim_px = px[a] * (1.0 - off)
-            if not bars.low[a][j] < lim_px:
+            if not bars.low[a][j] < lim_px * (1.0 - pen):
                 continue
             qty = o.notional_usd / lim_px
             cost = qty * lim_px * (1.0 + fee)
@@ -295,7 +307,7 @@ def step_book(book: ShadowBook, bars: Bars, i: int, base: BookParams,
             book.markouts.append((bars.close[a][j] / lim_px - 1.0) * 1e4)
         else:
             lim_px = px[a] * (1.0 + off)
-            if not bars.high[a][j] > lim_px:
+            if not bars.high[a][j] > lim_px * (1.0 + pen):
                 continue
             qty = min(o.notional_usd / lim_px, book.units.get(a, 0.0))
             if qty <= 0:
