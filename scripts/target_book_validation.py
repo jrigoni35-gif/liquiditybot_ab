@@ -358,6 +358,10 @@ def theory_checks(bars: Bars, base: BookParams, cfg: dict, n_paths: int,
     g_theory = float(w @ (mu + var_i / 2) - 0.5 * w @ cov @ w)
     se = float(g_sim.std(ddof=1) / math.sqrt(len(g_sim)))
     div_ret = float(0.5 * (w @ var_i - w @ cov @ w))
+    # Rebalancing beats holding only while the diversification return
+    # exceeds the drift spread holding drifts into (best asset's log drift
+    # minus the basket-weighted log drift).
+    drift_spread = float(mu.max() - (w / w.sum()) @ mu)
     # (iii) band sweep under the band's own model: Merton-consistent drift
     gamma = base.gamma
     lam_bps = 50.0
@@ -400,6 +404,7 @@ def theory_checks(bars: Bars, base: BookParams, cfg: dict, n_paths: int,
             "growth_theory_per_bar": g_theory,
             "growth_z": (float(g_sim.mean()) - g_theory) / se if se else None,
             "diversification_return_per_bar": div_ret,
+            "drift_spread_per_bar": drift_spread,
             "band_sweep": {"cost_bps": lam_bps, "gamma": gamma,
                            "ce_wealth": {str(k): v for k, v in crra.items()},
                            "best_mult": best,
@@ -585,10 +590,16 @@ def ledger(res: dict) -> list:
             "REFUTED" if worse else "NOT REFUTED",
             f"best x{bs['best_mult']}; widths whose CE beats x1 with CI>0: {worse or 'none'}")
         f = th["classifier_fpr_gbm"]
-        add(f"A4{tag}", "state classifier fires ~4.6% on pure noise (2/sqrt(n) cut)",
+        add(f"A4{tag}", "state classifier fires ~4.6% on pure noise (self-normalised 2-sigma cut)",
             f"GBM, n={th['classifier_n']}",
             "PROVEN" if abs(f - 0.0455) < 2.5 * math.sqrt(0.0455 * 0.9545 / th["classifier_n"]) + 0.01
             else "REFUTED", f"FPR {f:.3f} (n={th['classifier_n']})")
+        add(f"A15{tag}", "holding beats rebalancing here because the drift spread exceeds the diversification return",
+            "best-asset log drift minus basket drift vs 1/2(sum w s2 - w'Sw), per bar",
+            "PROVEN" if th["drift_spread_per_bar"] > th["diversification_return_per_bar"]
+            and bt["baseline"]["log_gap"] < 0 else "NOT PROVEN",
+            f"spread {th['drift_spread_per_bar']*1e4:.2f} vs diversification "
+            f"{th['diversification_return_per_bar']*1e4:.2f} bps/bar; baseline gap {bt['baseline']['log_gap']:+.3f}")
         b = bt["baseline"]
         worst = min(b["attribution"].items(), key=lambda kv: kv[1]["diff"])
         add(f"A5{tag}", "the book's gap to holding comes from rebalancing against the trend (selling winners / buying losers)",
