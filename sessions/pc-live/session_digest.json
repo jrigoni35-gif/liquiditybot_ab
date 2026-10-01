@@ -1,45 +1,41 @@
 {
-  "generated_at": 1790861185.0060863,
+  "generated_at": 1790864790.6228998,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1790861171.0,
-    "duration_h": 1997.54
+    "end": 1790864784.0,
+    "duration_h": 1998.55
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 1779,
-      "signal_records": 430,
+      "records": 1704,
+      "signal_records": 423,
       "by_src": {
-        "exploration": 1365,
-        "long_book": 149,
+        "exploration": 1297,
+        "long_book": 141,
         "entry_sweep": 98,
-        "ml_governor": 77,
-        "conviction": 41,
+        "ml_governor": 76,
+        "conviction": 45,
         "order_manager": 31,
         "exit": 8,
-        "startup": 4,
-        "fault": 4,
+        "startup": 3,
+        "fault": 3,
         "engine": 1,
         "circuit_breaker": 1
       },
       "top_codes": [
         [
           "ML-070",
-          671
+          637
         ],
         [
           "SZ-051",
-          670
+          636
         ],
         [
           "LB-010",
-          86
-        ],
-        [
-          "LB-050",
-          50
+          84
         ],
         [
           "EN-000",
@@ -51,7 +47,11 @@
         ],
         [
           "CV-000",
-          41
+          45
+        ],
+        [
+          "LB-050",
+          44
         ],
         [
           "ML-031",
@@ -75,78 +75,79 @@
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.2,
+      "dominant_frac": 0.199,
       "retrain_requests": 5,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 6057,
+      "records": 6659,
       "by_level": {
-        "INFO": 6033,
-        "WARNING": 23,
+        "INFO": 6263,
+        "ERROR": 316,
+        "WARNING": 79,
         "CRITICAL": 1
       },
       "top_warnings": [
         [
-          "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 160d old (> 35d)) - snapshot degraded",
-          3
+          "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
+          142
         ],
         [
-          "DF-020: building feature rows with degraded context (darkpool, frozen) - the affected features read neutral; rows carry avail_* flags",
-          2
+          "Kraken request failed for https://api.kraken.com/0/public/Depth: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded ",
+          109
         ],
         [
-          "DF-020: building feature rows with degraded context (darkpool) - the affected features read neutral; rows carry avail_* flags",
-          1
+          "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
+          13
         ],
         [
-          "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
-          1
+          "OKX request failed for https://www.okx.com/api/v5/market/candles: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wi",
+          10
         ],
         [
-          "auto-retrain: 24621 rows (26 new)",
-          1
+          "OKX request failed for https://www.okx.com/api/v5/public/funding-rate: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceed",
+          10
         ],
         [
-          "ML-031: feature drift 14/29 shifted (beyond each feature's in-sample consecutive null): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir",
-          1
+          "OKX request failed for https://www.okx.com/api/v5/market/ticker: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wit",
+          10
         ],
         [
-          "ML-032 RETRAIN REQUESTED: input drift on 48% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-          1
+          "Binance.US request failed for https://api.binance.us/api/v3/depth: HTTPSConnectionPool(host='api.binance.us', port=443): Max retries exceede",
+          10
         ],
         [
-          "ML-031: feature drift 13/29 shifted (beyond each feature's in-sample consecutive null): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir",
-          1
+          "OKX request failed for https://www.okx.com/api/v5/market/books: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded with",
+          9
         ],
         [
-          "circuit breaker TRIPPED for PAXG: 4 consecutive losses \u2014 new entries blocked for 6.0h (exits unaffected)",
-          1
+          "OKX: skipping ETH-USDT-SWAP, order book unavailable",
+          5
         ],
         [
-          "ML-031: feature drift 11/29 shifted (beyond each feature's in-sample consecutive null): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir",
-          1
+          "OKX: skipping BTC-USDT-SWAP, order book unavailable",
+          5
         ]
       ],
       "liquidity_tally": {
-        "thin": 1477,
-        "spoofy": 16
+        "thin": 1548,
+        "spoofy": 18
       },
       "spoofy_frac": 0.011,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 604,
-      "feed_error_events": 0
+      "cycles_estimate": 648,
+      "feed_error_events": 347
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 753.18,
+    "equity_end": 753.51,
     "equity_min": 752.64,
     "equity_max": 806.91,
     "equity_range": 54.27,
     "capital_epochs": 5,
-    "epoch_samples": 276523,
+    "epoch_samples": 276745,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 752.64,
     "lifetime_equity_max": 100000.03,
@@ -154,23 +155,23 @@
     "realized_pnl_total": -29.86,
     "fees_paid_total": 42.9252,
     "open_positions": 4,
-    "samples": 444314
+    "samples": 444536
   },
   "activity": {
-    "signal_rows_total": 35372,
+    "signal_rows_total": 35374,
     "live_labeled_trades": 522,
-    "candidate_rows": 34850
+    "candidate_rows": 34852
   },
   "audit": {
-    "records": 92352,
-    "signal_records": 36151,
+    "records": 92363,
+    "signal_records": 36162,
     "by_src": {
-      "exploration": 79289,
-      "long_book": 3781,
+      "exploration": 79290,
+      "long_book": 3785,
       "ml_governor": 3706,
       "order_manager": 2309,
-      "conviction": 1242,
-      "entry_sweep": 724,
+      "conviction": 1246,
+      "entry_sweep": 726,
       "exit": 427,
       "startup": 351,
       "fault": 332,
@@ -194,7 +195,7 @@
       ],
       [
         "LB-010",
-        2448
+        2452
       ],
       [
         "OM-000",
@@ -239,8 +240,8 @@
     "chain_seams": 63,
     "chain_torn_tail": false,
     "chain_error": null,
-    "records_all_lines": 94593,
-    "main_chain_records": 92352,
+    "records_all_lines": 94604,
+    "main_chain_records": 92363,
     "off_chain_records": 2241,
     "off_chain_codes": {
       "FW-050": 312,
@@ -369,62 +370,63 @@
     ]
   },
   "events": {
-    "records": 6057,
+    "records": 6659,
     "by_level": {
-      "INFO": 6033,
-      "WARNING": 23,
+      "INFO": 6263,
+      "ERROR": 316,
+      "WARNING": 79,
       "CRITICAL": 1
     },
     "top_warnings": [
       [
-        "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 160d old (> 35d)) - snapshot degraded",
-        3
+        "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
+        142
       ],
       [
-        "DF-020: building feature rows with degraded context (darkpool, frozen) - the affected features read neutral; rows carry avail_* flags",
-        2
+        "Kraken request failed for https://api.kraken.com/0/public/Depth: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded ",
+        109
       ],
       [
-        "DF-020: building feature rows with degraded context (darkpool) - the affected features read neutral; rows carry avail_* flags",
-        1
+        "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
+        13
       ],
       [
-        "coingecko global fetch failed: HTTPSConnectionPool(host='api.coingecko.com', port=443): Read timed out. (read timeout=10.0)",
-        1
+        "OKX request failed for https://www.okx.com/api/v5/market/candles: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wi",
+        10
       ],
       [
-        "auto-retrain: 24621 rows (26 new)",
-        1
+        "OKX request failed for https://www.okx.com/api/v5/public/funding-rate: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceed",
+        10
       ],
       [
-        "ML-031: feature drift 14/29 shifted (beyond each feature's in-sample consecutive null): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir",
-        1
+        "OKX request failed for https://www.okx.com/api/v5/market/ticker: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded wit",
+        10
       ],
       [
-        "ML-032 RETRAIN REQUESTED: input drift on 48% of features \u2014 run `python scripts/train_meta.py` (or let auto-retrain pick it up next slow cycl",
-        1
+        "Binance.US request failed for https://api.binance.us/api/v3/depth: HTTPSConnectionPool(host='api.binance.us', port=443): Max retries exceede",
+        10
       ],
       [
-        "ML-031: feature drift 13/29 shifted (beyond each feature's in-sample consecutive null): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir",
-        1
+        "OKX request failed for https://www.okx.com/api/v5/market/books: HTTPSConnectionPool(host='www.okx.com', port=443): Max retries exceeded with",
+        9
       ],
       [
-        "circuit breaker TRIPPED for PAXG: 4 consecutive losses \u2014 new entries blocked for 6.0h (exits unaffected)",
-        1
+        "OKX: skipping ETH-USDT-SWAP, order book unavailable",
+        5
       ],
       [
-        "ML-031: feature drift 11/29 shifted (beyond each feature's in-sample consecutive null): ['ret_1_dir', 'ret_6_dir', 'ret_12_dir', 'ret_48_dir",
-        1
+        "OKX: skipping BTC-USDT-SWAP, order book unavailable",
+        5
       ]
     ],
     "liquidity_tally": {
-      "thin": 1477,
-      "spoofy": 16
+      "thin": 1548,
+      "spoofy": 18
     },
     "spoofy_frac": 0.011,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 604,
-    "feed_error_events": 0
+    "cycles_estimate": 648,
+    "feed_error_events": 347
   },
   "model": {
     "monitor_level": 0,
@@ -454,7 +456,7 @@
       "unavailable": "signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 24981,
+      "triple_barrier_h432": 24983,
       "triple_barrier": 5328,
       "exit_sim": 2823,
       "legacy": 1781,
@@ -474,7 +476,7 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 35372,
+    "corpus_rows": 35374,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
     "corpus_last_ts": "2026-10-01T10:00:00Z",
     "corpus_span_days": 79.89,
@@ -482,7 +484,7 @@
     "rows_per_cohort": {
       "legacy": 34330,
       "75e19fa38ffb": 395,
-      "6709bb74df3e": 299,
+      "6709bb74df3e": 301,
       "0f773bf5fc67": 162,
       "281334f23604": 90,
       "6709bbc2778d": 86,
