@@ -1,12 +1,12 @@
 {
- "pushed_at": 1790876380.0823328,
+ "pushed_at": 1790876980.31767,
  "host": "DESKTOP-OS02KQS",
- "status_age_sec": 4.7,
+ "status_age_sec": 0.8,
  "status_stale": false,
  "status": {
-  "ts": 1790876375.410864,
-  "cycle": 18048,
-  "cycle_lifetime": 1255850,
+  "ts": 1790876979.5327241,
+  "cycle": 18168,
+  "cycle_lifetime": 1255970,
   "decision_fp": "6709bbc2778d",
   "runner_state": "RUNNING",
   "mode": "DRY_RUN",
@@ -16,7 +16,7 @@
    "state": "ARMED",
    "faults": {}
   },
-  "equity": 753.07,
+  "equity": 753.09,
   "cash": 745.19,
   "savings": 6.52,
   "reserve": 0.3,
@@ -45,12 +45,12 @@
   "starting_capital": 800.0,
   "entry_fees_total": 17.34,
   "realized_net_all_in": -47.99,
-  "net_pnl_all_time": -46.93,
+  "net_pnl_all_time": -46.91,
   "drawdown_pct": 6.04,
   "latency_ms": 0.0,
-  "feed_latency_ms": 135.2,
+  "feed_latency_ms": 168.2,
   "marks_age_sec": 0.0,
-  "cycle_duration_sec": 0.24,
+  "cycle_duration_sec": 0.28,
   "cycle_duration_max_sec": 138.41,
   "positions": [
    {
@@ -59,13 +59,13 @@
     "direction": "long",
     "size": 0.01686304,
     "entry": 2660.96,
-    "mark": 2704.24,
-    "upnl_pct": 1.627,
-    "upnl_usd": 0.73,
+    "mark": 2704.83,
+    "upnl_pct": 1.649,
+    "upnl_usd": 0.74,
     "stop": 2341.64,
     "trail": null,
     "tiers_fired": 0,
-    "age_h": 128.4,
+    "age_h": 128.6,
     "p_win": 0.0,
     "hedge": false,
     "fees_usd": 0.07
@@ -76,13 +76,13 @@
     "direction": "long",
     "size": 0.00034683,
     "entry": 83669.94,
-    "mark": 84945.1,
-    "upnl_pct": 1.524,
-    "upnl_usd": 0.44,
+    "mark": 84967.9,
+    "upnl_pct": 1.551,
+    "upnl_usd": 0.45,
     "stop": 73629.55,
     "trail": null,
     "tiers_fired": 0,
-    "age_h": 80.5,
+    "age_h": 80.7,
     "p_win": 0.0,
     "hedge": false,
     "fees_usd": 0.04
@@ -93,13 +93,13 @@
     "direction": "short",
     "size": 0.01436097,
     "entry": 4176.28,
-    "mark": 4184.35,
-    "upnl_pct": -0.193,
-    "upnl_usd": -0.12,
+    "mark": 4183.7,
+    "upnl_pct": -0.178,
+    "upnl_usd": -0.11,
     "stop": 4235.15,
     "trail": null,
     "tiers_fired": 0,
-    "age_h": 1.1,
+    "age_h": 1.3,
     "p_win": 0.85,
     "hedge": false,
     "fees_usd": 0.18
@@ -110,29 +110,47 @@
    "ETH": {
     "confirmed": false,
     "direction": null,
-    "confidence": 0.875,
+    "confidence": 0.624,
     "urgency": 0.0,
-    "concentration": 0.101,
+    "concentration": 0.05,
     "gates": {
      "if_1_flow_persistence": false,
      "if_2_accumulation": true,
      "if_3_directional_burst": true,
      "if_4_funding_sanity": true,
      "if_5_trend_alignment": true,
-     "v3_evidence": true,
-     "v3_agreement": true,
+     "v3_evidence": false,
+     "v3_agreement": false,
      "v3_no_absorption": true
     },
-    "ts": 1790876350.4091828
+    "ts": 1790876954.5314999
    },
    "BTC": {
-    "confirmed": true,
-    "direction": "long",
-    "confidence": 0.883,
-    "urgency": 0.53,
-    "concentration": 0.206,
+    "confirmed": false,
+    "direction": null,
+    "confidence": 0.749,
+    "urgency": 0.0,
+    "concentration": 0.115,
     "gates": {
      "if_1_flow_persistence": true,
+     "if_2_accumulation": true,
+     "if_3_directional_burst": true,
+     "if_4_funding_sanity": true,
+     "if_5_trend_alignment": true,
+     "v3_evidence": false,
+     "v3_agreement": false,
+     "v3_no_absorption": true
+    },
+    "ts": 1790876954.5314999
+   },
+   "PAXG": {
+    "confirmed": false,
+    "direction": null,
+    "confidence": 0.757,
+    "urgency": 0.0,
+    "concentration": 0.228,
+    "gates": {
+     "if_1_flow_persistence": false,
      "if_2_accumulation": true,
      "if_3_directional_burst": false,
      "if_4_funding_sanity": true,
@@ -141,32 +159,14 @@
      "v3_agreement": true,
      "v3_no_absorption": true
     },
-    "ts": 1790876350.4091828
-   },
-   "PAXG": {
-    "confirmed": true,
-    "direction": "long",
-    "confidence": 1.0,
-    "urgency": 0.49,
-    "concentration": 0.181,
-    "gates": {
-     "if_1_flow_persistence": true,
-     "if_2_accumulation": true,
-     "if_3_directional_burst": true,
-     "if_4_funding_sanity": true,
-     "if_5_trend_alignment": true,
-     "v3_evidence": true,
-     "v3_agreement": true,
-     "v3_no_absorption": true
-    },
-    "ts": 1790876350.4091828
+    "ts": 1790876954.5314999
    },
    "LINK": {
     "confirmed": false,
     "direction": null,
     "confidence": 0.502,
     "urgency": 0.0,
-    "concentration": 0.495,
+    "concentration": 0.182,
     "gates": {
      "if_1_flow_persistence": false,
      "if_2_accumulation": true,
@@ -177,7 +177,7 @@
      "v3_agreement": false,
      "v3_no_absorption": true
     },
-    "ts": 1790876350.4091828
+    "ts": 1790876954.5314999
    }
   },
   "exec_algos": {
@@ -191,10 +191,10 @@
     "momentum": -0.33,
     "vol": "normal",
     "vol_pct": 66.0,
-    "liq": "liquid",
-    "spread_bps": 0.0,
+    "liq": "thin",
+    "spread_bps": 1.6,
     "spoof": 0.0,
-    "basis_bps": 0.6
+    "basis_bps": -0.3
    },
    "ETH": {
     "macro": "bull_quiet",
@@ -204,7 +204,7 @@
     "liq": "liquid",
     "spread_bps": 0.0,
     "spoof": 0.0,
-    "basis_bps": -4.2
+    "basis_bps": 2.4
    },
    "BTC": {
     "macro": "bull_quiet",
@@ -214,17 +214,17 @@
     "liq": "liquid",
     "spread_bps": 0.0,
     "spoof": 0.0,
-    "basis_bps": -9.5
+    "basis_bps": 1.1
    },
    "LINK": {
     "macro": "bull_quiet",
     "momentum": 1.0,
     "vol": "elevated",
     "vol_pct": 71.0,
-    "liq": "thin",
-    "spread_bps": 2.9,
-    "spoof": 0.16,
-    "basis_bps": -7.8
+    "liq": "liquid",
+    "spread_bps": 3.9,
+    "spoof": 0.05,
+    "basis_bps": 7.5
    }
   },
   "correlation": {
@@ -237,20 +237,20 @@
   },
   "haven": {
    "state": "neutral",
-   "gradient": 0.2381,
+   "gradient": 0.2223,
    "returns": {
-    "PAXG": 0.5326,
-    "ALT": -0.1817,
-    "ETH": 0.8841,
-    "BTC": 0.9678
+    "PAXG": 0.6001,
+    "ALT": -0.0667,
+    "ETH": 0.9192,
+    "BTC": 1.1417
    },
    "spreads": {
-    "PAXG-BTC": -0.4352,
-    "BTC-ETH": 0.0836,
-    "ETH-ALT": 1.0659
+    "PAXG-BTC": -0.5415,
+    "BTC-ETH": 0.2225,
+    "ETH-ALT": 0.9859
    },
    "rungs_seen": 4,
-   "detail": "gradient +0.24% over 3 adjacent spread(s), band +/-1.00%"
+   "detail": "gradient +0.22% over 3 adjacent spread(s), band +/-1.00%"
   },
   "sentiment": {
    "score": -0.001,
@@ -273,8 +273,8 @@
   },
   "webdata": {
    "fear_greed": 74.0,
-   "btc_dominance": 58.62,
-   "dominance_delta": -0.01,
+   "btc_dominance": 58.64,
+   "dominance_delta": 0.022,
    "available": true
   },
   "context": {
@@ -299,30 +299,30 @@
     "calendar": true,
     "halving": true
    },
-   "last_poll_age_sec": 6163.2
+   "last_poll_age_sec": 6767.3
   },
   "moomoo": {
-   "risk_z": 1.52,
-   "basket_ret_pct": 2.287,
+   "risk_z": 1.41,
+   "basket_ret_pct": 2.274,
    "per_ticker": {
-    "US.COIN": 1.373,
-    "US.MSTR": 4.468,
-    "US.QQQ": 0.476
+    "US.COIN": 1.572,
+    "US.MSTR": 4.154,
+    "US.QQQ": 0.589
    },
    "available": true,
    "quotes_frozen": false,
-   "opt_pcr": 7.759,
-   "opt_pcr_z": -0.41,
+   "opt_pcr": 7.663,
+   "opt_pcr_z": -0.42,
    "opt_oi_pcr": 3.721,
-   "opt_oi_pcr_z": -1.16,
-   "opt_iv_skew": 3.0,
+   "opt_oi_pcr_z": -1.11,
+   "opt_iv_skew": -3.0,
    "options_available": true
   },
   "manip_suspect": {
-   "ETH": 0.453,
-   "BTC": 0.094,
+   "ETH": 0.206,
+   "BTC": 0.083,
    "PAXG": 0.0,
-   "LINK": 0.164
+   "LINK": 0.051
   },
   "watchdog": {
    "entries_blocked": false,
@@ -372,8 +372,8 @@
    "avg_p": 0.438
   },
   "entry_absorb": {
-   "arrivals": 12012,
-   "EN-030": 9636,
+   "arrivals": 12092,
+   "EN-030": 9693,
    "EN-010": 5
   },
   "conviction": {
@@ -391,11 +391,11 @@
    "enabled": true,
    "rung": 1,
    "ceiling_frac": 0.1,
-   "book_exposure_usd": 75.06,
+   "book_exposure_usd": 75.08,
    "positions": 2,
    "adds_placed": 0,
-   "last_add_age_h": 28.06,
-   "paused_reason": "LB-010: ETH: sizer vetoed - SZ-050: dd 6.7%/15% -> x0.41; SZ-061: shadow: would x0.98 (q=+0.06); SZ-042: $13 below minimum",
+   "last_add_age_h": 28.23,
+   "paused_reason": "LB-010: BTC: order manager refused submission (firewall/venue-min/zero-format)",
    "closed_paper": 28,
    "closed_live": 0,
    "pf_live": 0.0,
@@ -418,7 +418,7 @@
     "live": 524
    },
    "pending_labels": 3,
-   "open_candidates": 675,
+   "open_candidates": 677,
    "candidate_drops": {
     "evicted_pool_cap": 0,
     "dropped_entry_slid": 0
@@ -592,7 +592,7 @@
    },
    "probe_budget": {
     "mode": "budget",
-    "tokens": -0.2335,
+    "tokens": -0.2003,
     "capacity": 5.0,
     "refill_per_day": 5.0,
     "governor_factor": 1.0,
@@ -600,7 +600,7 @@
     "tuition_cap_usd": 0.7531,
     "admits_24h": 12,
     "refunds_24h": 2,
-    "denied_exhausted_24h": 404,
+    "denied_exhausted_24h": 406,
     "rolls_failed_24h": 58,
     "avg_cost_24h": 1.0506,
     "labels_24h": 5,
@@ -1300,15 +1300,15 @@
    }
   },
   "risk_protocols": {
-   "daily_budget_used_frac": 0.0486,
-   "weekly_budget_used_frac": 0.1667,
+   "daily_budget_used_frac": 0.0472,
+   "weekly_budget_used_frac": 0.1661,
    "taper_mult": 1.0,
    "heat_frac": 0.1795,
    "heat_cap_frac": 0.35,
-   "dd_throttle_mult": 0.4136,
+   "dd_throttle_mult": 0.4139,
    "anchors_set": true,
    "anchor_skips": 0,
-   "drawdown_mtm_pct": 6.673,
+   "drawdown_mtm_pct": 6.6696,
    "hard_stop_dd_pct": 15.0
   },
   "skimmer": {
@@ -1365,14 +1365,14 @@
    "ready": true,
    "watched": 11,
    "excluded_because_traded": 0,
-   "evaluations": 305,
-   "rows_labeled": 190,
+   "evaluations": 307,
+   "rows_labeled": 193,
    "errors": 0,
    "last_error": "",
    "pending": 398,
    "restored_on_boot": 396,
    "stale_dropped": 0,
-   "saves": 154,
+   "saves": 155,
    "feeds_model": false,
    "separate_corpus": true
   },
@@ -1391,10 +1391,10 @@
   },
   "firewall": {
    "fault": null,
-   "seq": 23,
+   "seq": 24,
    "counters": {
-    "screened": 23,
-    "accepted": 23,
+    "screened": 24,
+    "accepted": 24,
     "accepted_modified": 0,
     "rejected": 0
    },
@@ -1429,32 +1429,32 @@
     "ML": 60,
     "LT": 20,
     "CX": 1,
-    "EN": 9667,
-    "LB": 4334,
+    "EN": 9724,
+    "LB": 4335,
     "DE": 26,
-    "TH": 4761,
+    "TH": 4795,
     "DF": 13,
     "RP": 3,
-    "OM": 23,
+    "OM": 24,
     "PT": 11,
-    "SZ": 1865,
+    "SZ": 1891,
     "GL": 16,
-    "CV": 30
+    "CV": 31
    },
    "top": {
-    "EN-030": 9636,
-    "LB-010": 4330,
-    "TH-000": 2376,
-    "TH-013": 1215,
-    "TH-017": 1051,
-    "SZ-023": 949,
-    "SZ-022": 480,
+    "EN-030": 9693,
+    "LB-010": 4331,
+    "TH-000": 2399,
+    "TH-013": 1224,
+    "TH-017": 1053,
+    "SZ-023": 971,
+    "SZ-022": 481,
     "SZ-046": 208,
     "TH-012": 113,
     "SZ-020": 54,
-    "SZ-050": 43,
-    "CV-000": 30,
-    "SZ-061": 30,
+    "SZ-050": 44,
+    "CV-000": 31,
+    "SZ-061": 31,
     "EN-000": 26,
     "DE-010": 26
    },
@@ -1463,17 +1463,17 @@
     "SZ-046": 208,
     "SZ-049": 7,
     "SZ-048": 1,
-    "SZ-050": 43,
+    "SZ-050": 44,
     "SZ-060": 14,
     "SZ-044": 12,
-    "SZ-000": 24,
+    "SZ-000": 25,
     "PT-000": 6,
     "SZ-020": 54,
-    "SZ-023": 949,
-    "SZ-022": 480,
+    "SZ-023": 971,
+    "SZ-022": 481,
     "SZ-053": 8,
     "SZ-051": 12,
-    "SZ-061": 30,
+    "SZ-061": 31,
     "SZ-043": 9,
     "SZ-042": 10,
     "SZ-045": 2,
@@ -1484,42 +1484,42 @@
    "influence": "shadow",
    "assets": {
     "PAXG": {
-     "grid": 0.021,
+     "grid": 0.004,
      "metronome": 0.0,
      "clockwork": 0.0,
      "clockwork_dir": 0,
      "stop_zone": 0.0,
-     "barclose": 0.004,
-     "spoof_bid": 0.008,
-     "spoof_ask": 0.124,
+     "barclose": 0.003,
+     "spoof_bid": 0.089,
+     "spoof_ask": 0.104,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 0,
      "lapse_warmup_sec": 0
     },
     "ETH": {
-     "grid": 0.008,
+     "grid": 0.004,
      "metronome": 0.0,
      "clockwork": 0.0,
      "clockwork_dir": 0,
      "stop_zone": 0.0,
      "barclose": 0.0,
-     "spoof_bid": 0.109,
-     "spoof_ask": 0.434,
+     "spoof_bid": 0.14,
+     "spoof_ask": 0.525,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 0,
      "lapse_warmup_sec": 0
     },
     "BTC": {
-     "grid": 0.002,
+     "grid": 0.009,
      "metronome": 0.0,
      "clockwork": 0.0,
      "clockwork_dir": 0,
-     "stop_zone": 0.609,
+     "stop_zone": 0.662,
      "barclose": 0.0,
-     "spoof_bid": 0.223,
-     "spoof_ask": 0.502,
+     "spoof_bid": 0.322,
+     "spoof_ask": 0.598,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 1,
@@ -1532,8 +1532,8 @@
      "clockwork_dir": 0,
      "stop_zone": 0.0,
      "barclose": 0.0,
-     "spoof_bid": 0.48,
-     "spoof_ask": 0.112,
+     "spoof_bid": 0.345,
+     "spoof_ask": 0.351,
      "feed_dirty": 0.0,
      "lapses": 0,
      "bar_holes": 0,
@@ -1541,48 +1541,6 @@
     }
    },
    "recent_advice": [
-    {
-     "ts": 1790875828.2,
-     "asset": "BTC",
-     "dir": "long",
-     "mult": 0.9903,
-     "applied": false,
-     "scores": {
-      "grid": 0.004,
-      "metronome": 0.0,
-      "clockwork": 0.0,
-      "clockwork_dir": 0,
-      "stop_zone": 0.667,
-      "barclose": 0.003,
-      "spoof_bid": 0.366,
-      "spoof_ask": 0.201,
-      "feed_dirty": 0.0,
-      "lapses": 0,
-      "bar_holes": 1,
-      "lapse_warmup_sec": 0
-     }
-    },
-    {
-     "ts": 1790875828.2,
-     "asset": "LINK",
-     "dir": "short",
-     "mult": 0.9534,
-     "applied": false,
-     "scores": {
-      "grid": 0.002,
-      "metronome": 0.0,
-      "clockwork": 0.0,
-      "clockwork_dir": 0,
-      "stop_zone": 0.0,
-      "barclose": 0.003,
-      "spoof_bid": 0.229,
-      "spoof_ask": 0.426,
-      "feed_dirty": 0.0,
-      "lapses": 0,
-      "bar_holes": 0,
-      "lapse_warmup_sec": 0
-     }
-    },
     {
      "ts": 1790875858.2,
      "asset": "BTC",
@@ -1645,6 +1603,48 @@
       "bar_holes": 1,
       "lapse_warmup_sec": 0
      }
+    },
+    {
+     "ts": 1790876442.9,
+     "asset": "ETH",
+     "dir": "long",
+     "mult": 0.9491,
+     "applied": false,
+     "scores": {
+      "grid": 0.003,
+      "metronome": 0.0,
+      "clockwork": 0.0,
+      "clockwork_dir": 0,
+      "stop_zone": 0.0,
+      "barclose": 0.003,
+      "spoof_bid": 0.433,
+      "spoof_ask": 0.311,
+      "feed_dirty": 0.0,
+      "lapses": 0,
+      "bar_holes": 0,
+      "lapse_warmup_sec": 0
+     }
+    },
+    {
+     "ts": 1790876774.2,
+     "asset": "BTC",
+     "dir": "long",
+     "mult": 0.9869,
+     "applied": false,
+     "scores": {
+      "grid": 0.015,
+      "metronome": 0.0,
+      "clockwork": 0.0,
+      "clockwork_dir": 0,
+      "stop_zone": 0.921,
+      "barclose": 0.002,
+      "spoof_bid": 0.371,
+      "spoof_ask": 0.412,
+      "feed_dirty": 0.0,
+      "lapses": 0,
+      "bar_holes": 1,
+      "lapse_warmup_sec": 0
+     }
     }
    ],
    "reliability": {
@@ -1697,12 +1697,12 @@
    "force_fear_cycles": 0,
    "force_regime": {}
   },
-  "written_at": 1790876375.410864
+  "written_at": 1790876979.5327241
  },
  "deploy": {
   "head": "259255910",
   "auto_update": {
-   "ts": 1790875630.5127194,
+   "ts": 1790876530.9721692,
    "outcome": "current",
    "head": "259255910",
    "remote": "259255910",
