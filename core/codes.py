@@ -774,7 +774,7 @@ class Code(str, Enum):
     # core/idea_lab.py: a finite, pre-declared hypothesis family is born
     # into paper books as the market changes; graded forward-only with
     # trial-count deflation. It NEVER promotes - promotion is an operator
-    # decision record (docs/law/shadow_policy_promotion.md pattern).
+    # decision record (the shadow-policy promotion law in docs/law/).
     IL_BORN = "IL-000"               # idea born from a market reading
     IL_RETIRED = "IL-010"            # graded below benchmark: retired
     IL_EVIDENCE = "IL-020"           # deflated evidence met (NOT promotion)

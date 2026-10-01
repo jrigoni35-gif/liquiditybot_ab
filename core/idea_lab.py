@@ -24,7 +24,7 @@ module is the version the overfit law allows:
      retire_after_steps.
   5. NEVER PROMOTES. IL-020 "evidence met" is a report line. Promotion into
      the order path is an operator decision record (the
-     docs/law/shadow_policy_promotion.md pattern), and forks the cohort.
+     shadow-policy promotion law in docs/law/), and forks the cohort.
 
 CLASSIFICATION - SAFE (shadow). Pure computation, no I/O, no audit writes;
 the deflated-Sharpe function is injected by the caller so this module does
