@@ -10,6 +10,19 @@ need to be done with porcelain hands."
 order path imports `ml/markov_edge.py` (pinned). No config, no decision-path
 code, no cohort fork.
 
+> **CALLOUT 2026-10-01 — the within-day AUC is biased for path-related
+> scores (read `2026-10-01_new_information_and_conviction_evidence.md`).**
+> Rows inside one day share one price path, so a score correlated with the
+> PAST return is compared against other rows' futures: a pure random walk
+> reads within-(day, asset) AUC 0.39 for the 1 h return. The within-day
+> permutation null used below is too narrow for such scores. The basis /
+> hmm_x_basis within-day readings here (0.533-0.562) are therefore AT RISK in
+> proportion to each state's correlation with past returns - not refuted,
+> not confirmed. The power test (planted, path-independent edges) is
+> unaffected; its conclusion that the calibration-gain metric is blind
+> stands. Owed: re-grade the state specs against a structure-preserving
+> null before citing any within-day number from this page.
+
 ## Instrument
 
 - `ml/markov_edge.py` — drifted-Brownian first passage in dimensionless form

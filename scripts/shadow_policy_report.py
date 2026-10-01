@@ -68,11 +68,20 @@ def load(shadow_path: Path, history_path: Path):
     if history_path.exists():
         with open(history_path, newline="", encoding="utf-8") as fh:
             for r in csv.DictReader(fh):
-                cid, ret = r.get("candidate_id") or "", _f(r.get("label_ret_pct"))
-                res = _f(r.get("ts"))
+                # JOIN KEYS (fixed 2026-10-01): a CANDIDATE row carries its own
+                # id in position_id (ml/history.py _emit_label) and leaves
+                # candidate_id blank; only a LIVE row fills candidate_id, to
+                # point back at its candidate. Keying both on candidate_id made
+                # every candidate label invisible: 765 shadow rows, 391 of them
+                # labeled, all reported "unresolved" - the promotion rule this
+                # feeds could never fire. Pinned through the REAL writers.
+                live = r.get("source") == "live"
+                cid = (r.get("candidate_id") if live
+                       else r.get("position_id")) or ""
+                ret, res = _f(r.get("label_ret_pct")), _f(r.get("ts"))
                 if not cid or ret is None or res is None:
                     continue
-                (traded if r.get("source") == "live" else label)[cid] = (
+                (traded if live else label)[cid] = (
                     ret * 100.0, res)                  # percent -> bps
     return sorted(shadow, key=lambda s: s["ts"]), label, traded
 

@@ -82,3 +82,39 @@ def test_empty_inputs_render_without_error(tmp_path):
     rows, counting = spr.grade(shadow, label, traded)
     out = spr.render(spr.summarize(rows, counting, reps=50))
     assert "counting CS-1: n=0" in out and "NOT YET" in out
+
+
+def test_load_joins_through_the_real_writers(tmp_path):
+    """2026-10-01 defect: load() keyed CANDIDATE labels on candidate_id, which
+    the real writer leaves blank (the id lives in position_id), so every
+    shadow row read "unresolved" forever. Fixture built by the REAL writers,
+    never by hand - the hand-built fixtures are how the shape drifted."""
+    import numpy as np
+    from ml.features import FEATURE_NAMES
+    from ml.history import HistoryStore
+    from ml.shadow_policy import ShadowPolicyStore
+    hist = tmp_path / "signal_history.csv"
+    sp = tmp_path / "shadow_policy.csv"
+    hs = HistoryStore(str(hist))
+    store = ShadowPolicyStore(str(sp))
+    f = np.zeros(len(FEATURE_NAMES))
+    store.log(ts=1000.0, candidate_id="cand-aaaaaaaa-1", asset="ETH",
+              direction="long", model_p=0.7, decision_fp="fp")
+    store.log(ts=1001.0, candidate_id="cand-aaaaaaaa-2", asset="ETH",
+              direction="long", model_p=0.3, decision_fp="fp")
+    # candidate label row: id in position_id, candidate_id blank
+    hs._append_row("cand-aaaaaaaa-1", "ETH", "long", f, 1, 0.0, "candidate",
+                   signal_ts=1000.0, barrier="tb_pt", pt_frac=0.018,
+                   sl_frac=0.0135, label_ret_pct=1.35)
+    # live row taken from candidate 1: points back via candidate_id
+    hs._append_row("pos-1", "ETH", "long", f, 1, 0.42, "live",
+                   signal_ts=1000.0, barrier="tb_pt",
+                   candidate_id="cand-aaaaaaaa-1", label_ret_pct=0.9)
+    shadow, label, traded = spr.load(sp, hist)
+    assert len(shadow) == 2
+    assert "cand-aaaaaaaa-1" in label and label["cand-aaaaaaaa-1"][0] == \
+        135.0
+    assert "cand-aaaaaaaa-1" in traded and traded["cand-aaaaaaaa-1"][0] == 90.0
+    assert "cand-aaaaaaaa-2" not in label          # not yet labeled
+    _, counting = spr.grade(shadow, label, traded)
+    assert counting["buckets"]["unresolved"] == 1
