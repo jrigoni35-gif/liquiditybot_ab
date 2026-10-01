@@ -440,7 +440,13 @@
     "target_vol_annual_pct": 35,
     "min_leverage": 0.25,
     "margin_scale_below_pct": 200,
-    "margin_block_below_pct": 150
+    "margin_block_below_pct": 150,
+    "asset_max_leverage": {
+      "BTC": 20, "ETH": 10, "LINK": 10, "ADA": 10, "SOL": 10, "XRP": 10,
+      "DOGE": 10, "SUI": 10, "AVAX": 10, "LTC": 10, "PAXG": 5, "DOT": 5
+    },
+    "unlisted_asset_max_leverage": 1.0,
+    "_asset_max_leverage_doc": "Per-asset venue caps for the operator's location (2026-10-01, operator: 'correlate all assets with the leverage options appropriate for my location'; operator resides in Alabama, served by Kraken and eligible for Kraken US retail margin - Kraken excludes only Maine and New York). Values = Kraken's US margin table read 2026-10-01 (support.kraken.com 'Getting started with US margin'): 20x BTC; 10x ADA AVAX DOGE ETH LINK LTC SOL SUI XRP; 5x DOT PAXG. ARB, MINA, FLOW are NOT marginable for US clients - deliberately ABSENT, so unlisted_asset_max_leverage (1.0 = spot only) applies: an asset the venue does not margin can never be levered by omission. region_max_leverage (10) stays the global ceiling, so BTC is effectively 10x unless the operator raises it - no edge is established, and leverage without edge is pure variance drag (docs/research/regulation/02_literature_2025_2026.md). Re-read the venue table before changing any value; a stale cap is a WRONG VENUE CONSTANT. config_guard validates shape and FATALs a live margin config without this table."
   },
   "position_sizer": {
     "kelly_fraction": 0.25,

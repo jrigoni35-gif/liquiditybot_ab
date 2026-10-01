@@ -783,6 +783,50 @@ def _repo_contains(p) -> bool:
         return False
 
 
+def _validate_asset_leverage(config: dict, fatal, warn, dry_run) -> None:
+    """Per-asset venue leverage caps (2026-10-01, operator: "correlate all
+    assets with the leverage options appropriate for my location").
+    risk/leverage.py clamps an entry's allowed leverage to its asset's cap;
+    an asset missing from the table gets unlisted_asset_max_leverage.
+    Shape errors are FATAL (a bad cap silently levers or blocks an asset).
+    A LIVE margin config WITHOUT the table is FATAL: a flat region scalar
+    cannot represent a venue with per-asset caps - measured: 10x region vs
+    Kraken US PAXG 5x (docs/research/regulation/README.md)."""
+    raw = config.get("leverage")
+    lev: dict = raw if isinstance(raw, dict) else {}
+    use_margin = bool(lev.get("use_margin", False))
+    region = float(lev.get("region_max_leverage", 10) or 10)
+    caps = lev.get("asset_max_leverage")
+    if caps is None:
+        if use_margin and dry_run is False:
+            fatal("leverage.use_margin is true in a LIVE config but "
+                  "leverage.asset_max_leverage is absent - a flat "
+                  "region_max_leverage cannot represent the venue's "
+                  "per-asset caps (Kraken US: PAXG 5x under a 10x region)")
+        return
+    if not isinstance(caps, dict) or not caps:
+        fatal("leverage.asset_max_leverage must be a non-empty "
+              "{ASSET: max_leverage} map")
+        return
+    for asset, v in caps.items():
+        if str(asset).startswith("_"):
+            continue
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or \
+                not (0 < float(v) <= 125):
+            fatal(f"leverage.asset_max_leverage.{asset}={v!r} must be a "
+                  f"number in (0, 125]")
+        elif float(v) > region and warn is not None:
+            warn(f"leverage.asset_max_leverage.{asset}={v} exceeds "
+                 f"region_max_leverage={region:g} - the region cap still "
+                 f"binds; the venue allows more")
+    un = lev.get("unlisted_asset_max_leverage", 1.0)
+    if isinstance(un, bool) or not isinstance(un, (int, float)) or \
+            not (0 < float(un) <= region):
+        fatal(f"leverage.unlisted_asset_max_leverage={un!r} must be in "
+              f"(0, region_max_leverage={region:g}] - 1.0 (spot only) is the "
+              f"fail-closed default for assets the venue does not margin")
+
+
 def _validate_darkpool(config: dict, fatal, warn=None) -> None:
     """darkpool weekly mirror (optional, read-only; F1 2026-09-26).
     max_data_age_days gates a STALE mirror to unavailable (neutral dp_*
@@ -2515,6 +2559,7 @@ def validate(config: dict) -> list:
                   f"equal band divides by zero in the scaling fraction (at "
                   f"equal) or creates a leverage cliff at the margin "
                   f"boundary (inverted)")
+    _validate_asset_leverage(config, fatal, warn, dry_run)
 
     # --- live credentials -------------------------------------------------
     # Resolved through the SAME precedence data/kraken_feed.py actually uses

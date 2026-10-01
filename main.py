@@ -4989,7 +4989,7 @@ class LiquidityBot:
             lev_decision = self.lev_gov.decide(
                 self.state, self.marks, equity, vol_state.sigma_annual_pct,
                 macro_state.playbook.get("leverage_cap", 1.0),
-                self.margin_level_pct)
+                self.margin_level_pct, asset=asset)
 
             # circuit breaker: a symbol on a losing streak is pulled off the
             # sheet — new entries only, exits never consult this. Checked
