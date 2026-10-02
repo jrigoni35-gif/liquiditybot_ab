@@ -78,3 +78,11 @@ def test_replay_runs_offline_and_writes_only_where_told(tmp_path):
     lab = rep["lab"]
     assert lab["n_trials"] == lab["alive"] + lab["retired"]
     assert set(rep["arms"]) == {"buy_hold", "no_band", "target_book"}
+
+
+def test_vol_target_keys_are_guarded():
+    cfg = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+    for patch in ({"vol_target_ann": -0.1}, {"vol_cap": 1.5}, {"vol_lookback_bars": 1}):
+        bad = json.loads(json.dumps(cfg))
+        bad["target_book"].update(patch)
+        assert any("target_book" in m for s, m in validate(bad) if s == "FATAL"), patch

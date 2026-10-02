@@ -220,3 +220,19 @@ def test_state_classifier_false_positive_rate_on_noise():
     fired = sum(read_market(gbm_bars(np.zeros(4), cov, 44, names, rng), 43, 42,
                             6, 1e9).state != "neutral" for _ in range(n))
     assert 0.02 <= fired / n <= 0.075, fired / n
+
+
+def test_vol_target_lowers_inventory_in_a_volatile_market():
+    """Wired end to end: the same book with a tight vol target holds less."""
+    cfg = {**_cfg(), "bar_interval_min": 1440}
+    bars = _bars(n=200)
+    off = ShadowBook(Idea(3.0, 0.5, "equal", "none"), 42, 800.0, {}, 800.0)
+    on = ShadowBook(Idea(3.0, 0.5, "equal", "none"), 42, 800.0, {}, 800.0)
+    b_off = BookParams(maker_fee_bps=15.0)
+    b_on = BookParams(maker_fee_bps=15.0, vol_target_ann=0.10, vol_cap=1.0)
+    for i in range(42, 120):
+        step_book(off, bars, i, b_off, cfg, PressureLimits())
+        step_book(on, bars, i, b_on, cfg, PressureLimits())
+    px = {a: c[120] for a, c in bars.close.items()}
+    inv = lambda b: sum(u * px[a] for a, u in b.units.items()) / b.equity(px)  # noqa: E731
+    assert inv(on) < inv(off) * 0.7

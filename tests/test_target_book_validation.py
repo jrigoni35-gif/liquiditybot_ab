@@ -104,5 +104,5 @@ def test_offline_battery_runs_and_writes_only_where_told(tmp_path):
     assert rc == 0
     rep = json.loads(next(out.glob("validation_*.json")).read_text(encoding="utf-8"))
     ids = {r["id"].split("[")[0] for r in rep["ledger"]}
-    assert ids == {f"A{i}" for i in range(1, 16)}
+    assert ids == {f"A{i}" for i in range(1, 17)}
     assert all(r["verdict"] for r in rep["ledger"])

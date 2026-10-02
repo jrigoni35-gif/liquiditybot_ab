@@ -130,3 +130,14 @@ def test_asset_floor():
     assert not asset_floor_breached([100, 120, 60], 0.6)
     assert not asset_floor_breached([], 0.6)
     assert math.isfinite(band_halfwidth(0.0015, 0.5, 3.0))
+
+
+def test_vol_target_only_shrinks_and_skips_unmeasured():
+    from core.target_book import vol_target_scale
+    w = {"A": 0.3, "B": 0.3, "C": 0.3}
+    out = vol_target_scale(w, {"A": 0.2, "B": 0.8}, 0.4, 1.0)
+    assert out["A"] == pytest.approx(0.3)            # sigma < target: capped at 1x
+    assert out["B"] == pytest.approx(0.15)           # 0.4 / 0.8
+    assert out["C"] == pytest.approx(0.3)            # no sigma: not guessed
+    assert vol_target_scale(w, {"A": 0.8}, 0.0, 1.0) == w   # 0 = off
+    assert all(out[a] <= w[a] for a in w)            # cap 1: never levered

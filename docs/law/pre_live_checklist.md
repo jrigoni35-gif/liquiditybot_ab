@@ -38,6 +38,23 @@ live in `core/venue_integrity.py`, codes are the `VI-*` family in
    **Operator ruling 2026-09-27: leave `stptype` unset for now and
    revisit before `ARM LIVE`.** This item stays open until then.
 
+7. **EDGE-1: a registered signal pays a round trip before any live TRIP
+   book (added 2026-10-02, operator direction "all of them").** Run
+   `python scripts/alpha_decay_report.py`. A live trip book (entries that
+   exit back to flat) is armed only if at least one REGISTERED signal reads
+   `TRADEABLE AS TRIPS`: 95% CI lower bound of total edge mu0*tau above the
+   booked round trip 2c (45 bps at 15/30), in BOTH time halves, Holm across
+   its family, measured on independent prices. As of 2026-10-02 **no signal
+   does** - not the bot's 18 features (market-relative edge ~0), not five
+   literature priors on 20 assets over 3.7 years, not the long-horizon
+   family (`docs/quant/2026-10-02_alpha_decay_mu0_tau.md`,
+   `docs/quant/2026-10-02_feature_program.md`). Dry-run exploration is NOT
+   gated by this item: the 2026-09-28 ruling (keep exploring - paper
+   tuition buys labels) stands. A holding book that pays no exit per idea is
+   outside this item; it follows its own registration. Like every item
+   here, this measures and never gates in code; arming without it is the
+   operator's documented choice. Record the run and verdict: `____`.
+
 ## VG-2 live fill-acceptance registration (`LIVE_FILL_ACCEPTANCE`)
 
 Report-only. Nothing sizes, gates or exits on these values. Acting on a

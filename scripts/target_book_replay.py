@@ -91,7 +91,9 @@ def params_from(cfg: dict) -> tuple:
                       tilt_cap=float(tb["tilt_cap"]), weighting=tb["weighting"],
                       invest_frac=float(tb["invest_frac"]),
                       min_order_usd=float(tb["min_order_usd"]),
-                      maker_fee_bps=float(cfg["pretrade"]["maker_fee_bps"]))
+                      maker_fee_bps=float(cfg["pretrade"]["maker_fee_bps"]),
+                      vol_target_ann=float(tb.get("vol_target_ann", 0.0)),
+                      vol_cap=float(tb.get("vol_cap", 1.0)))
     lim = PressureLimits(**{k: float(v) for k, v in p.items() if not k.startswith("_")})
     lab_cfg = {**{k: v for k, v in tb.items() if k not in ("idea_lab", "pressure")},
                **tb["idea_lab"]}
@@ -152,6 +154,7 @@ def main(argv=None) -> int:
             time.sleep(1.1)                       # public-endpoint courtesy
     bars = align(series)
     base, lim, lab_cfg = params_from(cfg)
+    lab_cfg["bar_interval_min"] = iv          # the interval actually loaded
     warm = int(lab_cfg["sigma_lookback_bars"])
     if len(bars) <= warm + 2:
         print(f"only {len(bars)} aligned bars; need > {warm + 2}")

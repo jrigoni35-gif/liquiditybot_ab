@@ -138,3 +138,31 @@ def test_entry_is_the_close_of_the_bar_opening_at_signal_ts():
     opens = np.arange(10) * 300.0 + 1_790_000_000
     j = ad.entry_index(opens, np.array([opens[4], opens[4] + 120.0]))
     assert list(j) == [4, 4]
+
+
+def test_daily_z_uses_only_days_before_the_event():
+    """External series (funding, OI, supply) enter at the LAST COMPLETE day
+    before the event: poisoning the event day and after changes nothing."""
+    day = 86400.0
+    t = np.arange(400) * day
+    v = np.exp(np.cumsum(np.random.default_rng(2).normal(0, 0.01, 400)))
+    at = np.array([300 * day, 350 * day])
+    z0 = ad._daily_z(t, v, at, "chg7")
+    v2 = v.copy()
+    v2[300:] *= 50.0
+    z1 = ad._daily_z(t, v2, at[:1], "chg7")
+    assert np.isfinite(z0[0]) and z0[0] == pytest.approx(z1[0])
+    assert np.isnan(ad._daily_z(t, v, np.array([50 * day]), "chg7")[0])   # needs history
+
+
+def test_long_signals_sample_daily_and_follow_registered_signs():
+    n = 24 * 400
+    t = np.arange(n) * 3600.0
+    x = np.linspace(0, 1, n)                                   # steady uptrend
+    ext = {"funding": {"BTC": {"t": t[::8], "rate": np.full(n // 8, 1e-4)}},
+           "oi": {}, "stables": {"t": np.array([]), "usd": np.array([])}}
+    s = ad.long_signals({"BTC": x}, {"BTC": t}, ext)
+    idx, sig = s["btc_tsmom_168"]["BTC"]
+    assert np.all(t[idx] % 86400 == 0) and np.all(sig == 1)    # uptrend -> +1
+    idx2, sig2 = s["funding_crowd"]["BTC"]
+    assert np.all(sig2 == 0)                                   # flat funding: no crowding

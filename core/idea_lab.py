@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from core.codes import Code
 from core.target_book import (BookParams, PressureLimits,
                               asset_floor_breached, base_weights, plan,
-                              pressure_from, tilted_targets)
+                              pressure_from, tilted_targets, vol_target_scale)
 
 TILT_SOURCES = ("none", "xs_reversal", "xs_momentum")
 
@@ -217,7 +217,9 @@ def book_params(idea: Idea, base: BookParams) -> BookParams:
                       tilt_cap=base.tilt_cap, weighting=idea.weighting,
                       invest_frac=base.invest_frac,
                       min_order_usd=base.min_order_usd,
-                      maker_fee_bps=base.maker_fee_bps)
+                      maker_fee_bps=base.maker_fee_bps,
+                      vol_target_ann=base.vol_target_ann,
+                      vol_cap=base.vol_cap)
 
 
 def decide(book: ShadowBook, bars: Bars, i: int, base: BookParams,
@@ -230,6 +232,11 @@ def decide(book: ShadowBook, bars: Bars, i: int, base: BookParams,
     assets = sorted(px)
     w = base_weights(assets, _sigmas(bars, i, int(cfg["sigma_lookback_bars"])),
                      params.weighting, params.invest_frac)
+    if params.vol_target_ann > 0:
+        per_year = 525_600.0 / float(cfg["bar_interval_min"])
+        sig = _sigmas(bars, i, int(cfg.get("vol_lookback_bars", 30)))
+        w = vol_target_scale(w, {a: v * math.sqrt(per_year) for a, v in sig.items()},
+                             params.vol_target_ann, params.vol_cap)
     tgt = tilted_targets(w, _tilts(bars, i, idea.tilt,
                                    int(cfg["tilt_lookback_bars"])),
                          params.tilt_cap)

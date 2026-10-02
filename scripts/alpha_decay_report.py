@@ -64,6 +64,28 @@ looking is a new registration and must say so.
   Horizons 5m .. 72h. Exploratory, NOT registered, Holm within its own
   family and never a decision: the sign of each *_dir feature as a signal.
 
+  LONG-HORIZON FAMILY - registered 2026-10-02 BEFORE its data was fetched
+  (operator: "all of them"). Rationale: the IC a round trip needs is
+  2c / sigma_h - ~0.2 at 24 h but ~0.04 at a month - so if an edge can pay
+  a trip it lives at weeks. Events once per UTC day (00:00) per asset;
+  horizons 1, 3, 7, 14, 21, 28 days; drift-adjusted as above; bootstrap
+  blocks of 4 WEEKS (forward windows reach 28 d). Same verdict rule.
+    L1 btc_tsmom_168  BTC only, sign(past 7 d return), expect +
+                      [Liu & Tsyvinski's strongest case]
+    L2 tsmom_672      all assets, sign(past 28 d return), expect +
+    L3 funding_crowd  -sign(z) when |z| > 1, z = (7 d mean perp funding -
+                      prior 90 d mean) / prior 90 d sd: crowded longs pay,
+                      expect +
+    L4 oi_crowd       BTC, ETH: -sign(z) when |z| > 1 on the 7 d log change
+                      of open interest vs its prior 90 d distribution,
+                      expect +
+    L5 stable_flow    every asset: sign(z) when |z| > 1 on the 7 d log change
+                      of total USD stablecoin supply (DefiLlama) vs prior
+                      90 d, expect + (new dry powder)
+  Data: Binance USD-M perp funding (monthly archive), Binance perp metrics
+  (daily archive, BTC/ETH), DefiLlama stablecoin supply - all public,
+  read-only, none from the bot.
+
   CONTROLS (the instrument is tested before its readings are used):
     null_gbm      every panel signal on iid-normal returns with each asset's
                   own vol, R replications -> false-positive rate of
@@ -236,9 +258,9 @@ def expanding_drift(lp: np.ndarray, H: tuple, warm: int) -> np.ndarray:
     return mu1[:, None] * np.asarray(H, float)[None, :]
 
 
-def week_sums(t: np.ndarray, X: np.ndarray) -> tuple:
+def week_sums(t: np.ndarray, X: np.ndarray, block: float = WEEK) -> tuple:
     """Per-UTC-week sums and counts of the (n, H) matrix X (NaN = absent)."""
-    wk = np.floor(t / WEEK).astype(np.int64)
+    wk = np.floor(t / block).astype(np.int64)
     uniq, inv = np.unique(wk, return_inverse=True)
     W, Hn = len(uniq), X.shape[1]
     ok = np.isfinite(X)
@@ -285,9 +307,9 @@ def fit_decay(car: np.ndarray, h: np.ndarray, w: np.ndarray) -> tuple:
 
 
 def analyse(t: np.ndarray, X: np.ndarray, H: tuple, reps: int, rng,
-            bar_hours: float) -> dict:
+            bar_hours: float, block: float = WEEK) -> dict:
     """Full read of one signal: CAR curve, decay fit, bootstrap CIs."""
-    S, N = week_sums(t, X)
+    S, N = week_sums(t, X, block)
     car = S.sum(axis=0) / np.maximum(N.sum(axis=0), 1)
     B = boot_car(S, N, reps, rng)
     var = B.var(axis=0) + 1e-18
@@ -634,6 +656,203 @@ def controls(cache: Path, reps: int, rng, n_null: int) -> dict:
     return out
 
 
+# ======================================================== long horizon
+H_LONG = (24, 72, 168, 336, 504, 672)                   # hours
+LONG_BLOCK = 4 * WEEK
+FUT = "https://data.binance.vision/data/futures/um"
+PERP_SYMBOL = {"SHIB": "1000SHIBUSDT"}
+
+
+def binance_funding(asset: str, months: tuple, cache: Path) -> dict:
+    """Perp funding prints {t (s), rate}; empty if the asset had no perp."""
+    cache.mkdir(parents=True, exist_ok=True)
+    f = cache / f"funding_{asset}_{months[0]}_{months[1]}.npz"
+    if f.exists():
+        return dict(np.load(f))
+    sym = PERP_SYMBOL.get(asset, f"{asset}USDT")
+    rows = []
+    for mo in _months(*months):
+        blob = _get(f"{FUT}/monthly/fundingRate/{sym}/{sym}-fundingRate-{mo}.zip", tries=2)
+        if blob is None:
+            continue
+        with zipfile.ZipFile(io.BytesIO(blob)) as z:
+            for name in z.namelist():
+                for line in z.read(name).decode("utf-8").splitlines():
+                    p = line.split(",")
+                    if p and p[0].strip().isdigit():
+                        rows.append((float(p[0]), float(p[-1])))
+    if rows:
+        a = np.array(sorted(set(rows)))
+        d = {"t": to_seconds(a[:, 0])[0], "rate": a[:, 1]}
+    else:
+        d = {"t": np.array([]), "rate": np.array([])}
+    np.savez(f, **d)
+    return d
+
+
+def binance_oi(asset: str, months: tuple, cache: Path) -> dict:
+    """Daily open interest value (USD) at 00:00 UTC from the perp metrics
+    archive (daily files only)."""
+    import datetime as dt
+    cache.mkdir(parents=True, exist_ok=True)
+    f = cache / f"oi_{asset}_{months[0]}_{months[1]}.npz"
+    if f.exists():
+        return dict(np.load(f))
+    sym = f"{asset}USDT"
+    y0, m0 = map(int, months[0].split("-"))
+    y1, m1 = map(int, months[1].split("-"))
+    day = dt.date(y0, m0, 1)
+    end = (dt.date(y1 + (m1 == 12), m1 % 12 + 1, 1))
+    days = []
+    while day < end:
+        days.append(day.isoformat())
+        day += dt.timedelta(days=1)
+
+    def one(ds):
+        b = _get(f"{FUT}/daily/metrics/{sym}/{sym}-metrics-{ds}.zip", tries=2)
+        if b is None:
+            return None
+        with zipfile.ZipFile(io.BytesIO(b)) as z:
+            for name in z.namelist():
+                for line in z.read(name).decode("utf-8").splitlines()[1:]:
+                    p = line.split(",")
+                    if len(p) > 3 and p[0].endswith("00:00:00"):
+                        t = dt.datetime.strptime(p[0], "%Y-%m-%d %H:%M:%S").replace(
+                            tzinfo=dt.timezone.utc).timestamp()
+                        return (t, float(p[3]))
+        return None
+    with cf.ThreadPoolExecutor(8) as ex:
+        rows = [r for r in ex.map(one, days) if r]
+    a = np.array(sorted(rows)) if rows else np.zeros((0, 2))
+    d = {"t": a[:, 0] if len(a) else a, "oi": a[:, 1] if len(a) else a}
+    np.savez(f, **d)
+    return d
+
+
+def defillama_stables(cache: Path) -> dict:
+    cache.mkdir(parents=True, exist_ok=True)
+    f = cache / "stables_total.npz"
+    if f.exists():
+        return dict(np.load(f))
+    b = _get("https://stablecoins.llama.fi/stablecoincharts/all")
+    rows = []
+    for r in json.loads(b or b"[]"):
+        v = (r.get("totalCirculatingUSD") or {}).get("peggedUSD")
+        if v:
+            rows.append((float(r["date"]), float(v)))
+    a = np.array(sorted(rows)) if rows else np.zeros((0, 2))
+    d = {"t": a[:, 0] if len(a) else a, "usd": a[:, 1] if len(a) else a}
+    np.savez(f, **d)
+    return d
+
+
+def _daily_z(t_series: np.ndarray, v: np.ndarray, at: np.ndarray, mode: str) -> np.ndarray:
+    """z of a 7-day statistic vs its prior 90-day distribution, using only
+    observations with timestamp <= each `at` (past only). mode 'level7' uses
+    the 7 d mean of v; 'chg7' the 7 d log change of v."""
+    out = np.full(len(at), np.nan)
+    if len(t_series) < 30:
+        return out
+    day = np.floor(t_series / 86400).astype(np.int64)
+    ud, inv = np.unique(day, return_inverse=True)
+    dv = np.zeros(len(ud))
+    np.add.at(dv, inv, v)
+    cnt = np.bincount(inv)
+    daily = dv / cnt                       # daily mean (funding) / value (OI, supply)
+    full = np.full(ud[-1] - ud[0] + 1, np.nan)
+    full[ud - ud[0]] = daily
+    if mode == "level7":
+        stat = np.array([np.nanmean(full[max(0, i - 6):i + 1]) for i in range(len(full))])
+    else:
+        lg = np.log(np.where(full > 0, full, np.nan))
+        stat = np.concatenate([np.full(7, np.nan), lg[7:] - lg[:-7]])
+    d0 = ud[0]
+    for k, a in enumerate(at):
+        i = int(np.floor(a / 86400)) - d0 - 1     # last COMPLETE day before `at`
+        if i < 97 or i >= len(stat):
+            continue
+        hist = stat[i - 97:i - 7]
+        hist = hist[np.isfinite(hist)]
+        if len(hist) < 30 or not np.isfinite(stat[i]):
+            continue
+        sd = hist.std(ddof=1)
+        if sd > 0:
+            out[k] = (stat[i] - hist.mean()) / sd
+    return out
+
+
+def long_signals(lp: dict, tt: dict, ext: dict) -> dict:
+    """Daily-sampled events per asset: {name: {asset: (idx, s)}}. Every
+    input is past-only (prices <= t, external series <= the day before)."""
+    out = {k: {} for k in ("btc_tsmom_168", "tsmom_672", "funding_crowd",
+                            "oi_crowd", "stable_flow")}
+    st = ext["stables"]
+    for a, x in lp.items():
+        t = tt[a]
+        idx = np.where((t % 86400) == 0)[0]
+        idx = idx[idx >= 672]
+        if a == "BTC":
+            out["btc_tsmom_168"][a] = (idx, _sign(x[idx] - x[idx - 168]))
+        out["tsmom_672"][a] = (idx, _sign(x[idx] - x[idx - 672]))
+        fd = ext["funding"].get(a)
+        if fd is not None and len(fd["t"]):
+            z = _daily_z(fd["t"], fd["rate"], t[idx], "level7")
+            out["funding_crowd"][a] = (idx, np.where(np.abs(z) > 1, -np.sign(z), 0.0))
+        od = ext["oi"].get(a)
+        if od is not None and len(od["t"]):
+            z = _daily_z(od["t"], od["oi"], t[idx], "chg7")
+            out["oi_crowd"][a] = (idx, np.where(np.abs(z) > 1, -np.sign(z), 0.0))
+        if len(st["t"]):
+            z = _daily_z(st["t"], st["usd"], t[idx], "chg7")
+            out["stable_flow"][a] = (idx, np.where(np.abs(z) > 1, np.sign(z), 0.0))
+    return out
+
+
+def run_long(cache: Path, reps: int, rng, null_seed: int | None = None) -> dict:
+    data = {a: binance_klines(f"{a}USDT", "1h", PANEL_MONTHS, cache) for a in PANEL_UNIVERSE}
+    lp, tt = {}, {}
+    nrng = np.random.default_rng(SEED + 202 + (null_seed or 0))
+    for a, d in data.items():
+        if len(d["close"]) < 2000:
+            continue
+        x = np.log(d["close"])
+        if null_seed is not None:                 # GBM prices, real external series
+            r = np.diff(x)
+            x = np.concatenate([[x[0]], x[0] + np.cumsum(nrng.normal(0, r.std(), len(r)))])
+        lp[a], tt[a] = x, d["t"]
+    with cf.ThreadPoolExecutor(6) as ex:
+        fund = dict(zip(lp, ex.map(lambda a: binance_funding(a, PANEL_MONTHS, cache), lp),
+                        strict=True))
+    ext = {"funding": fund,
+           "oi": {a: binance_oi(a, PANEL_MONTHS, cache) for a in ("BTC", "ETH") if a in lp},
+           "stables": defillama_stables(cache)}
+    sig = long_signals(lp, tt, ext)
+    res = {"_coverage": {"funding_assets": sorted(a for a, v in fund.items() if len(v["t"])),
+                         "oi_assets": sorted(a for a, v in ext["oi"].items() if len(v["t"])),
+                         "stable_days": int(len(ext["stables"]["t"]))}}
+    for name, per in sig.items():
+        T_, X_ = [], []
+        for a, (idx, s) in per.items():
+            F = forward(lp[a], H_LONG)[idx]
+            D = expanding_drift(lp[a], H_LONG, 720)[idx]
+            m = (s != 0) & np.isfinite(D[:, 0])
+            T_.append(tt[a][idx][m])
+            X_.append(s[m, None] * (F[m] - D[m]))
+        if not T_ or sum(len(x) for x in T_) < 50:
+            res[name] = {"events": int(sum(len(x) for x in T_)), "note": "too few events"}
+            continue
+        t_all, X_all = np.concatenate(T_), np.vstack(X_)
+        r = analyse(t_all, X_all, H_LONG, reps, rng, 1.0, LONG_BLOCK)
+        mid = np.median(t_all)
+        r["halves"] = {}
+        for half, mm in (("first", t_all < mid), ("second", t_all >= mid)):
+            rh = analyse(t_all[mm], X_all[mm], H_LONG, max(reps // 4, 200), rng, 1.0, LONG_BLOCK)
+            r["halves"][half] = {"A_bps": rh["A_bps"], "A_ci_bps": rh["A_ci_bps"],
+                                 "weeks": rh["weeks"]}
+        res[name] = r
+    return res
+
+
 # ================================================================== main
 def _verdict(r: dict, hp_exist: float, hp_trade: float) -> str:
     lo = r["A_ci_bps"][0]
@@ -653,6 +872,7 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default=None)
     ap.add_argument("--skip-bot", action="store_true")
     ap.add_argument("--skip-controls", action="store_true")
+    ap.add_argument("--skip-long", action="store_true")
     args = ap.parse_args(argv)
     out_dir = Path(args.out) if args.out else ROOT / "outputs" / "reports" / "alpha_decay"
     cache = out_dir / "cache"
@@ -684,6 +904,26 @@ def main(argv=None) -> int:
             bot[k]["p_holm_exists"], bot[k]["p_holm_tradeable"] = he[k], ht[k]
             bot[k]["verdict"] = _verdict(bot[k], he[k], ht[k])
         rep["bot"] = bot
+    if not args.skip_long:
+        lg = run_long(cache, args.reps, rng)
+        ln = [k for k in lg if not k.startswith("_") and "A_bps" in lg[k]]
+        he = holm({k: lg[k]["p_A_le_0"] for k in ln})
+        ht = holm({k: lg[k]["p_A_le_2c"][str(TWO_C)] for k in ln})
+        for k in ln:
+            lg[k]["p_holm_exists"], lg[k]["p_holm_tradeable"] = he[k], ht[k]
+            lg[k]["verdict"] = _verdict(lg[k], he[k], ht[k])
+        if not args.skip_controls:
+            fp, n = 0, 0
+            for k in range(args.nulls):
+                nl = run_long(cache, max(args.reps // 4, 200), np.random.default_rng(3000 + k),
+                              null_seed=k)
+                for name in ln:
+                    if "A_ci_bps" in nl.get(name, {}):
+                        n += 1
+                        fp += nl[name]["A_ci_bps"][0] > 0
+            lg["_null_gbm"] = {"tests": n, "false_positives_A_gt_0": fp,
+                               "rate": fp / max(n, 1)}
+        rep["long_horizon"] = lg
     rep["secs"] = time.time() - t0
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"alpha_decay_{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"
@@ -712,7 +952,7 @@ def _json(o):
 def _row(name: str, r: dict) -> str:
     h = r.get("halves", {})
     hs = " ".join(f"{k[:1]}:{v['A_bps']:+.1f}" for k, v in h.items())
-    return (f"  {name:<20} ev {r['events']:>7} wk {r['weeks']:>4}  A {r['A_bps']:+7.1f} "
+    return (f"  {name:<20} ev {r['events']:>7} blk {r['weeks']:>4}  A {r['A_bps']:+7.1f} "
             f"[{r['A_ci_bps'][0]:+7.1f},{r['A_ci_bps'][1]:+7.1f}] bps  tau {r['tau_h']:6.1f}h "
             f"[{r['tau_ci_h'][0]:.1f},{r['tau_ci_h'][1]:.1f}]  halves {hs}  "
             f"pHolm(A>0) {r.get('p_holm_exists', float('nan')):.3f}  -> {r.get('verdict', '')}")
@@ -735,6 +975,24 @@ def _print(rep: dict) -> None:
     for k, r in rep["panel"].items():
         if not k.startswith("_"):
             print(_row(k, r))
+    lg = rep.get("long_horizon")
+    if lg:
+        print(f"LONG-HORIZON FAMILY (events daily, horizons 1-28 d, 4-week blocks; coverage "
+              f"{lg['_coverage']})")
+        if "_null_gbm" in lg:
+            n_ = lg["_null_gbm"]
+            print(f"  null gbm (real external series on GBM prices): "
+                  f"{n_['false_positives_A_gt_0']}/{n_['tests']} upward CIs exclude 0 "
+                  f"(rate {n_['rate']:.3f})")
+        for k, r in lg.items():
+            if k.startswith("_"):
+                continue
+            if "A_bps" not in r:
+                print(f"  {k:<20} {r}")
+                continue
+            print(_row(k, r))
+            print("      CAR bps " + " ".join(f"{h / 24:g}d:{c:+.1f}" for h, c in
+                                            zip(r["h_hours"], r["car_bps"], strict=True)))
     b = rep.get("bot")
     if b:
         print(f"BOT SIGNALS on independent prices: {b['reconcile']}")

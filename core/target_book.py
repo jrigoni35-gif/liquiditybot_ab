@@ -52,6 +52,8 @@ class BookParams:
     invest_frac: float = 0.9        # share of equity held as inventory
     min_order_usd: float = 10.0     # venue minimum; smaller trades are skipped
     maker_fee_bps: float = 15.0     # proportional cost lam in the band formula
+    vol_target_ann: float = 0.0     # 0 = off; else per-asset annualised vol target
+    vol_cap: float = 1.0            # max scale-up of a base weight (<= 1: no leverage)
 
 
 @dataclass(frozen=True)
@@ -98,6 +100,26 @@ def base_weights(assets: list, sigma: dict, weighting: str,
             s = sum(inv.values())
             return {a: invest_frac * inv[a] / s for a in assets}
     return {a: invest_frac / len(assets) for a in assets}
+
+
+def vol_target_scale(weights: dict, sigma_ann: dict, target: float,
+                     cap: float) -> dict:
+    """Volatility targeting (Moreira & Muir 2017): scale each base weight by
+    min(cap, target / sigma_i). With cap <= 1 it only ever SHRINKS a weight,
+    so the freed share sits in cash - a risk lever, not an alpha claim.
+
+    Measured 2026-10-02 on independent Binance daily data 2023-2026 (40%
+    target, no leverage): max drawdown fell 13-22 points on ETH/SOL/LINK/XRP
+    with the Sharpe difference not distinguishable from zero
+    (docs/quant/2026-10-02_feature_program.md). An asset with no measured
+    sigma is left unscaled - not guessed."""
+    if target <= 0:
+        return dict(weights)
+    out = {}
+    for a, w in weights.items():
+        s = sigma_ann.get(a)
+        out[a] = w * min(cap, target / s) if _pos(s) else w
+    return out
 
 
 def tilted_targets(base: dict, tilts: dict, tilt_cap: float) -> dict:

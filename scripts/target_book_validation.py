@@ -36,6 +36,7 @@ Sections (each prints its unit and its n):
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import math
 import sys
@@ -60,6 +61,10 @@ VR_Q = (2, 4, 8, 16)
 BAND_MULTS = (0.0, 0.5, 1.0, 2.0, 4.0)
 N_FOLDS = 5
 TRAIN_FRAC = 0.4
+# Registered 2026-10-02 (feature program), the value tested on independent
+# Binance daily data BEFORE it entered this battery: 40% annualised, no leverage.
+VOL_TARGET_EVAL = 0.40
+VOL_BLOCK = 30
 
 
 # ======================================================================= data
@@ -133,13 +138,54 @@ def backtest(bars, base, cfg, lim, warm) -> dict:
         bars, baseline(base), base, {**cfg, "seed_at_target": False}, lim,
         warm, end)["log_gap"]
     beat = sum(1 for r in rows if r["log_gap"] > 0)
+    vt = vol_target_arm(bars, base, cfg, lim, warm, end, bl)
     return {"unit": "idea (full-period run)", "n": len(rows), "ideas": rows,
+            "vol_target": vt,
             "beat_hold": beat, "baseline": {
                 "log_gap": bl["log_gap"], "gap_usd": gap_usd,
                 "fees_usd": bl["fees"], "traded_usd": bl["traded"],
                 "fills": bl["fills"], "attempts": bl["attempts"],
                 "attribution": attr, "attribution_residual_usd": gap_usd - explained},
             "sensitivity_log_gap": sens}
+
+
+def _sharpe(r: np.ndarray, per_year: float) -> float:
+    sd = r.std(ddof=1)
+    return float(r.mean() / sd * math.sqrt(per_year)) if sd > 0 else 0.0
+
+
+def _mdd_rets(r: np.ndarray) -> float:
+    eq = np.cumprod(1 + r)
+    return float((1 - eq / np.maximum.accumulate(eq)).max()) if len(eq) else 0.0
+
+
+def vol_target_arm(bars, base, cfg, lim, warm, end, bl, reps: int = 2000) -> dict:
+    """Baseline book vs the same book with volatility targeting
+    (VOL_TARGET_EVAL, vol_cap 1 = never levered). Paired block bootstrap
+    (VOL_BLOCK bars) on the Sharpe and max-drawdown differences."""
+    per_year = 525_600.0 / float(cfg["bar_interval_min"])
+    bv = dataclasses.replace(base, vol_target_ann=VOL_TARGET_EVAL, vol_cap=1.0)
+    v = run_policy(bars, baseline(base), bv, cfg, lim, warm, end)
+    rb, rv, rh = bl["rets"], v["rets"], bl["bench"]
+    n = min(len(rb), len(rv))
+    rb, rv, rh = rb[:n], rv[:n], rh[:n]
+    rng = np.random.default_rng(SEED)
+    L = min(VOL_BLOCK, max(n // 4, 1))
+    ds, dd = [], []
+    for _ in range(reps):
+        starts = rng.integers(0, max(n - L, 1), max(n // L, 1))
+        idx = np.concatenate([np.arange(st, st + L) for st in starts])
+        ds.append(_sharpe(rv[idx], per_year) - _sharpe(rb[idx], per_year))
+        dd.append(_mdd_rets(rv[idx]) - _mdd_rets(rb[idx]))
+    q = lambda x: [float(np.quantile(x, 0.025)), float(np.quantile(x, 0.975))]  # noqa: E731
+    return {"target_ann": VOL_TARGET_EVAL, "steps": n,
+            "sharpe": {"hold": _sharpe(rh, per_year), "book": _sharpe(rb, per_year),
+                       "book_vol": _sharpe(rv, per_year)},
+            "max_dd": {"hold": _mdd_rets(rh), "book": _mdd_rets(rb),
+                       "book_vol": _mdd_rets(rv)},
+            "log_gap_vs_hold": {"book": bl["log_gap"], "book_vol": v["log_gap"]},
+            "fees_usd": {"book": bl["fees"], "book_vol": v["fees"]},
+            "sharpe_diff_ci": q(ds), "dd_diff_ci": q(dd)}
 
 
 # ============================================================ 2 walk-forward
@@ -337,7 +383,7 @@ def constant_mix_plan(R: np.ndarray, w: np.ndarray, names: list,
 
 
 def theory_checks(bars: Bars, base: BookParams, cfg: dict, n_paths: int,
-                  rng) -> dict:
+                  rng, warm: int = 0) -> dict:
     names = sorted(bars.close)
     R = log_returns(bars)
     mu, cov = R.mean(axis=0), np.cov(R.T)
@@ -361,7 +407,12 @@ def theory_checks(bars: Bars, base: BookParams, cfg: dict, n_paths: int,
     # Rebalancing beats holding only while the diversification return
     # exceeds the drift spread holding drifts into (best asset's log drift
     # minus the basket-weighted log drift).
-    drift_spread = float(mu.max() - (w / w.sum()) @ mu)
+    # Measured over the window the BOOK trades (after warm-up), so the
+    # mechanism row explains the same period as the gap it explains.
+    Rw = R[warm:] if 0 < warm < len(R) - 2 else R
+    mu_w, cov_w = Rw.mean(axis=0), np.cov(Rw.T)
+    drift_spread = float(mu_w.max() - (w / w.sum()) @ mu_w)
+    div_ret_window = float(0.5 * (w @ np.diag(cov_w) - w @ cov_w @ w))
     # (iii) band sweep under the band's own model: Merton-consistent drift
     gamma = base.gamma
     lam_bps = 50.0
@@ -405,6 +456,7 @@ def theory_checks(bars: Bars, base: BookParams, cfg: dict, n_paths: int,
             "growth_z": (float(g_sim.mean()) - g_theory) / se if se else None,
             "diversification_return_per_bar": div_ret,
             "drift_spread_per_bar": drift_spread,
+            "diversification_return_window_per_bar": div_ret_window,
             "band_sweep": {"cost_bps": lam_bps, "gamma": gamma,
                            "ce_wealth": {str(k): v for k, v in crra.items()},
                            "best_mult": best,
@@ -434,7 +486,7 @@ def brownian(bars, base, cfg, lim, warm, n_paths, rng) -> dict:
             "variance_ratios": vr_table(bars),
             "vs_gbm": null_position(real, g_null),
             "vs_time_shuffle": null_position(real, s_null),
-            "theory": theory_checks(bars, base, cfg, n_paths, rng)}
+            "theory": theory_checks(bars, base, cfg, n_paths, rng, warm)}
 
 
 # ================================================================== 4 markov
@@ -596,10 +648,21 @@ def ledger(res: dict) -> list:
             else "REFUTED", f"FPR {f:.3f} (n={th['classifier_n']})")
         add(f"A15{tag}", "holding beats rebalancing here because the drift spread exceeds the diversification return",
             "best-asset log drift minus basket drift vs 1/2(sum w s2 - w'Sw), per bar",
-            "PROVEN" if th["drift_spread_per_bar"] > th["diversification_return_per_bar"]
+            "PROVEN" if th["drift_spread_per_bar"] > th["diversification_return_window_per_bar"]
             and bt["baseline"]["log_gap"] < 0 else "NOT PROVEN",
             f"spread {th['drift_spread_per_bar']*1e4:.2f} vs diversification "
-            f"{th['diversification_return_per_bar']*1e4:.2f} bps/bar; baseline gap {bt['baseline']['log_gap']:+.3f}")
+            f"{th['diversification_return_window_per_bar']*1e4:.2f} bps/bar over the book's "
+            f"window; baseline gap {bt['baseline']['log_gap']:+.3f}")
+        vt = bt["vol_target"]
+        add(f"A16{tag}", "vol targeting lowers drawdown without lowering Sharpe",
+            f"book vs book+vol{vt['target_ann']:.0%}, paired {VOL_BLOCK}-bar block bootstrap",
+            "SUPPORTED" if vt["dd_diff_ci"][1] < 0 and vt["sharpe_diff_ci"][0] > -0.25
+            else ("PARTIAL (drawdown only)" if vt["max_dd"]["book_vol"] < vt["max_dd"]["book"]
+                  else "NOT SUPPORTED"),
+            f"maxDD {vt['max_dd']['book']:.1%} -> {vt['max_dd']['book_vol']:.1%} "
+            f"(diff CI {vt['dd_diff_ci'][0]:+.3f},{vt['dd_diff_ci'][1]:+.3f}); "
+            f"Sharpe {vt['sharpe']['book']:.2f} -> {vt['sharpe']['book_vol']:.2f} "
+            f"(diff CI {vt['sharpe_diff_ci'][0]:+.2f},{vt['sharpe_diff_ci'][1]:+.2f})")
         b = bt["baseline"]
         worst = min(b["attribution"].items(), key=lambda kv: kv[1]["diff"])
         add(f"A5{tag}", "the book's gap to holding comes from rebalancing against the trend (selling winners / buying losers)",
@@ -679,13 +742,14 @@ def main(argv=None) -> int:
         bars = load_bars(cfg_full, iv,
                          Path(args.csv_root) if args.csv_root else None, out_dir)
         warm = int(cfg["sigma_lookback_bars"])
+        ci = {**cfg, "bar_interval_min": iv}   # the interval actually loaded
         t0 = time.time()
         res[f"{iv}m"] = {
             "bars": len(bars), "span_days": (bars.t[-1] - bars.t[0]) / 86400,
-            "backtest": backtest(bars, base, cfg, lim, warm),
-            "walk_forward": walk_forward(bars, base, cfg, lim, warm),
-            "brownian": brownian(bars, base, cfg, lim, warm, args.paths, rng),
-            "markov": markov(bars, base, cfg, args.paths, rng),
+            "backtest": backtest(bars, base, ci, lim, warm),
+            "walk_forward": walk_forward(bars, base, ci, lim, warm),
+            "brownian": brownian(bars, base, ci, lim, warm, args.paths, rng),
+            "markov": markov(bars, base, ci, args.paths, rng),
             "secs": None}
         res[f"{iv}m"]["secs"] = time.time() - t0
     led = ledger(res)
@@ -721,6 +785,10 @@ def _print(res: dict, led: list) -> None:
         for a, v in b["attribution"].items():
             print(f"    {a:<5} book ${v['book']:+8.2f}  hold ${v['hold']:+8.2f}  diff ${v['diff']:+8.2f}")
         print(f"    residual (trading/fees not in the per-asset sum) ${b['attribution_residual_usd']:+.2f}")
+        vt = bt["vol_target"]
+        print(f"    vol target {vt['target_ann']:.0%}: Sharpe hold {vt['sharpe']['hold']:.2f} / book "
+              f"{vt['sharpe']['book']:.2f} / book+vol {vt['sharpe']['book_vol']:.2f}; maxDD "
+              f"{vt['max_dd']['hold']:.1%} / {vt['max_dd']['book']:.1%} / {vt['max_dd']['book_vol']:.1%}")
         print("    sensitivity: " + ", ".join(f"{k} {v:+.3f}" for k, v in bt["sensitivity_log_gap"].items()))
         print(f"[2 WALK-FORWARD] unit={wf['unit']} n={wf['n']}: selected beats hold "
               f"{wf['selected_beats_hold']}/{wf['n']} (sign p={wf['sign_p_selected']}), "
