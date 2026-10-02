@@ -79,7 +79,15 @@ carries `target_book_paper.json` and `forward_reads.json` in the hourly
 pc-live bundle, so both read off-box from
 `outputs/imported_sessions/pc-live/` on any clone.
 
-## 4. First forward read (cloud, 2026-10-02)
+## 4. First forward read (cloud, 2026-10-02, day zero)
 
-Pending: the first end-to-end run on live data was in progress when this
-record was committed; its numbers are added in the next commit.
+`python scripts/forward_reads.py --once` end to end on live data: 1,503 s
+with an empty cache (the PC's first run will cost about the same; later
+weekly runs only re-fetch the forming month). Window `2023-01 .. 2026-10`.
+`reconcile: n=21 = scored 21 (UNDECIDED 20, ELIMINATED FOR TRIPS 1) + no
+series 0 [OK]`. Forward blocks = 0 for every hypothesis, as it must be on
+the registration day - the first complete forward week closes 2026-10-09,
+and the first block whose longest horizon is fully observed follows it.
+C2 stays eliminated for trips (+55.7 dB); nearest the elimination line:
+P4 +12.8 dB, P2 +12.2, C1 +10.1, P3 +8.3 (line 13.0). These are the numbers
+to compare the PC's weekly `forward_reads.json` against.
