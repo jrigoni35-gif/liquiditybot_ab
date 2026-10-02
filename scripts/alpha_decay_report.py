@@ -439,6 +439,21 @@ def run_panel(cache: Path, reps: int, rng, null: str | None = None,
 
 
 # ============================================================= bot run
+def entry_index(bar_open_t: np.ndarray, signal_ts: np.ndarray) -> np.ndarray:
+    """Index of the bar the bot ACTED on: the bar that OPENS at signal_ts
+    (its close, bar_open + 300 s, is the entry price).
+
+    AMENDMENT 2 (2026-10-02, instrument defect found in the first full run,
+    disclosed): signal_ts is a bar-OPEN stamp (Kraken OHLC convention). The
+    first aligner priced each row at the close of the bar ENDING at
+    signal_ts - one bar early - and credited the bot with a move it had
+    already seen (+8 bps at tau 0.1 h, all in the first bar). Evidence: the
+    bot's own entry_price matches the close of the bar STARTING at signal_ts
+    3-6x better (median |gap| BTC 27.8 -> 9.2, ETH 13.8 -> 4.4, SOL 31.2 ->
+    6.0 bps). Pinned by tests/test_alpha_decay_report.py."""
+    return np.searchsorted(bar_open_t, signal_ts, side="right") - 1
+
+
 def load_bot_rows(cache: Path) -> tuple:
     """Align every signal_history label row to independent Binance 5m bars.
     Returns (rows dict, reconcile line, bars). A row is priced at the CLOSE
@@ -469,17 +484,16 @@ def load_bot_rows(cache: Path) -> tuple:
             buckets["asset_not_on_binance"] += len(rows)
             continue
         d = bars[a]
-        close_t = d["t"] + 300.0
         lp = np.log(d["close"])
         F = forward(lp, H_BOT)
         D = expanding_drift(lp, H_BOT, 288 * 14)
-        j_all = np.searchsorted(close_t, sig_ts[rows], side="right") - 1
+        j_all = entry_index(d["t"], sig_ts[rows])
         for r, j in zip(rows, j_all, strict=True):
             dr = direction[r]
             if not np.isfinite(dr) or dr == 0:
                 buckets["no_direction"] += 1
                 continue
-            if j < 0 or sig_ts[r] - close_t[j] > 900:
+            if j < 0 or sig_ts[r] - d["t"][j] > 900:
                 buckets["outside_price_data"] += 1
                 continue
             buckets["used"] += 1
@@ -494,11 +508,28 @@ def load_bot_rows(cache: Path) -> tuple:
             ep = float(sh["entry_price"].iat[r])
             if ep > 0:
                 ALIGN.append(abs(math.log(ep / d["close"][j])) * 1e4)
-    rows = {"t": np.array(T), "U": np.array(U), "dir": np.array(DIR),
+    import pandas as pd
+    mk = {}
+    for a, d in bars.items():
+        lp = np.log(d["close"])
+        mk[a] = pd.DataFrame(forward(lp, H_BOT) - expanding_drift(lp, H_BOT, 288 * 14),
+                             index=d["t"])
+    mkt = pd.concat(mk.values()).groupby(level=0).mean()
+    Tn = np.array(T)
+    UM = mkt.reindex([float(x) for x in _bar_open_of(Tn, bars, ASSET)]).to_numpy()
+    rows = {"t": Tn, "U": np.array(U), "UM": UM, "dir": np.array(DIR),
             "asset": np.array(ASSET), "src": np.array(SRC), "conf": np.array(CONF),
             "feat": {c: np.array(v) for c, v in FEAT.items()},
             "align_bps": np.array(ALIGN), "unavailable": unavailable}
     return rows, reconcile(n_rows, buckets)["line"]
+
+
+def _bar_open_of(t: np.ndarray, bars: dict, assets: list) -> list:
+    out = []
+    for tt, a in zip(t, assets, strict=True):
+        bt = bars[a]["t"]
+        out.append(bt[entry_index(bt, np.array([tt]))[0]])
+    return out
 
 
 def _with_halves(t, X, H, reps, rng, bar_h) -> dict:
@@ -523,12 +554,15 @@ def run_bot(cache: Path, reps: int, rng, audit: Path | None) -> dict:
     res = {"reconcile": rec, "unavailable_assets": rows["unavailable"],
            "alignment_bps_median": float(np.median(al)) if len(al) else None,
            "alignment_bps_p95": float(np.quantile(al, 0.95)) if len(al) else None}
+    XR = dr[:, None] * (U - rows["UM"])                    # market-relative
     for name, m in (("B1_all_candidates", cand), ("B2_live", rows["src"] == "live"),
                     ("B3_top_confidence", hi)):
         if m.sum() < 30:
             res[name] = {"events": int(m.sum()), "note": "too few"}
             continue
         res[name] = _with_halves(t[m], X[m], H_BOT, reps, rng, 5 / 60)
+        ok = m & np.isfinite(XR[:, 0])
+        res[name + "_mkt_rel"] = _with_halves(t[ok], XR[ok], H_BOT, reps, rng, 5 / 60)
     expl, pv = {}, {}
     for c, v in rows["feat"].items():
         s = np.sign(v)
@@ -555,8 +589,8 @@ def run_bot(cache: Path, reps: int, rng, audit: Path | None) -> dict:
             continue
         clp = np.log(cb["close"])
         cU = forward(clp, H_BOT) - expanding_drift(clp, H_BOT, 288 * 14)
-        j = np.searchsorted(cb["t"] + 300.0, t[mm], side="right") - 1
-        ok = (j >= 0) & (t[mm] - (cb["t"][np.maximum(j, 0)] + 300.0) <= 900)
+        j = entry_index(cb["t"], t[mm])
+        ok = (j >= 0) & (t[mm] - cb["t"][np.maximum(j, 0)] <= 900)
         rb = analyse(t[mm][ok], dr[mm][ok, None] * cU[j[ok]], H_BOT,
                      max(reps // 4, 200), rng, 5 / 60)
         rn = analyse(t[mm][ok], X[mm][ok], H_BOT, max(reps // 4, 200), rng, 5 / 60)
@@ -643,7 +677,7 @@ def main(argv=None) -> int:
     if not args.skip_bot:
         audit = ROOT / "outputs" / "imported_sessions" / "pc-live" / "audit.jsonl"
         bot = run_bot(cache, args.reps, rng, audit)
-        bn = [k for k in bot if k.startswith("B") and "A_bps" in bot[k]]
+        bn = [k for k in bot if k.startswith("B") and "A_bps" in bot[k]]  # incl. _mkt_rel
         he = holm({k: bot[k]["p_A_le_0"] for k in bn})
         ht = holm({k: bot[k]["p_A_le_2c"][str(TWO_C)] for k in bn})
         for k in bn:
@@ -706,9 +740,12 @@ def _print(rep: dict) -> None:
         print(f"BOT SIGNALS on independent prices: {b['reconcile']}")
         print(f"  alignment vs bot entry_price: median {b['alignment_bps_median']:.1f} bps, "
               f"p95 {b['alignment_bps_p95']:.1f} bps; not on Binance: {b['unavailable_assets']}")
-        for k in ("B1_all_candidates", "B2_live", "B3_top_confidence"):
+        for k in ("B1_all_candidates", "B1_all_candidates_mkt_rel", "B2_live",
+                  "B2_live_mkt_rel", "B3_top_confidence", "B3_top_confidence_mkt_rel"):
             if "A_bps" in b.get(k, {}):
-                print(_row(k, b[k]))
+                print(_row(k[:20], b[k]))
+                print("      CAR bps " + " ".join(f"{h:g}h:{c:+.1f}" for h, c in
+                                                zip(b[k]["h_hours"], b[k]["car_bps"], strict=True)))
         for a, v in b.get("cross_venue", {}).items():
             if "binance_A_bps" in v:
                 print(f"  cross-venue {a}: A binance {v['binance_A_bps']:+.1f} vs coinbase "

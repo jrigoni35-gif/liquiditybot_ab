@@ -129,3 +129,12 @@ def test_signals_read_nothing_after_t_at_many_cuts():
         for name in base:
             for a in base[name]:
                 assert np.array_equal(base[name][a][: k + 1], pois[name][a][: k + 1]), (name, k)
+
+
+def test_entry_is_the_close_of_the_bar_opening_at_signal_ts():
+    """Amendment 2: signal_ts is a bar-OPEN stamp. A signal stamped at the
+    open of bar k is priced at bar k's close - never bar k-1's (one bar
+    early = credit for a move the bot had already seen)."""
+    opens = np.arange(10) * 300.0 + 1_790_000_000
+    j = ad.entry_index(opens, np.array([opens[4], opens[4] + 120.0]))
+    assert list(j) == [4, 4]
