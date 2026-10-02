@@ -7,6 +7,23 @@ versions of what we build; market influencers including geopolitics; and
 "sets of unpredictable Markov chain analysis to provide the best possible
 outcome for the bot's knowledge". AS-OF numbers; re-derive with the commands.
 
+## 0. CORRECTION NOTICE (same day, after an independent code review)
+
+A high-effort code review found ten defects in this session's research
+code (record: commit `872ea3f45`; each fix pinned by a test written first).
+The tables below were RE-RUN on the corrected code; superseded first-run
+values are kept in brackets where they changed a conclusion.
+
+| item | first run | corrected |
+|---|---|---|
+| ledger eliminations | 5 (P2, P3, P4, C1, C2) | **1 (C2)** - the first ledger used overlapping blocks and max(back, forward) terminal e-values (not an e-value); P2 and P4 now read +12.2 dB, P3 +8.0, C1 +9.5, below the 13.0 dB line |
+| C2 funding settlement | none (+2.6 [−1.4, +7.8]) | entry now 1 h BEFORE settlement: **+2.4 [−0.3, +7.4] bps, Holm p 0.035 - a tiny real edge, eliminated for trips (+54.2 dB)** |
+| M1 pre-FOMC | −31.2 [−102, +63] | window now ends AT the statement: **−27.0 [−126, +85]**, none |
+| M2 FOMC vol | 1.09× | statement hour included: **1.13×** |
+| G1 haven tilt | −3.6 | both legs drift-adjusted: **−3.3 [−390, +360]**, undecided |
+| Markov family test | "none survive Holm" (Holm could not reject: 400 tests, 199 shifts) | exact Westfall-Young max-T, full rotation group (5.8% family-wise on 450 null sims): **smallest adjusted p 0.266, none survive; walk-forward pick p 0.906 out of sample** |
+| MM viability | 622 post-only legs; 60-min adverse selection −8.8 | **443 maker ORDERS** (partials aggregated, CS-1 reconcile OK); 60-min −5.5 [−11.5, −0.4]; break-even half-spread 12-64 bps; viable 0 of 14 |
+
 ## 1. The ledger (Banburismus with anytime-valid guarantees)
 
 `core/evidence.py` + `scripts/evidence_ledger.py` +
@@ -20,19 +37,19 @@ paper's, the bot's, or the AI's that proposed an idea - inflates positives;
 horizon, use) is already eliminated. Status wording is trip-precise:
 `ELIMINATED FOR TRIPS` says nothing about a smaller edge used as a tilt.
 
-Ledger, 2026-10-02 (`python scripts/evidence_ledger.py`):
-`reconcile: n=21 = scored 21 (UNDECIDED 16, ELIMINATED FOR TRIPS 5) [OK]`.
-Eliminated for trips: P2 daily TSMOM (+23.4 dB), P3 large-move reversal
-(+17.0), P4 flow reversal (+25.9), C1 quarter-hour (+18.5), C2 funding
-settlement (+111.7). Forward n = 0 everywhere today: nothing can be
-promoted until data after 2026-10-02 exists.
+Ledger, corrected run (`python scripts/evidence_ledger.py`):
+`reconcile: n=21 = scored 21 (UNDECIDED 20, ELIMINATED FOR TRIPS 1) [OK]`.
+Eliminated for trips: C2 funding settlement (+54.2 dB). Nearest the line:
+P2 daily TSMOM and P4 flow reversal (+12.2 dB each), C1 (+9.5), P3 (+8.0).
+Forward n = 0 everywhere today: nothing can be promoted until data after
+2026-10-02 exists.
 
 ## 2. Crib catalogue (structural flows, registered before data)
 
 | crib | events | A (bps) | verdict |
 |---|---|---|---|
 | C1 quarter-hour opening imbalance (Kim & Hansen 2026 §6.1: continuation, 4-12 h) | 38,500 | **+5.7 [+0.5, +10.2]**, Holm p 0.04 | **edge exists, out of sample to the discovery** (2024-11..2026-08); far below a round trip |
-| C2 funding-settlement exit | 74,201 | +2.6 [−1.4, +7.8] | none |
+| C2 funding-settlement exit (corrected window) | 74,219 | **+2.4 [−0.3, +7.4]**, Holm p 0.035 | tiny edge before settlement (+1.4 bps in the hour); eliminated for trips |
 
 C1 instrument checks: 669 days per asset, no gap > 1 min, ms units; the
 same rule at minute :07 (placebo) earns +0.5 bps vs +3.5 at the marks
@@ -48,10 +65,10 @@ BLS (blocked).
 
 | hypothesis | events | A (bps) | reading |
 |---|---|---|---|
-| G1 GPR spike → PAXG over crypto (tilt; exogenous driver of `regime/haven.py`) | 554 | −3.6 [−406, +365] | undecided - too few independent episodes (43 four-week blocks) |
-| G2 GPR spike → crypto below drift | 10,779 | +20.1 [−341, +384] | undecided |
-| M1 pre-FOMC 24 h drift | 583 | −31.2 [−102, +63] | none; crypto weakens 6-12 h before statements (−27, −44 bps), opposite to equities |
-| M2 FOMC volatility (report-only) | 57 | — | post-statement 24 h |ret| 1.09× normal: no need for FOMC de-risking |
+| G1 GPR spike → PAXG over crypto (tilt; exogenous driver of `regime/haven.py`) | 554 | −3.3 [−390, +360] | undecided - too few independent episodes (43 four-week blocks) |
+| G2 GPR spike → crypto below drift | 10,779 | +20.3 [−313, +350] | undecided |
+| M1 pre-FOMC 24 h drift (window ends at the statement) | 583 | −27.0 [−126, +85] | none; crypto weakens 6-12 h before statements (−15, −43 bps), opposite to equities |
+| M2 FOMC volatility (report-only, statement hour included) | 57 | — | post-statement 24 h |ret| 1.13× normal: no need for FOMC de-risking |
 
 Defect caught test-first: Stata `datetime64[s]` dates divided as ns loaded
 every GPR date as ~1,790 s after 1970 - the signal would have been silently
@@ -71,11 +88,13 @@ market-wide), so 69% of 400 tests read p < 0.05; on a synthetic
 common-factor null the old rotation rejected 45%, the corrected
 same-offset rotation 3% (pinned).
 
-Corrected result (`python scripts/markov_ensemble.py`): 9% raw p < 0.05
-(spread thinly over correlated partitions), **none survive Holm**; the
-walk-forward winner (volume z, first-half p 0.010) **collapses to p 0.665
-out of sample**. No state structure in this universe predicts daily or
-weekly returns - consistent with the earlier Markov memory tests (A11-A13).
+Corrected result (`python scripts/markov_ensemble.py`, exact Westfall-Young
+max-T over the full rotation group): 7.0% raw p < 0.05, **smallest
+family-adjusted p 0.266 - none survive**; the walk-forward winner (volume
+z, first-half z +2.03) **reads p 0.906 out of sample**. No state structure
+in this universe predicts daily or weekly returns - consistent with the
+earlier Markov memory tests (A11-A13). Disclosed: weekday is periodic, so
+the rotation test is conservative for it.
 
 ## 5. Knowledge plan (Markov decision over the bot's beliefs)
 
@@ -91,7 +110,7 @@ one wide hypothesis (L5) zero out every other's value.
 | 2 | G2 geopolitical risk → crypto | 2.26 | ~48,000 |
 | 3 | B3 top-confidence timing, market-relative | 2.11 | ~2,800 |
 | — | B3 top-confidence timing, raw | 0.00 | **~23** (already registered forward read) |
-| — | C1, C2 | 0.00 | 2-3 (decided: below a round trip) |
+| — | C1, C2 | 0.00 | ~2 (decided: below a round trip) |
 
 ## 6. What the bot should do with its knowledge
 

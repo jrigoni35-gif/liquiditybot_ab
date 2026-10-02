@@ -89,6 +89,12 @@ sub-hour pick-off) − maker fee 15 bps. 622 post-only legs, 618 marked.
   Maker economics need near-zero maker fees (top volume tiers), not this one.
   Paper fills from the dry-run simulator - a limit stated, not hidden.
 
+*Correction (same day, code review): the first run counted 622 post-only
+partial LEGS; per CS-1 the unit is the maker ORDER (partials aggregated).
+Corrected: 443 orders (`n=443 = marked 439 + outside_price_data 4 [OK]`),
+60-min adverse selection −5.5 [−11.5, −0.4] bps, break-even half-spread
+still 12-64 bps, viable 0 of 14 - the conclusion stands.*
+
 ## 6. Carry (funding/basis) - not built
 
 Requires perpetuals: a new product type, outside the bot's current spot/margin
