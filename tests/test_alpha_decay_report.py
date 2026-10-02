@@ -166,3 +166,59 @@ def test_long_signals_sample_daily_and_follow_registered_signs():
     assert np.all(t[idx] % 86400 == 0) and np.all(sig == 1)    # uptrend -> +1
     idx2, sig2 = s["funding_crowd"]["BTC"]
     assert np.all(sig2 == 0)                                   # flat funding: no crowding
+
+
+def test_analyse_exports_per_block_series_for_the_ledger():
+    rng = np.random.default_rng(5)
+    t = np.sort(rng.uniform(0, 30 * ad.WEEK, 3000))
+    X = rng.normal(0, 0.01, (3000, 2))
+    r = ad.analyse(t, X, (1, 2), 100, rng, 1.0)
+    s = r["series"]
+    assert len(s["t"]) == r["weeks"] == len(s["x_bps"])
+    assert len(s["x_bps"][0]) == 2                       # one value per horizon
+    assert all(s["t"][i] < s["t"][i + 1] for i in range(len(s["t"]) - 1))
+
+
+def _minutes(n, seed=6):
+    rng = np.random.default_rng(seed)
+    t = 1_730_419_200.0 + np.arange(n) * 60.0          # 2024-11-01 00:00 UTC
+    vol = rng.uniform(1, 2, n)
+    tb = vol * rng.uniform(0, 1, n)
+    return t, vol, tb
+
+
+def test_quarter_hour_signal_fires_only_at_the_marks_and_follows_flow():
+    t, vol, tb = _minutes(60 * 24 * 40)
+    idx, s = ad.qh_signal(t, vol, tb, window_marks=96 * 7, q=0.9)
+    assert np.all(t[idx] % 900 == 0)
+    imb = (2 * tb[idx] - vol[idx]) / vol[idx]
+    on = s != 0
+    assert on.any() and np.all(s[on] == np.sign(imb[on]))   # registered: continuation
+
+
+def test_quarter_hour_signal_reads_nothing_after_the_mark():
+    t, vol, tb = _minutes(60 * 24 * 40)
+    idx, s = ad.qh_signal(t, vol, tb, window_marks=96 * 7, q=0.9)
+    k = len(t) // 2
+    vol2, tb2 = vol.copy(), tb.copy()
+    tb2[k:] = vol2[k:]                                   # poison the future: all buys
+    idx2, s2 = ad.qh_signal(t, vol2, tb2, window_marks=96 * 7, q=0.9)
+    m = t[idx] < t[k]
+    assert np.array_equal(idx[m], idx2[: m.sum()]) and np.array_equal(s[m], s2[: m.sum()])
+
+
+def test_funding_settle_bets_against_the_payer_one_hour_before():
+    t = 1_730_419_200.0 + np.arange(24 * 30) * 3600.0
+    ft = 1_730_419_200.0 + np.arange(3 * 30) * 8 * 3600.0
+    rate = np.where(np.arange(len(ft)) % 2 == 0, 1e-4, -1e-4)
+    idx, s = ad.funding_settle_signal(t, ft, rate)
+    hours = ((t[idx] % 86400) // 3600).astype(int)
+    assert set(hours) == {7, 15, 23}
+    for i, si in zip(idx, s):
+        last = rate[np.searchsorted(ft, t[i], side="right") - 1]
+        assert si == -np.sign(last)
+    rate2 = rate.copy()
+    rate2[45:] *= -1                                     # poison later prints
+    idx2, s2 = ad.funding_settle_signal(t, ft, rate2)
+    early = t[idx] < ft[45]
+    assert np.array_equal(s[early], s2[early])

@@ -86,6 +86,25 @@ looking is a new registration and must say so.
   (daily archive, BTC/ETH), DefiLlama stablecoin supply - all public,
   read-only, none from the bot.
 
+  CRIB CATALOGUE - structural flows forced by rules or machines, registered
+  2026-10-02 BEFORE their data was fetched (docs/quant/hypothesis_registry.json):
+    C1 quarter_hour_imb  Kim & Hansen 2026 (arXiv 2607.09426, sec. 6.1):
+                      taker order imbalance at the quarter-hour openings
+                      predicts same-sign returns at 4-12 h (continuation;
+                      negative only in the first half hour). Their sample
+                      ends 2024-10-31; this test uses 2024-11..2026-08 only
+                      (out of sample to the discovery). Binance USD-M perp
+                      1m klines, BTC ETH XRP SOL DOGE ADA (their six). Signal
+                      = sign(imbalance) of the 1-minute bar opening at :00,
+                      :15, :30, :45 when |imbalance| is above its past
+                      30-day 90th percentile. Disclosed weakness: their window
+                      is the first 10 seconds; a 1-minute bar dilutes it.
+                      Horizons 4, 8, 12 h; primary 8 h; expect +.
+    C2 funding_settle    one hour before each 00/08/16 UTC funding
+                      settlement, -sign(latest funding print): the paying
+                      side closes before it pays. 20-asset hourly panel,
+                      horizons 1, 2, 4 h; primary 1 h; expect +.
+
   CONTROLS (the instrument is tested before its readings are used):
     null_gbm      every panel signal on iid-normal returns with each asset's
                   own vol, R replications -> false-positive rate of
@@ -180,24 +199,27 @@ def _parse_zip(blob: bytes) -> list:
     return rows
 
 
-def binance_klines(sym: str, interval: str, months: tuple, cache: Path) -> dict:
+def binance_klines(sym: str, interval: str, months: tuple, cache: Path,
+                   market: str = "spot") -> dict:
     """{t (s, bar OPEN), high, low, close, vol, taker_buy, units} from the
     public archive; a month with no monthly file falls back to daily files."""
     cache.mkdir(parents=True, exist_ok=True)
-    f = cache / f"{sym}_{interval}_{months[0]}_{months[1]}.npz"
+    tag = "" if market == "spot" else f"{market}_"
+    f = cache / f"{tag}{sym}_{interval}_{months[0]}_{months[1]}.npz"
     if f.exists():
         d = dict(np.load(f, allow_pickle=True))
         d["units"] = d["units"].item()
         return d
+    base = BV if market == "spot" else f"https://data.binance.vision/data/futures/{market}"
     rows: list = []
     for mo in _months(*months):
-        blob = _get(f"{BV}/monthly/klines/{sym}/{interval}/{sym}-{interval}-{mo}.zip")
+        blob = _get(f"{base}/monthly/klines/{sym}/{interval}/{sym}-{interval}-{mo}.zip")
         if blob is not None:
             rows += _parse_zip(blob)
             continue
         y, m = map(int, mo.split("-"))
         for day in range(1, 32):
-            b = _get(f"{BV}/daily/klines/{sym}/{interval}/{sym}-{interval}-{y:04d}-{m:02d}-{day:02d}.zip", tries=2)
+            b = _get(f"{base}/daily/klines/{sym}/{interval}/{sym}-{interval}-{y:04d}-{m:02d}-{day:02d}.zip", tries=2)
             if b is not None:
                 rows += _parse_zip(b)
     if not rows:
@@ -259,7 +281,8 @@ def expanding_drift(lp: np.ndarray, H: tuple, warm: int) -> np.ndarray:
 
 
 def week_sums(t: np.ndarray, X: np.ndarray, block: float = WEEK) -> tuple:
-    """Per-UTC-week sums and counts of the (n, H) matrix X (NaN = absent)."""
+    """Per-block (default UTC-week) sums and counts of the (n, H) matrix X
+    (NaN = absent), plus each block's start time in seconds."""
     wk = np.floor(t / block).astype(np.int64)
     uniq, inv = np.unique(wk, return_inverse=True)
     W, Hn = len(uniq), X.shape[1]
@@ -268,7 +291,7 @@ def week_sums(t: np.ndarray, X: np.ndarray, block: float = WEEK) -> tuple:
     N = np.zeros((W, Hn))
     np.add.at(S, inv, np.where(ok, X, 0.0))
     np.add.at(N, inv, ok.astype(float))
-    return S, N
+    return S, N, uniq * block                     # block start times (s), sorted
 
 
 def boot_car(S: np.ndarray, N: np.ndarray, reps: int, rng) -> np.ndarray:
@@ -309,7 +332,7 @@ def fit_decay(car: np.ndarray, h: np.ndarray, w: np.ndarray) -> tuple:
 def analyse(t: np.ndarray, X: np.ndarray, H: tuple, reps: int, rng,
             bar_hours: float, block: float = WEEK) -> dict:
     """Full read of one signal: CAR curve, decay fit, bootstrap CIs."""
-    S, N = week_sums(t, X, block)
+    S, N, blocks = week_sums(t, X, block)
     car = S.sum(axis=0) / np.maximum(N.sum(axis=0), 1)
     B = boot_car(S, N, reps, rng)
     var = B.var(axis=0) + 1e-18
@@ -329,6 +352,11 @@ def analyse(t: np.ndarray, X: np.ndarray, H: tuple, reps: int, rng,
             "p_A_le_0": float((Ab <= 0).mean()),
             "p_A_le_2c": {str(c): float((Ab * 1e4 <= c).mean()) for c in TWO_C_SENS},
             "best_h_car_ci_bps": [x * 1e4 for x in q(best)],
+            # Per-block mean signed return at every horizon - the observations
+            # scripts/evidence_ledger.py turns into e-processes.
+            "series": {"t": [float(b) for b in blocks],
+                       "x_bps": (S / np.where(N > 0, N, np.nan) * 1e4).tolist(),
+                       "h_hours": h.tolist()},
             "_A_boot": Ab}
 
 
@@ -853,6 +881,78 @@ def run_long(cache: Path, reps: int, rng, null_seed: int | None = None) -> dict:
     return res
 
 
+# ================================================================ cribs
+QH_ASSETS = ("BTC", "ETH", "XRP", "SOL", "DOGE", "ADA")
+QH_MONTHS = ("2024-11", "2026-08")      # after Kim & Hansen's sample end
+H_QH = (240, 480, 720)                  # 1m bars: 4, 8, 12 h
+H_FS = (1, 2, 4)                        # hourly bars
+SETTLE_HOURS = (0, 8, 16)
+
+
+def qh_signal(t: np.ndarray, vol: np.ndarray, tb: np.ndarray,
+              window_marks: int = 96 * 30, q: float = 0.9) -> tuple:
+    """(indices of quarter-hour opening bars, signal) - continuation of the
+    opening taker imbalance when it is extreme vs the past window of marks."""
+    idx = np.where((t % 900) == 0)[0]
+    v = vol[idx]
+    imb = np.where(v > 0, (2 * tb[idx] - v) / np.where(v > 0, v, 1), 0.0)
+    thr = rolling_quantile_past(np.abs(imb), window_marks, q)
+    s = np.where(np.abs(imb) > thr, np.sign(imb), 0.0)
+    return idx, s
+
+
+def funding_settle_signal(t: np.ndarray, ft: np.ndarray, rate: np.ndarray) -> tuple:
+    """(indices one hour before each settlement, -sign(latest funding print
+    at or before that hour))."""
+    hour = ((t % 86400) // 3600).astype(int)
+    pre = {(h - 1) % 24 for h in SETTLE_HOURS}
+    idx = np.where(np.isin(hour, sorted(pre)) & ((t % 3600) == 0))[0]
+    j = np.searchsorted(ft, t[idx], side="right") - 1
+    ok = j >= 0
+    idx, j = idx[ok], j[ok]
+    return idx, -np.sign(rate[j])
+
+
+def run_cribs(cache: Path, reps: int, rng) -> dict:
+    res = {}
+    with cf.ThreadPoolExecutor(3) as ex:
+        perp = dict(zip(QH_ASSETS, ex.map(
+            lambda a: binance_klines(f"{a}USDT", "1m", QH_MONTHS, cache, market="um"),
+            QH_ASSETS), strict=True))
+    T_, X_ = [], []
+    for d in perp.values():
+        if len(d["close"]) < 10_000:
+            continue
+        lp = np.log(d["close"])
+        idx, sg = qh_signal(d["t"], d["vol"], d["taker_buy"])
+        F = forward(lp, H_QH)[idx]
+        D = expanding_drift(lp, H_QH, 1440 * 14)[idx]
+        m = (sg != 0) & np.isfinite(D[:, 0])
+        T_.append(d["t"][idx][m])
+        X_.append(sg[m, None] * (F[m] - D[m]))
+    res["quarter_hour_imb"] = _with_halves(np.concatenate(T_), np.vstack(X_), H_QH,
+                                           reps, rng, 1 / 60)
+    res["_qh_units"] = {a: d["units"] for a, d in perp.items()}
+    data = {a: binance_klines(f"{a}USDT", "1h", PANEL_MONTHS, cache) for a in PANEL_UNIVERSE}
+    T_, X_ = [], []
+    for a, d in data.items():
+        if len(d["close"]) < 2000:
+            continue
+        fd = binance_funding(a, PANEL_MONTHS, cache)
+        if not len(fd["t"]):
+            continue
+        lp = np.log(d["close"])
+        idx, sg = funding_settle_signal(d["t"], fd["t"], fd["rate"])
+        F = forward(lp, H_FS)[idx]
+        D = expanding_drift(lp, H_FS, 720)[idx]
+        m = (sg != 0) & np.isfinite(D[:, 0])
+        T_.append(d["t"][idx][m])
+        X_.append(sg[m, None] * (F[m] - D[m]))
+    res["funding_settle"] = _with_halves(np.concatenate(T_), np.vstack(X_), H_FS,
+                                         reps, rng, 1.0)
+    return res
+
+
 # ================================================================== main
 def _verdict(r: dict, hp_exist: float, hp_trade: float) -> str:
     lo = r["A_ci_bps"][0]
@@ -873,6 +973,7 @@ def main(argv=None) -> int:
     ap.add_argument("--skip-bot", action="store_true")
     ap.add_argument("--skip-controls", action="store_true")
     ap.add_argument("--skip-long", action="store_true")
+    ap.add_argument("--skip-cribs", action="store_true")
     args = ap.parse_args(argv)
     out_dir = Path(args.out) if args.out else ROOT / "outputs" / "reports" / "alpha_decay"
     cache = out_dir / "cache"
@@ -924,6 +1025,15 @@ def main(argv=None) -> int:
             lg["_null_gbm"] = {"tests": n, "false_positives_A_gt_0": fp,
                                "rate": fp / max(n, 1)}
         rep["long_horizon"] = lg
+    if not args.skip_cribs:
+        cr = run_cribs(cache, args.reps, rng)
+        cn = [k for k in cr if not k.startswith("_")]
+        he = holm({k: cr[k]["p_A_le_0"] for k in cn})
+        ht = holm({k: cr[k]["p_A_le_2c"][str(TWO_C)] for k in cn})
+        for k in cn:
+            cr[k]["p_holm_exists"], cr[k]["p_holm_tradeable"] = he[k], ht[k]
+            cr[k]["verdict"] = _verdict(cr[k], he[k], ht[k])
+        rep["cribs"] = cr
     rep["secs"] = time.time() - t0
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"alpha_decay_{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"
@@ -992,6 +1102,15 @@ def _print(rep: dict) -> None:
                 continue
             print(_row(k, r))
             print("      CAR bps " + " ".join(f"{h / 24:g}d:{c:+.1f}" for h, c in
+                                            zip(r["h_hours"], r["car_bps"], strict=True)))
+    cr = rep.get("cribs")
+    if cr:
+        print("CRIB CATALOGUE (registered before data)")
+        for k, r in cr.items():
+            if k.startswith("_"):
+                continue
+            print(_row(k, r))
+            print("      CAR bps " + " ".join(f"{h:g}h:{c:+.1f}" for h, c in
                                             zip(r["h_hours"], r["car_bps"], strict=True)))
     b = rep.get("bot")
     if b:
