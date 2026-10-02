@@ -149,6 +149,8 @@ too often.
 | A14 | relative prices mean-revert (rebalancing's premise) | NOT PROVEN — no pair VR(4) rejects a random walk | NOT PROVEN — only BTC/PAXG VR(16) z +2.30 (trending), 1 of 40 tests |
 | A15 | holding wins because the drift spread exceeds the diversification return | **PROVEN**: spread 6.47 vs 2.01 bps/bar | **PROVEN**: 26.28 vs 17.31 bps/bar |
 
+*Correction 2026-10-02:* the battery's own A15 row first measured the spread over the full series (2.47 / 21.62) while the gap it explains is over the book's post-warm-up window; it now measures both over that window and reads **6.82 vs 1.99** (daily) and **26.25 vs 17.36** (weekly) bps/bar, matching the figures above to within a data refresh. Verdict unchanged. See `docs/quant/2026-10-02_feature_program.md` §7.
+
 **The reverse-engineered mechanism (A5 + A9 + A8 + A15 together).** The
 loss needs no trend, no regime and no market structure at all: a pure
 correlated random walk with these four drifts reproduces it (real result at
