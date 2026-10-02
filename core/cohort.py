@@ -44,6 +44,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # hashing, so no secret ever contributes to a logged digest.
 NON_DECISION_SECTIONS = frozenset({
     "alerts", "api_server", "assurance", "exchanges", "markout",
+    # SHADOW only while no decision module reads it - enforced by
+    # tests/test_target_book_shadow_pin.py, which fails the moment one does.
+    "target_book",
 })
 NON_DECISION_SYSTEM_KEYS = frozenset({
     "log_level", "timezone", "state_path", "deploy_branch",

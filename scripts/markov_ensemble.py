@@ -1,0 +1,339 @@
+"""scripts/markov_ensemble.py - a RANDOMIZED ensemble of Markov state
+partitions: does ANY way of carving the market into states predict what comes
+next? (SAFE: measurement only.)
+
+    python scripts/markov_ensemble.py               # K=200 partitions
+    python scripts/markov_ensemble.py --k 50        # faster
+
+WHY RANDOM. Every hand-built state definition this project has used was a
+forking path: the analyst picks the variables, the cuts and the horizon after
+seeing data, and the best-looking partition is the one reported. Drawing the
+partitions at random (seeded, reproducible) and correcting across ALL of them
+removes the analyst from the selection - the "unpredictable" sets the operator
+asked for, made honest.
+
+REGISTERED BEFORE THE FIRST RUN (2026-10-02):
+  data       independent 20-asset Binance panel (alpha_decay_report cache),
+             resampled to daily closes at 00:00 UTC, 2023-01..2026-08.
+  variables  11, all past-only, each turned into its past-365-day percentile
+             rank: r1, r7, r28 (returns), volratio (7d/28d sigma), rel7 (vs
+             the basket), volz (log volume vs 28d), imb1 (daily taker
+             imbalance), funding_z, gpr_z, stable_z (exogenous), dow.
+  partition  1-2 variables, 2-3 bins each, cuts uniform in (0.2, 0.8);
+             K = 200 partitions, seed 7.
+  targets    next-1-day and next-7-day DRIFT-ADJUSTED log returns.
+  test       between-state variance of the target vs a CIRCULAR-SHIFT null:
+             every asset's target rotated by the SAME random offset on one
+             daily calendar (keeps each series' autocorrelation AND the
+             common market move; breaks only the state -> future link;
+             the FULL rotation group). [Corrected after the first run:
+             per-asset offsets erased the common move and over-rejected - see
+             matrix_shift_pvalue.] Disclosed limit: for the periodic
+             weekday variable, rotations by multiples of 7 re-align the
+             state, so the test is conservative there (no false
+             discoveries; a real weekday effect is under-detected). Persistent rolling states cannot fake
+             significance - the trap that caught the idea lab's classifier.
+  family     Westfall-Young max-T over all 2K tests (one shared set of
+             shifts). [Corrected after code review: Holm over 400 tests with
+             199 shifts could never reject.]
+  selection  walk-forward: the partition with the best FIRST-half
+             standardised statistic on the 7-day target is the only one
+             tested on the SECOND half.
+  economics  that partition's out-of-sample per-state mean 7-day return vs
+             the round trip 2c = 45 bps (and as a tilt).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+SEED = 7
+K = 200
+N_SHIFT = None          # full rotation group (exact); see maxT_pairs
+RANK_WINDOW = 365
+VARIABLES = ("r1", "r7", "r28", "volratio", "rel7", "volz", "imb1",
+             "funding_z", "gpr_z", "stable_z", "dow")
+
+
+def percentile_rank_past(x: np.ndarray, n: int) -> np.ndarray:
+    """r[t] = share of x[t-n : t] strictly below x[t]; NaN before n."""
+    x = np.asarray(x, float)
+    out = np.full(len(x), np.nan)
+    for t in range(n, len(x)):
+        w = x[t - n:t]
+        w = w[np.isfinite(w)]
+        if len(w) >= n // 2 and np.isfinite(x[t]):
+            out[t] = float((w < x[t]).mean())
+    return out
+
+
+def random_partition(rng, names) -> dict:
+    k = int(rng.integers(1, 3))
+    vs = [str(v) for v in rng.choice(list(names), size=k, replace=False)]
+    cuts = {}
+    for v in vs:
+        bins = int(rng.integers(2, 4))
+        cuts[v] = sorted(round(float(c), 2) for c in rng.uniform(0.2, 0.8, bins - 1))
+    return {"vars": vs, "cuts": cuts}
+
+
+def n_states(part: dict) -> int:
+    n = 1
+    for v in part["vars"]:
+        n *= len(part["cuts"][v]) + 1
+    return n
+
+
+def states(part: dict, ranks: dict) -> np.ndarray:
+    """Mixed-radix state code; -1 where any variable is undefined."""
+    code = None
+    for v in part["vars"]:
+        r = np.asarray(ranks[v], float)
+        b = np.searchsorted(np.asarray(part["cuts"][v]), np.nan_to_num(r, nan=0.0), side="right")
+        b = np.where(np.isfinite(r), b, -1)
+        base = len(part["cuts"][v]) + 1
+        if code is None:
+            code = b.astype(int)
+        else:
+            code = np.where((code < 0) | (b < 0), -1, code * base + b)
+    return code if code is not None else np.array([], int)
+
+
+def _between(st: np.ndarray, y: np.ndarray) -> float:
+    ok = (st >= 0) & np.isfinite(y)
+    if ok.sum() < 10:
+        return 0.0
+    s, v = st[ok], y[ok]
+    cnt = np.bincount(s)
+    tot = np.bincount(s, weights=v)
+    nz = cnt > 0
+    means = tot[nz] / cnt[nz]
+    return float((cnt[nz] * (means - v.mean()) ** 2).sum() / ok.sum())
+
+
+def shift_pvalue(st, ret, n_shift: int, rng) -> float:
+    """Single series: between-state variance vs circular shifts of `ret`."""
+    return matrix_shift_pvalue(np.asarray(st)[:, None], np.asarray(ret, float)[:, None],
+                               n_shift, rng)
+
+
+def matrix_shift_pvalue(S: np.ndarray, Y: np.ndarray, n_shift: int, rng) -> float:
+    """Days x assets on ONE calendar. The null rotates EVERY asset's target by
+    the SAME offset: the state -> future link breaks, while each series'
+    autocorrelation AND the cross-asset common market move survive.
+
+    The first version rotated each asset independently; that erased the
+    shared market move, made the null too narrow and read 69% of 400 real
+    tests as p < 0.05 (2026-10-02). Pinned by
+    test_panel_null_respects_the_common_market_factor."""
+    S = np.asarray(S)
+    Y = np.asarray(Y, float)
+    obs = _between(S.ravel(), Y.ravel())
+    n = Y.shape[0]
+    if n_shift is None or n_shift >= n - 1:
+        ks = range(1, n)                                   # full group: exact
+    else:
+        ks = rng.choice(np.arange(1, n), size=n_shift, replace=False)
+    ge = sum(_between(S.ravel(), np.roll(Y, int(k), axis=0).ravel()) >= obs for k in ks)
+    return (1 + ge) / (1 + len(ks))
+
+
+def maxT_pairs(pairs: list, n_shift: int, rng) -> tuple:
+    """Westfall-Young single-step max-T over many (S, Y) pairs on ONE
+    calendar, all rotated by the SAME offsets. Each statistic is
+    standardised by its own null; the family-wise adjusted p of test i is
+    the share of shifts whose MAXIMUM standardised null beats test i. Valid
+    under any dependence between partitions, and - unlike Holm on 1/(n+1)
+    resolution p-values - able to reject (review finding 3: Holm over 400
+    tests with 199 shifts could never go below 1.0). Returns (raw p, adj p, z)."""
+    n = pairs[0][1].shape[0]
+    # The FULL rotation group (every shift 1..n-1) makes the observed
+    # alignment exactly exchangeable with the null rotations; a random
+    # subset from a restricted range does not (neighbouring rotations of a
+    # persistent state cluster, and the family-wise rate ran 7.3% at alpha
+    # 5% over 450 null simulations). n_shift=None or >= n-1 -> full group.
+    if n_shift is None or n_shift >= n - 1:
+        ks = list(range(1, n))
+    else:
+        ks = [int(k) for k in rng.choice(np.arange(1, n), size=n_shift, replace=False)]
+    n_shift = len(ks)
+    obs = np.array([_between(S.ravel(), Y.ravel()) for S, Y in pairs])
+    null = np.array([[_between(S.ravel(), np.roll(Y, k, axis=0).ravel()) for k in ks]
+                     for S, Y in pairs])                              # (m, n_shift)
+    # sqrt stabilises the chi-square-like between-state variance before
+    # standardising (the raw scale's skew misbehaves under a maximum).
+    # Exact Westfall-Young: the observed rotation is one of B+1 exchangeable
+    # rotations, so it enters the standardisation AND the reference set of
+    # maxima (standardising with the null rotations alone broke that
+    # symmetry: 7.7% family-wise at alpha 5% over 300 null simulations).
+    allr = np.sqrt(np.concatenate([obs[:, None], null], axis=1))      # (m, B+1)
+    mu, sd = allr.mean(axis=1), allr.std(axis=1) + 1e-300
+    z = (allr - mu[:, None]) / sd[:, None]
+    z_obs = z[:, 0]
+    max_all = z.max(axis=0)                                           # incl. observed
+    raw = (1 + (null >= obs[:, None]).sum(axis=1)) / (1 + n_shift)
+    adj = (max_all[None, :] >= z_obs[:, None]).sum(axis=1) / (1 + n_shift)
+    return raw, adj, z_obs
+
+
+def maxT_adjusted(S_list: list, Y: np.ndarray, n_shift: int, rng) -> list:
+    return list(maxT_pairs([(S, Y) for S in S_list], n_shift, rng)[1])
+
+
+def holm(p: dict) -> dict:
+    items = sorted(p.items(), key=lambda kv: kv[1])
+    m, out, run = len(items), {}, 0.0
+    for i, (k, v) in enumerate(items):
+        run = max(run, min(1.0, (m - i) * v))
+        out[k] = run
+    return out
+
+
+# ------------------------------------------------------------------ data
+def build_panel(cache: Path) -> dict:
+    """Daily, past-only variable ranks and drift-adjusted targets per asset."""
+    from scripts import alpha_decay_report as ad
+    data = {a: ad.binance_klines(f"{a}USDT", "1h", ad.PANEL_MONTHS, cache)
+            for a in ad.PANEL_UNIVERSE}
+    gpr = ad.load_gpr(cache)
+    stb = ad.defillama_stables(cache)
+    daily = {}
+    for a, d in data.items():
+        if len(d["close"]) < 2000:
+            continue
+        t = d["t"]
+        i = np.where((t % 86400) == 0)[0]
+        day_t = t[i]
+        c = d["close"][i]
+        # daily volume / taker volume = sums of the 24 hourly bars ENDING at i
+        cv = np.concatenate([[0.0], np.cumsum(d["vol"])])
+        ctb = np.concatenate([[0.0], np.cumsum(d["taker_buy"])])
+        lo = np.maximum(i - 24, 0)
+        vol = cv[i] - cv[lo]
+        tbv = ctb[i] - ctb[lo]
+        daily[a] = {"t": day_t, "lp": np.log(c), "vol": vol, "tb": tbv,
+                    "fund": ad.binance_funding(a, ad.PANEL_MONTHS, cache)}
+    basket_r7 = {}
+    for d in daily.values():
+        for tt, r in zip(d["t"][7:], d["lp"][7:] - d["lp"][:-7], strict=True):
+            basket_r7.setdefault(tt, []).append(r)
+    out = {}
+    for a, d in daily.items():
+        lp, t = d["lp"], d["t"]
+        n = len(lp)
+        r1 = np.r_[np.nan, np.diff(lp)]
+        r7 = np.r_[np.full(7, np.nan), lp[7:] - lp[:-7]]
+        r28 = np.r_[np.full(28, np.nan), lp[28:] - lp[:-28]]
+        sd7 = np.array([np.nanstd(r1[max(0, k - 6):k + 1]) if k >= 7 else np.nan for k in range(n)])
+        sd28 = np.array([np.nanstd(r1[max(0, k - 27):k + 1]) if k >= 28 else np.nan for k in range(n)])
+        bk = np.array([np.mean(basket_r7.get(tt, [np.nan])) for tt in t])
+        lv = np.log(np.where(d["vol"] > 0, d["vol"], np.nan))
+        volz = lv - np.array([np.nanmean(lv[max(0, k - 28):k]) if k >= 28 else np.nan for k in range(n)])
+        imb = np.where(d["vol"] > 0, (2 * d["tb"] - d["vol"]) / np.where(d["vol"] > 0, d["vol"], 1), np.nan)
+        f = d["fund"]
+        fz = ad._daily_z(f["t"], f["rate"], t, "level7") if len(f["t"]) else np.full(n, np.nan)
+        raw = {"r1": r1, "r7": r7, "r28": r28, "volratio": sd7 / sd28, "rel7": r7 - bk,
+               "volz": volz, "imb1": imb, "funding_z": fz,
+               "gpr_z": ad._daily_z(gpr["t"], gpr["v"], t, "level7"),
+               "stable_z": ad._daily_z(stb["t"], stb["usd"], t, "chg7")}
+        ranks = {k: percentile_rank_past(v, RANK_WINDOW) for k, v in raw.items()}
+        ranks["dow"] = (((t // 86400) + 3) % 7) / 6.0          # 1970-01-01 was Thursday
+        F = ad.forward(lp, (1, 7))
+        D = ad.expanding_drift(lp, (1, 7), 90)
+        out[a] = {"t": t, "ranks": ranks, "y1": F[:, 0] - D[:, 0], "y7": F[:, 1] - D[:, 1]}
+    return out
+
+
+def to_matrix(panel: dict) -> dict:
+    """Every asset on one daily calendar (NaN / -1 where an asset is absent)."""
+    days = np.array(sorted(set().union(*[set(p["t"].tolist()) for p in panel.values()])))
+    names = sorted(panel)
+    pos = {d: i for i, d in enumerate(days)}
+    out = {"t": days, "assets": names, "ranks": {v: np.full((len(days), len(names)), np.nan)
+                                                 for v in VARIABLES},
+           "y1": np.full((len(days), len(names)), np.nan),
+           "y7": np.full((len(days), len(names)), np.nan)}
+    for j, a in enumerate(names):
+        rows = np.array([pos[d] for d in panel[a]["t"]])
+        for v in VARIABLES:
+            out["ranks"][v][rows, j] = panel[a]["ranks"][v]
+        out["y1"][rows, j] = panel[a]["y1"]
+        out["y7"][rows, j] = panel[a]["y7"]
+    return out
+
+
+def run(cache: Path, k: int, rng) -> dict:
+    M = to_matrix(build_panel(cache))
+    parts = [random_partition(np.random.default_rng(SEED + i), VARIABLES) for i in range(k)]
+    first = M["t"] < np.median(M["t"])
+    Ss = [states(p, M["ranks"]) for p in parts]
+    pairs = [(S, M[tgt]) for tgt in ("y1", "y7") for S in Ss]           # 2K tests
+    raw, adj, _ = maxT_pairs(pairs, N_SHIFT, rng)
+    _, _, z_first = maxT_pairs([(S[first], M["y7"][first]) for S in Ss], N_SHIFT, rng)
+    rows = []
+    for i, part in enumerate(parts):
+        rows.append({"i": i, "part": part, "n_states": n_states(part),
+                     "p_y1": float(raw[i]), "p_y7": float(raw[k + i]),
+                     "p_adj_y1": float(adj[i]), "p_adj_y7": float(adj[k + i]),
+                     "z_y7_first": float(z_first[i])})
+    best = max(rows, key=lambda r: r["z_y7_first"])      # continuous: no p-value ties
+    S = Ss[best["i"]]
+    p_oos = matrix_shift_pvalue(S[~first], M["y7"][~first], N_SHIFT, rng)
+    s2, y2 = S[~first].ravel(), M["y7"][~first].ravel()
+    ok = (s2 >= 0) & np.isfinite(y2)
+    base = float(y2[ok].mean() * 1e4)
+    per_state = {int(s): {"n": int((s2[ok] == s).sum()),
+                          "mean_bps": float(y2[ok][s2[ok] == s].mean() * 1e4),
+                          "vs_all_bps": float(y2[ok][s2[ok] == s].mean() * 1e4 - base)}
+                 for s in np.unique(s2[ok])}
+    return {"k": k, "n_tests": 2 * k, "assets": M["assets"], "days": int(len(M["t"])),
+            "survive_family": [r["i"] for r in rows if min(r["p_adj_y1"], r["p_adj_y7"]) < 0.05],
+            "min_p_adj": float(min(adj)),
+            "min_p_y1": float(min(raw[:k])), "min_p_y7": float(min(raw[k:])),
+            "share_p_below_05": float(np.mean(raw < 0.05)),
+            "walk_forward": {"chosen": best["i"], "partition": best["part"],
+                             "z_first_half": best["z_y7_first"], "p_second_half": p_oos,
+                             "second_half_mean_bps": base, "per_state_7d_oos": per_state},
+            "rows": rows}
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--k", type=int, default=K)
+    ap.add_argument("--out", default=None)
+    args = ap.parse_args(argv)
+    cache = ROOT / "outputs" / "reports" / "alpha_decay" / "cache"
+    t0 = time.time()
+    res = run(cache, args.k, np.random.default_rng(SEED))
+    out_dir = Path(args.out) if args.out else ROOT / "outputs" / "reports" / "markov_ensemble"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"ensemble_{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"
+    path.write_text(json.dumps(res, indent=1, default=str), encoding="utf-8")
+    wf = res["walk_forward"]
+    print(f"randomized Markov ensemble: K={res['k']} partitions x 2 targets = {res['n_tests']} "
+          f"tests on {len(res['assets'])} assets (daily, 2023-01..2026-08)")
+    print(f"  share of raw p < 0.05: {res['share_p_below_05']:.3f} (null expectation 0.05)")
+    print(f"  smallest raw p: next-day {res['min_p_y1']:.4f}, next-week {res['min_p_y7']:.4f}")
+    print(f"  family-wise (Westfall-Young max-T over all {res['n_tests']} tests): smallest "
+          f"adjusted p {res['min_p_adj']:.3f}; surviving: {res['survive_family'] or 'none'}")
+    print(f"  walk-forward: chose #{wf['chosen']} {wf['partition']} on first-half z "
+          f"{wf['z_first_half']:+.2f}; second-half p {wf['p_second_half']:.3f}")
+    print(f"    second-half mean next-week drift-adjusted return, all states: "
+          f"{wf['second_half_mean_bps']:+.1f} bps")
+    for s, v in sorted(wf["per_state_7d_oos"].items()):
+        print(f"    state {s}: n={v['n']:>5} next-week {v['mean_bps']:+7.1f} bps "
+              f"({v['vs_all_bps']:+7.1f} vs all states)")
+    print(f"({time.time() - t0:.0f}s) wrote {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

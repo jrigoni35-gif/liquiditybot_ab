@@ -115,6 +115,8 @@ _REDIRECTED_PATH_ATTRS = (
     # 5m candle-collector cadence stamp (2026-09-30) - registered on
     # introduction, not discovered later as the 11th leak.
     "_CANDLE_COLLECT_STAMP",
+    # forward-data cadences (2026-10-02) - registered on introduction.
+    "_TARGET_PAPER_STAMP", "_FORWARD_READ_STAMP",
     # SHADOW_WEIGHTS_PATH (scripts/shadow_gate_weights.py, sandbox
     # prototype, 2026-08-27): the sidecar's own output path constant -
     # registered on introduction per this file's own rule above, not

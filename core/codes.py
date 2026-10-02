@@ -34,6 +34,8 @@ shipped members below. Registry-hygiene pass 2026-08-17):
   CX  data.context_engine (Compounder Phase B context feed)
   DF  data feeds (data/moomoo_feed.py freeze/degrade detectors)
   LB  risk.long_book (Compounder Phase C long-horizon book)
+  TB  core.target_book (target-inventory basket book; SHADOW, no audit)
+  IL  core.idea_lab (shadow hypothesis population; never promotes)
   VI  core.venue_integrity (conduct standard VG-1..VG-10: venue-integrity
       measurements + the kraken_feed error/post-only telemetry counters)
 """
@@ -751,6 +753,32 @@ class Code(str, Enum):
     VI_VENUE_STATUS = "VI-090"       # VG-9: pair/system status not online
     VI_CUSTODY_OVER_TARGET = "VI-100"  # VG-10: on-venue USD above the
                                        # operator's target
+
+    # ---- target-inventory basket book (TB) - SHADOW --------------------
+    # core/target_book.py: report-plane dispositions of the shadow basket
+    # book. Nothing in the order path reads them (pinned by
+    # tests/test_target_book_shadow_pin.py).
+    TB_IN_BAND = "TB-000"            # drift inside the no-trade band: hold
+    TB_REBALANCE = "TB-010"          # outside band: trade to the band EDGE
+    TB_PRESSURE_WIDEN = "TB-020"     # pressure overlay widened bands /
+                                     # slowed the aim (de-risk only)
+    TB_PRESSURE_HALT = "TB-021"      # drawdown brake: buys halted, sells run
+    TB_BELOW_MIN = "TB-030"          # trade below venue minimum: skipped
+    TB_CASH_CLAMP = "TB-040"         # buys scaled to cash freed this cycle
+    TB_ASSET_FLOOR = "TB-050"        # asset below its drawdown floor:
+                                     # target forced to zero (no averaging
+                                     # down into a collapse)
+    TB_NO_PRICE = "TB-060"           # no positive price: held as-is
+
+    # ---- idea lab (IL) - SHADOW ----------------------------------------
+    # core/idea_lab.py: a finite, pre-declared hypothesis family is born
+    # into paper books as the market changes; graded forward-only with
+    # trial-count deflation. It NEVER promotes - promotion is an operator
+    # decision record (the shadow-policy promotion law in docs/law/).
+    IL_BORN = "IL-000"               # idea born from a market reading
+    IL_RETIRED = "IL-010"            # graded below benchmark: retired
+    IL_EVIDENCE = "IL-020"           # deflated evidence met (NOT promotion)
+    IL_BIRTH_REFUSED = "IL-030"      # population full / already tried
 
 
 def tag(code: Code, detail: str) -> str:
