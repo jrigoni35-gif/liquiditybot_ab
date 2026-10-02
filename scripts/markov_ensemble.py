@@ -22,10 +22,13 @@ REGISTERED BEFORE THE FIRST RUN (2026-10-02):
   partition  1-2 variables, 2-3 bins each, cuts uniform in (0.2, 0.8);
              K = 200 partitions, seed 7.
   targets    next-1-day and next-7-day DRIFT-ADJUSTED log returns.
-  test       between-state variance of the target vs a CIRCULAR-SHIFT null
-             (each asset's target series rotated by a random offset; keeps
-             every series' own autocorrelation, breaks only the state ->
-             future link; 199 shifts). Persistent rolling states cannot fake
+  test       between-state variance of the target vs a CIRCULAR-SHIFT null:
+             every asset's target rotated by the SAME random offset on one
+             daily calendar (keeps each series' autocorrelation AND the
+             common market move; breaks only the state -> future link;
+             199 shifts). [Corrected after the first run: per-asset offsets
+             erased the common move and over-rejected - see
+             matrix_shift_pvalue.] Persistent rolling states cannot fake
              significance - the trap that caught the idea lab's classifier.
   family     Holm over all 2K tests.
   selection  walk-forward: the partition with the best FIRST-half p on the
@@ -112,21 +115,27 @@ def _between(st: np.ndarray, y: np.ndarray) -> float:
 
 def shift_pvalue(st, ret, n_shift: int, rng) -> float:
     """Single series: between-state variance vs circular shifts of `ret`."""
-    return panel_shift_pvalue([(np.asarray(st), np.asarray(ret, float))], n_shift, rng)
+    return matrix_shift_pvalue(np.asarray(st)[:, None], np.asarray(ret, float)[:, None],
+                               n_shift, rng)
 
 
-def panel_shift_pvalue(pairs: list, n_shift: int, rng) -> float:
-    st = np.concatenate([p[0] for p in pairs])
-    y = np.concatenate([p[1] for p in pairs])
-    obs = _between(st, y)
+def matrix_shift_pvalue(S: np.ndarray, Y: np.ndarray, n_shift: int, rng) -> float:
+    """Days x assets on ONE calendar. The null rotates EVERY asset's target by
+    the SAME offset: the state -> future link breaks, while each series'
+    autocorrelation AND the cross-asset common market move survive.
+
+    The first version rotated each asset independently; that erased the
+    shared market move, made the null too narrow and read 69% of 400 real
+    tests as p < 0.05 (2026-10-02). Pinned by
+    test_panel_null_respects_the_common_market_factor."""
+    S = np.asarray(S)
+    Y = np.asarray(Y, float)
+    obs = _between(S.ravel(), Y.ravel())
+    n = Y.shape[0]
     ge = 0
     for _ in range(n_shift):
-        ys = []
-        for _s, r in pairs:
-            n = len(r)
-            k = int(rng.integers(max(1, n // 10), max(2, 9 * n // 10)))
-            ys.append(np.roll(r, k))
-        ge += _between(st, np.concatenate(ys)) >= obs
+        k = int(rng.integers(max(1, n // 10), max(2, 9 * n // 10)))
+        ge += _between(S.ravel(), np.roll(Y, k, axis=0).ravel()) >= obs
     return (1 + ge) / (1 + n_shift)
 
 
@@ -194,42 +203,57 @@ def build_panel(cache: Path) -> dict:
     return out
 
 
+def to_matrix(panel: dict) -> dict:
+    """Every asset on one daily calendar (NaN / -1 where an asset is absent)."""
+    days = np.array(sorted(set().union(*[set(p["t"].tolist()) for p in panel.values()])))
+    names = sorted(panel)
+    pos = {d: i for i, d in enumerate(days)}
+    out = {"t": days, "assets": names, "ranks": {v: np.full((len(days), len(names)), np.nan)
+                                                 for v in VARIABLES},
+           "y1": np.full((len(days), len(names)), np.nan),
+           "y7": np.full((len(days), len(names)), np.nan)}
+    for j, a in enumerate(names):
+        rows = np.array([pos[d] for d in panel[a]["t"]])
+        for v in VARIABLES:
+            out["ranks"][v][rows, j] = panel[a]["ranks"][v]
+        out["y1"][rows, j] = panel[a]["y1"]
+        out["y7"][rows, j] = panel[a]["y7"]
+    return out
+
+
 def run(cache: Path, k: int, rng) -> dict:
-    panel = build_panel(cache)
+    M = to_matrix(build_panel(cache))
     parts = [random_partition(np.random.default_rng(SEED + i), VARIABLES) for i in range(k)]
-    tmid = np.median(np.concatenate([p["t"] for p in panel.values()]))
+    first = M["t"] < np.median(M["t"])
     rows, pv = [], {}
     for i, part in enumerate(parts):
-        st = {a: states(part, p["ranks"]) for a, p in panel.items()}
+        S = states(part, M["ranks"])
         row = {"i": i, "part": part, "n_states": n_states(part)}
         for tgt in ("y1", "y7"):
-            pairs = [(st[a], p[tgt]) for a, p in panel.items()]
-            row[f"p_{tgt}"] = panel_shift_pvalue(pairs, N_SHIFT, rng)
+            row[f"p_{tgt}"] = matrix_shift_pvalue(S, M[tgt], N_SHIFT, rng)
             pv[f"{i}:{tgt}"] = row[f"p_{tgt}"]
-            first = [(st[a][p["t"] < tmid], p[tgt][p["t"] < tmid]) for a, p in panel.items()]
-            row[f"p_{tgt}_first"] = panel_shift_pvalue(first, 99, rng) if tgt == "y7" else None
+        row["p_y7_first"] = matrix_shift_pvalue(S[first], M["y7"][first], 99, rng)
         rows.append(row)
     hp = holm(pv)
     for r in rows:
         r["p_holm_y1"], r["p_holm_y7"] = hp[f"{r['i']}:y1"], hp[f"{r['i']}:y7"]
     best = min(rows, key=lambda r: r["p_y7_first"])
-    part = best["part"]
-    st = {a: states(part, p["ranks"]) for a, p in panel.items()}
-    second = [(st[a][p["t"] >= tmid], p["y7"][p["t"] >= tmid]) for a, p in panel.items()]
-    p_oos = panel_shift_pvalue(second, N_SHIFT, rng)
-    s_all = np.concatenate([x[0] for x in second])
-    y_all = np.concatenate([x[1] for x in second])
-    ok = (s_all >= 0) & np.isfinite(y_all)
-    per_state = {int(s): {"n": int((s_all[ok] == s).sum()),
-                          "mean_bps": float(y_all[ok][s_all[ok] == s].mean() * 1e4)}
-                 for s in np.unique(s_all[ok])}
-    return {"k": k, "n_tests": len(pv), "assets": sorted(panel),
+    S = states(best["part"], M["ranks"])
+    p_oos = matrix_shift_pvalue(S[~first], M["y7"][~first], N_SHIFT, rng)
+    s2, y2 = S[~first].ravel(), M["y7"][~first].ravel()
+    ok = (s2 >= 0) & np.isfinite(y2)
+    base = float(y2[ok].mean() * 1e4)
+    per_state = {int(s): {"n": int((s2[ok] == s).sum()),
+                          "mean_bps": float(y2[ok][s2[ok] == s].mean() * 1e4),
+                          "vs_all_bps": float(y2[ok][s2[ok] == s].mean() * 1e4 - base)}
+                 for s in np.unique(s2[ok])}
+    return {"k": k, "n_tests": len(pv), "assets": M["assets"], "days": int(len(M["t"])),
             "survive_holm": [r["i"] for r in rows if min(r["p_holm_y1"], r["p_holm_y7"]) < 0.05],
             "min_p_y1": min(r["p_y1"] for r in rows), "min_p_y7": min(r["p_y7"] for r in rows),
             "share_p_below_05": float(np.mean([v < 0.05 for v in pv.values()])),
-            "walk_forward": {"chosen": best["i"], "partition": part,
+            "walk_forward": {"chosen": best["i"], "partition": best["part"],
                              "p_first_half": best["p_y7_first"], "p_second_half": p_oos,
-                             "per_state_7d_oos": per_state},
+                             "second_half_mean_bps": base, "per_state_7d_oos": per_state},
             "rows": rows}
 
 
@@ -253,8 +277,11 @@ def main(argv=None) -> int:
     print(f"  partitions surviving Holm across all tests: {res['survive_holm'] or 'none'}")
     print(f"  walk-forward: chose #{wf['chosen']} {wf['partition']} on first-half p "
           f"{wf['p_first_half']:.3f}; second-half p {wf['p_second_half']:.3f}")
+    print(f"    second-half mean next-week drift-adjusted return, all states: "
+          f"{wf['second_half_mean_bps']:+.1f} bps")
     for s, v in sorted(wf["per_state_7d_oos"].items()):
-        print(f"    state {s}: n={v['n']:>5} next-week drift-adjusted {v['mean_bps']:+7.1f} bps")
+        print(f"    state {s}: n={v['n']:>5} next-week {v['mean_bps']:+7.1f} bps "
+              f"({v['vs_all_bps']:+7.1f} vs all states)")
     print(f"({time.time() - t0:.0f}s) wrote {path}")
     return 0
 

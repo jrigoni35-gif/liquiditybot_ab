@@ -70,3 +70,19 @@ def test_knowledge_value_is_per_decision_not_winner_take_all():
     b = kp.knowledge_gradient({**base, "wild": {"mu": 300.0, "sd": 400.0,
                                                  "obs_sd": 900.0}})["h"]
     assert a == pytest.approx(b) and a > 0
+
+
+def test_panel_null_respects_the_common_market_factor():
+    """Assets share a market move and the state is market-wide and persistent,
+    with NO predictive link. Rotating each asset independently would erase the
+    shared move and over-reject (measured 2026-10-02: 69% of 400 real tests
+    'significant'); rotating every asset by the SAME offset must stay calibrated."""
+    rng = np.random.default_rng(3)
+    days, assets, sims, fp = 600, 10, 60, 0
+    for _ in range(sims):
+        mkt = np.convolve(rng.normal(0, 1, days + 6), np.ones(7), "valid")   # 7d overlap
+        Y = mkt[:, None] + 0.3 * rng.normal(0, 1, (days, assets))
+        state = (np.cumsum(rng.normal(0, 1, days)) > 0).astype(int)
+        S = np.repeat(state[:, None], assets, axis=1)
+        fp += me.matrix_shift_pvalue(S, Y, n_shift=99, rng=rng) < 0.05
+    assert fp / sims <= 0.12
