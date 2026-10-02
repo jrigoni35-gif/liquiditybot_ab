@@ -118,7 +118,7 @@ def vol_target_scale(weights: dict, sigma_ann: dict, target: float,
     out = {}
     for a, w in weights.items():
         s = sigma_ann.get(a)
-        out[a] = w * min(cap, target / s) if _pos(s) else w
+        out[a] = w * min(cap, target / float(s)) if s is not None and _pos(s) else w
     return out
 
 
