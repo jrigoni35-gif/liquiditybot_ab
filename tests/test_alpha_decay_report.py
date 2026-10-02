@@ -207,20 +207,29 @@ def test_quarter_hour_signal_reads_nothing_after_the_mark():
     assert np.array_equal(idx[m], idx2[: m.sum()]) and np.array_equal(s[m], s2[: m.sum()])
 
 
-def test_funding_settle_bets_against_the_payer_one_hour_before():
+def test_entry_close_index_prices_at_the_requested_time():
+    """Bars are OPEN-stamped: the bar whose close equals ts opens at ts-1h."""
+    t = 1_730_419_200.0 + np.arange(48) * 3600.0
+    j = ad.entry_close_index(t, np.array([t[10], t[0]]), 3600.0)
+    assert j[0] == 9 and j[1] == -1                      # no bar closes at t[0]
+
+
+def test_funding_settle_enters_one_hour_before_and_exits_at_settlement():
     t = 1_730_419_200.0 + np.arange(24 * 30) * 3600.0
     ft = 1_730_419_200.0 + np.arange(3 * 30) * 8 * 3600.0
     rate = np.where(np.arange(len(ft)) % 2 == 0, 1e-4, -1e-4)
     idx, s = ad.funding_settle_signal(t, ft, rate)
-    hours = ((t[idx] % 86400) // 3600).astype(int)
-    assert set(hours) == {7, 15, 23}
+    close_hours = (((t[idx] + 3600) % 86400) // 3600).astype(int)
+    assert set(close_hours) == {7, 15, 23}               # entry price = 1 h before
+    exit_hours = (((t[idx + 1] + 3600) % 86400) // 3600).astype(int)
+    assert set(exit_hours) == {0, 8, 16}                 # 1-h horizon ends AT settlement
     for i, si in zip(idx, s):
-        last = rate[np.searchsorted(ft, t[i], side="right") - 1]
+        last = rate[np.searchsorted(ft, t[i] + 3600, side="right") - 1]
         assert si == -np.sign(last)
     rate2 = rate.copy()
-    rate2[45:] *= -1                                     # poison later prints
+    rate2[45:] *= -1
     idx2, s2 = ad.funding_settle_signal(t, ft, rate2)
-    early = t[idx] < ft[45]
+    early = t[idx] + 3600 < ft[45]
     assert np.array_equal(s[early], s2[early])
 
 
@@ -268,3 +277,21 @@ def test_gpr_dates_load_as_unix_seconds(tmp_path):
     g = ad.load_gpr(tmp_path)
     assert g["t"][1] == pytest.approx(1790812800.0)        # 2026-10-01 00:00 UTC
     assert list(g["v"]) == [100.0, 120.0]
+
+
+def test_pre_event_window_ends_exactly_at_the_event():
+    """M1: entry 24 h before the statement, 24-h horizon ends AT it."""
+    t = 1_730_419_200.0 + np.arange(24 * 10) * 3600.0
+    s_ = t[100]                                          # an event at a bar boundary
+    j = ad.entry_close_index(t, np.array([s_ - 24 * 3600.0]), 3600.0)[0]
+    assert t[j] + 3600 == s_ - 24 * 3600                 # entry close = event - 24 h
+    assert t[j + 24] + 3600 == s_                        # +24 bars closes at the event
+
+
+def test_relative_return_drift_adjusts_both_legs():
+    a = np.array([[0.010, 0.020]])
+    da = np.array([[0.004, 0.008]])
+    basket = [np.array([0.006, 0.012]), np.array([0.002, 0.004])]
+    dbasket = [np.array([0.001, 0.002]), np.array([0.001, 0.002])]
+    rel = ad.relative_drift_adjusted(a[0] - da[0], basket, dbasket)
+    assert rel == pytest.approx([0.006 - 0.003, 0.012 - 0.006])

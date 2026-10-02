@@ -925,16 +925,35 @@ def qh_signal(t: np.ndarray, vol: np.ndarray, tb: np.ndarray,
     return idx, s
 
 
+def entry_close_index(t_open: np.ndarray, ts: np.ndarray, bar_s: float) -> np.ndarray:
+    """Index of the bar whose CLOSE is exactly `ts` (bars are OPEN-stamped, so
+    it opens at ts - bar_s); -1 where no such bar exists. Every event window
+    in this module is anchored through here - the code review of 2026-10-02
+    found C2, M1 and M2 each one bar off (the Amendment-2 defect again)."""
+    want = np.asarray(ts, float) - bar_s
+    j = np.searchsorted(t_open, want)
+    ok = (j < len(t_open)) & (t_open[np.minimum(j, len(t_open) - 1)] == want)
+    return np.where(ok, j, -1)
+
+
 def funding_settle_signal(t: np.ndarray, ft: np.ndarray, rate: np.ndarray) -> tuple:
-    """(indices one hour before each settlement, -sign(latest funding print
-    at or before that hour))."""
+    """(indices of the bars CLOSING one hour before each settlement - the
+    entry price - , -sign(latest funding print at or before that entry)).
+    A 1-bar forward return from there ends exactly AT the settlement."""
     hour = ((t % 86400) // 3600).astype(int)
-    pre = {(h - 1) % 24 for h in SETTLE_HOURS}
+    pre = {(h - 2) % 24 for h in SETTLE_HOURS}          # opens h-2 -> closes h-1
     idx = np.where(np.isin(hour, sorted(pre)) & ((t % 3600) == 0))[0]
-    j = np.searchsorted(ft, t[idx], side="right") - 1
+    j = np.searchsorted(ft, t[idx] + 3600.0, side="right") - 1
     ok = j >= 0
     idx, j = idx[ok], j[ok]
     return idx, -np.sign(rate[j])
+
+
+def relative_drift_adjusted(asset_adj: np.ndarray, basket_f: list, basket_d: list) -> np.ndarray:
+    """Asset's drift-adjusted forward return minus the equal-weight basket's
+    drift-ADJUSTED forward return (both legs adjusted - review finding 7)."""
+    b = np.nanmean(np.array([f - d for f, d in zip(basket_f, basket_d, strict=True)]), axis=0)
+    return asset_adj - b
 
 
 def run_cribs(cache: Path, reps: int, rng) -> dict:
@@ -1070,6 +1089,8 @@ def run_macro(cache: Path, reps: int, rng) -> dict:
     if len(paxg["close"]) >= 2000:
         pl = np.log(paxg["close"])
         PF = forward(pl, H_GPR) - expanding_drift(pl, H_GPR, 720)
+        BF = {a: forward(x, H_GPR) for a, x in lp.items()}
+        BD = {a: expanding_drift(x, H_GPR, 720) for a, x in lp.items()}
         rows_t, rows_x = [], []
         for k, t0 in enumerate(ev_t):
             if sg[k] == 0:
@@ -1077,14 +1098,15 @@ def run_macro(cache: Path, reps: int, rng) -> dict:
             jp = np.searchsorted(paxg["t"], t0)
             if jp >= len(pl) or paxg["t"][jp] != t0:
                 continue
-            basket = []
-            for a, x in lp.items():
+            bf, bd = [], []
+            for a in lp:
                 j = np.searchsorted(tt[a], t0)
-                if j < len(x) and tt[a][j] == t0:
-                    basket.append(forward(x[j:j + max(H_GPR) + 1], H_GPR)[0])
-            if not basket or not np.isfinite(PF[jp, 0]):
+                if j < len(lp[a]) and tt[a][j] == t0 and np.isfinite(BD[a][j, 0]):
+                    bf.append(BF[a][j])
+                    bd.append(BD[a][j])
+            if not bf or not np.isfinite(PF[jp, 0]):
                 continue
-            rel = PF[jp] - np.nanmean(np.array(basket), axis=0)
+            rel = relative_drift_adjusted(PF[jp], bf, bd)
             rows_t.append(t0)
             rows_x.append(sg[k] * rel)
         if rows_t:
@@ -1099,9 +1121,11 @@ def run_macro(cache: Path, reps: int, rng) -> dict:
         F = forward(x, H_FOMC)
         D = expanding_drift(x, H_FOMC, 720)
         r1 = np.abs(np.diff(x))
-        for s_ in st:
-            j = np.searchsorted(tt[a], s_ - 24 * 3600)
-            if 720 <= j < len(x) - 48 and tt[a][j] == s_ - 24 * 3600 and np.isfinite(D[j, 0]):
+        js = entry_close_index(tt[a], st - 24 * 3600.0, 3600.0)
+        for j in js:
+            # entry price = close at statement-24h; +24 bars closes AT the
+            # statement; r1[j+24] is the statement hour itself
+            if 720 <= j < len(x) - 49 and np.isfinite(D[j, 0]):
                 T_.append(tt[a][j])
                 X_.append(F[j] - D[j])
                 vol_ev.append(r1[j + 24:j + 48].sum())

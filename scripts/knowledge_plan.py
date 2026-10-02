@@ -63,7 +63,14 @@ def blocks_to_decision(net_edge: float, obs_sd: float) -> float:
     return 2 * math.log(E_TARGET) * obs_sd ** 2 / net_edge ** 2
 
 
-BLOCK_WEEKS = {"panel": 1, "bot": 1, "cribs": 1, "long_horizon": 4, "macro": 4}
+def block_weeks(node: dict) -> float:
+    """Block length read from the series itself (review finding 9: a
+    section-level map gave M1 four-week blocks it does not use)."""
+    t = (node.get("series") or {}).get("t") or []
+    if len(t) < 2:
+        return 1.0
+    d = min(b - a for a, b in zip(t[:-1], t[1:], strict=True))
+    return max(d / 604800.0, 1e-9)
 
 
 def main(argv=None) -> int:
@@ -81,7 +88,7 @@ def main(argv=None) -> int:
         target = 0.0 if h.get("use") == "tilt" else TWO_C
         hyps[h["id"]] = {"mu": node["A_bps"] - target, "sd": sd, "obs_sd": sd * math.sqrt(nb)}
         meta[h["id"]] = {"use": h.get("use", "trip"), "A": node["A_bps"],
-                         "weeks_per_block": BLOCK_WEEKS.get(h["section"], 1)}
+                         "weeks_per_block": block_weeks(node)}
     kg = knowledge_gradient(hyps)
     print("knowledge plan - where the next forward data buys the most decision value")
     print(f"{'hypothesis':<28}{'use':<6}{'A bps':>8}{'net mu':>9}{'sd':>8}{'KG':>9}"

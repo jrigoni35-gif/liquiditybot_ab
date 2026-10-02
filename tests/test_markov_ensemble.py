@@ -86,3 +86,33 @@ def test_panel_null_respects_the_common_market_factor():
         S = np.repeat(state[:, None], assets, axis=1)
         fp += me.matrix_shift_pvalue(S, Y, n_shift=99, rng=rng) < 0.05
     assert fp / sims <= 0.12
+
+
+def test_maxT_family_has_power_and_stays_calibrated():
+    """Westfall-Young max-T over the FULL rotation group: a planted partition
+    is found; under the full null the family-wise rate stays near alpha
+    (measured 5.8% over 450 null simulations when the procedure was fixed;
+    150 seeded simulations here, bound ~2.5 SE)."""
+    rng = np.random.default_rng(11)
+    days, assets = 400, 6
+    # persistent but NOT periodic: a periodic plant is re-aligned by shifts
+    # that are multiples of its period, which the full group contains
+    planted = ((np.cumsum(np.random.default_rng(99).normal(0, 1, days)) > 0)
+               .astype(int))[:, None].repeat(assets, axis=1)
+    Ss = [((np.cumsum(rng.normal(0, 1, days)) > 0).astype(int))[:, None].repeat(assets, 1)
+          for _ in range(10)]
+    Yp = rng.normal(0, 1, (days, assets)) + 0.5 * planted
+    adj = me.maxT_adjusted([planted] + Ss, Yp, n_shift=None, rng=rng)
+    assert adj[0] < 0.05
+    fw, sims = 0, 150
+    for _ in range(sims):
+        Y0 = rng.normal(0, 1, (days, assets))
+        fw += min(me.maxT_adjusted(Ss, Y0, n_shift=None, rng=rng)) < 0.05
+    assert fw / sims <= 0.095
+
+
+def test_block_weeks_come_from_the_series_itself():
+    node = {"series": {"t": [0.0, 604800.0, 2 * 604800.0]}}
+    assert kp.block_weeks(node) == pytest.approx(1.0)
+    node4 = {"series": {"t": [0.0, 4 * 604800.0]}}
+    assert kp.block_weeks(node4) == pytest.approx(4.0)

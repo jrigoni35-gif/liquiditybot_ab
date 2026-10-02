@@ -67,14 +67,18 @@ def betting_eprocess(x, null_mean: float, bound: float, side: str) -> np.ndarray
     return out
 
 
-def status(e_exist: float, e_dead: float, threshold: float = 20.0) -> str:
+def status(e_exist: float, e_dead: float, threshold: float = 20.0,
+           use: str = "trip") -> str:
+    """e_exist / e_dead should be the running MAXIMUM of each e-process: by
+    Ville, deciding at the first crossing is valid, and an elimination must
+    not be undone when the wealth later decays."""
     alive, dead = e_exist >= threshold, e_dead >= threshold
     if alive and dead:
         return "EDGE BELOW ROUND TRIP"
     if alive:
         return "LIVE"
     if dead:
-        return "ELIMINATED FOR TRIPS"
+        return "ELIMINATED AS TILT" if use == "tilt" else "ELIMINATED FOR TRIPS"
     return "UNDECIDED"
 
 

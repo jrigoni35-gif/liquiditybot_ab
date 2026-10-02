@@ -94,3 +94,7 @@ def test_trip_elimination_does_not_block_a_tilt_question():
     new = ev.propose(reg, {"id": "c1t", "family": "cribs", "signal": "quarter_hour_imb",
                            "horizon_h": 8, "use": "tilt"}, today="2026-10-02")
     assert new["use"] == "tilt"
+
+
+def test_tilt_elimination_is_labelled_as_such():
+    assert ev.status(1, 25, 20.0, use="tilt") == "ELIMINATED AS TILT"

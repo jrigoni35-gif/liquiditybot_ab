@@ -16,8 +16,12 @@ THE ASYMMETRIC RULE (registered 2026-10-02, before the first ledger run):
 the PAST may ELIMINATE, only the FUTURE may PROMOTE. Hindsight - a paper's,
 the bot's, or the AI's that proposed the idea - inflates positives and
 cannot fake a failure. So e_dead is taken over all data, e_exist only over
-blocks dated on or after the hypothesis's forward_from. LIVE additionally
-requires e-BH (alpha 0.05) across the hypothesis's family.
+blocks dated on or after the hypothesis's forward_from. Both are read at
+their running maximum (Ville: deciding at the first crossing is valid) and
+an elimination is never overwritten. A tilt is judged against 0, a trip
+against 2c. LIVE additionally requires e-BH (alpha 0.05) across the
+hypothesis's family. [Corrected 2026-10-02 after code review: max(back,
+forward) terminal e-values, stride overlap, e-BH demotion, use-blind bars.]
 
 Observations overlap when the horizon spans several blocks; the series is
 thinned to one block per horizon so consecutive bets do not share a
@@ -47,7 +51,10 @@ TWO_C = 45.0
 
 
 def thin(t, horizon_h: float, block_h: float) -> np.ndarray:
-    stride = max(1, math.ceil(horizon_h / block_h))
+    """One block per (block + horizon): a block's events have outcomes up to
+    block_end + horizon, so the next bet may only start after that
+    (review finding 8 - ceil(horizon / block) still overlapped)."""
+    stride = max(1, math.ceil((block_h + horizon_h) / block_h))
     return np.arange(0, len(t), stride)
 
 
@@ -55,21 +62,22 @@ def _ts(day: str) -> float:
     return dt.datetime.fromisoformat(day).replace(tzinfo=dt.timezone.utc).timestamp()
 
 
-def _score(x: np.ndarray, bound: float, two_c: float) -> dict:
+def _sup(x: np.ndarray, null: float, bound: float, side: str) -> float:
     if len(x) == 0:
-        return {"n": 0, "e_exist": 1.0, "e_dead": 1.0, "db_exist": 0.0, "db_dead": 0.0,
-                "mean_bps": None}
-    e1 = float(ev.betting_eprocess(x, 0.0, bound, "greater")[-1])
-    e2 = float(ev.betting_eprocess(x, two_c, bound, "less")[-1])
-    return {"n": int(len(x)), "e_exist": e1, "e_dead": e2,
-            "db_exist": ev.decibans(e1), "db_dead": ev.decibans(e2),
-            "mean_bps": float(np.mean(x))}
+        return 1.0
+    return float(np.max(ev.betting_eprocess(x, null, bound, side)))
 
 
 def evaluate(h: dict, series: dict, two_c: float = TWO_C) -> dict:
+    """e_dead: ONE e-process over the whole time-ordered series (the past may
+    eliminate). e_exist: over forward blocks only (only the future may
+    promote). Both read at their running maximum (first crossing). A tilt
+    is judged against 0, a trip against the round trip 2c."""
     hh = [float(v) for v in series["h_hours"]]
     if float(h["horizon_h"]) not in hh:
         raise KeyError(f"{h['id']}: horizon {h['horizon_h']} h not in {hh}")
+    use = h.get("use", "trip")
+    bar = 0.0 if use == "tilt" else two_c
     k = hh.index(float(h["horizon_h"]))
     t = np.asarray(series["t"], float)
     x = np.array([row[k] if row[k] is not None else np.nan for row in series["x_bps"]], float)
@@ -80,12 +88,36 @@ def evaluate(h: dict, series: dict, two_c: float = TWO_C) -> dict:
         keep = thin(t, float(h["horizon_h"]), block_h)
         t, x = t[keep], x[keep]
     fwd = t >= _ts(h["forward_from"])
-    back = _score(x[~fwd], float(h["bound_bps"]), two_c)
-    forward = _score(x[fwd], float(h["bound_bps"]), two_c)
-    e_dead = max(back["e_dead"], forward["e_dead"])
-    return {"id": h["id"], "backtest": back, "forward": forward,
+    B = float(h["bound_bps"])
+    e_dead = _sup(x, bar, B, "less")
+    e_exist = _sup(x[fwd], 0.0, B, "greater")
+    return {"id": h["id"], "use": use, "bar_bps": bar,
+            "all": {"n": int(len(x)), "e_dead_sup": e_dead, "db_dead": ev.decibans(e_dead),
+                    "mean_bps": float(np.mean(x)) if len(x) else None},
+            "forward": {"n": int(fwd.sum()), "e_exist": e_exist,
+                        "db_exist": ev.decibans(e_exist)},
             "e_dead_used": e_dead,
-            "status": ev.status(forward["e_exist"], e_dead, THRESHOLD)}
+            "status": ev.status(e_exist, e_dead, THRESHOLD, use)}
+
+
+def apply_e_bh(rows: list) -> None:
+    """Promotion needs e-BH within the family; a demoted row keeps whatever
+    its elimination evidence says (review finding 4)."""
+    for fam in sorted({r["family"] for r in rows}):
+        fam_rows = [r for r in rows if r["family"] == fam]
+        keep = ev.e_bh({r["id"]: r["forward"]["e_exist"] for r in fam_rows})
+        for r in fam_rows:
+            if r["status"] in ("LIVE", "EDGE BELOW ROUND TRIP") and r["id"] not in keep:
+                r["status"] = ev.status(0.0, r["e_dead_used"], THRESHOLD, r.get("use", "trip"))
+                if r["status"] == "UNDECIDED":
+                    r["status"] = "UNDECIDED (fails e-BH)"
+
+
+def merge_status(registry: list, new: dict) -> None:
+    """Failure memory is sticky: an ELIMINATED status is never overwritten."""
+    for h in registry:
+        if h["id"] in new and not str(h.get("status", "")).startswith("ELIMINATED"):
+            h["status"] = new[h["id"]]
 
 
 def _series_for(h: dict, report: dict):
@@ -111,21 +143,16 @@ def main(argv=None) -> int:
             missing.append(h["id"])
             continue
         rows.append({**evaluate(h, s), "family": h["family"], "source": h["source"]})
-    for fam in sorted({r["family"] for r in rows}):
-        fam_rows = [r for r in rows if r["family"] == fam]
-        live = ev.e_bh({r["id"]: r["forward"]["e_exist"] for r in fam_rows})
-        for r in fam_rows:
-            if r["status"] in ("LIVE", "EDGE BELOW ROUND TRIP") and r["id"] not in live:
-                r["status"] = "UNDECIDED (fails e-BH)"
+    apply_e_bh(rows)
     print(f"evidence ledger - report {Path(path).name}; threshold {THRESHOLD:g} "
           f"(= {ev.decibans(THRESHOLD):.1f} dB); 2c {TWO_C:g} bps; "
           f"rule: past eliminates, only forward data promotes")
-    print(f"{'hypothesis':<30}{'source':<11}{'back n':>7}{'dB dead':>9}"
+    print(f"{'hypothesis':<30}{'source':<11}{'use':<6}{'bar':>5}{'n':>6}{'dB below bar':>13}"
           f"{'fwd n':>7}{'dB exist':>10}  status")
     for r in sorted(rows, key=lambda r: (r["status"], r["id"])):
-        b, f = r["backtest"], r["forward"]
-        print(f"{r['id']:<30}{r['source']:<11}{b['n']:>7}{b['db_dead']:>+9.1f}"
-              f"{f['n']:>7}{f['db_exist']:>+10.1f}  {r['status']}")
+        a, f = r["all"], r["forward"]
+        print(f"{r['id']:<30}{r['source']:<11}{r['use']:<6}{r['bar_bps']:>5.0f}{a['n']:>6}"
+              f"{a['db_dead']:>+13.1f}{f['n']:>7}{f['db_exist']:>+10.1f}  {r['status']}")
     counts = {}
     for r in rows:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
@@ -139,10 +166,7 @@ def main(argv=None) -> int:
         json.dumps({"report": Path(path).name, "rows": rows, "missing": missing},
                    indent=1), encoding="utf-8")
     if args.write_status:
-        st = {r["id"]: r["status"] for r in rows}
-        for h in reg_doc["hypotheses"]:
-            if h["id"] in st:
-                h["status"] = st[h["id"]]
+        merge_status(reg_doc["hypotheses"], {r["id"]: r["status"] for r in rows})
         Path(args.registry).write_text(json.dumps(reg_doc, indent=1) + "\n", encoding="utf-8")
         print(f"statuses written to {args.registry}")
     return 0

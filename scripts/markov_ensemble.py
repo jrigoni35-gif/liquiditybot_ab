@@ -26,13 +26,19 @@ REGISTERED BEFORE THE FIRST RUN (2026-10-02):
              every asset's target rotated by the SAME random offset on one
              daily calendar (keeps each series' autocorrelation AND the
              common market move; breaks only the state -> future link;
-             199 shifts). [Corrected after the first run: per-asset offsets
-             erased the common move and over-rejected - see
-             matrix_shift_pvalue.] Persistent rolling states cannot fake
+             the FULL rotation group). [Corrected after the first run:
+             per-asset offsets erased the common move and over-rejected - see
+             matrix_shift_pvalue.] Disclosed limit: for the periodic
+             weekday variable, rotations by multiples of 7 re-align the
+             state, so the test is conservative there (no false
+             discoveries; a real weekday effect is under-detected). Persistent rolling states cannot fake
              significance - the trap that caught the idea lab's classifier.
-  family     Holm over all 2K tests.
-  selection  walk-forward: the partition with the best FIRST-half p on the
-             7-day target is the only one tested on the SECOND half.
+  family     Westfall-Young max-T over all 2K tests (one shared set of
+             shifts). [Corrected after code review: Holm over 400 tests with
+             199 shifts could never reject.]
+  selection  walk-forward: the partition with the best FIRST-half
+             standardised statistic on the 7-day target is the only one
+             tested on the SECOND half.
   economics  that partition's out-of-sample per-state mean 7-day return vs
              the round trip 2c = 45 bps (and as a tilt).
 """
@@ -51,7 +57,7 @@ sys.path.insert(0, str(ROOT))
 
 SEED = 7
 K = 200
-N_SHIFT = 199
+N_SHIFT = None          # full rotation group (exact); see maxT_pairs
 RANK_WINDOW = 365
 VARIABLES = ("r1", "r7", "r28", "volratio", "rel7", "volz", "imb1",
              "funding_z", "gpr_z", "stable_z", "dow")
@@ -132,11 +138,54 @@ def matrix_shift_pvalue(S: np.ndarray, Y: np.ndarray, n_shift: int, rng) -> floa
     Y = np.asarray(Y, float)
     obs = _between(S.ravel(), Y.ravel())
     n = Y.shape[0]
-    ge = 0
-    for _ in range(n_shift):
-        k = int(rng.integers(max(1, n // 10), max(2, 9 * n // 10)))
-        ge += _between(S.ravel(), np.roll(Y, k, axis=0).ravel()) >= obs
-    return (1 + ge) / (1 + n_shift)
+    if n_shift is None or n_shift >= n - 1:
+        ks = range(1, n)                                   # full group: exact
+    else:
+        ks = rng.choice(np.arange(1, n), size=n_shift, replace=False)
+    ge = sum(_between(S.ravel(), np.roll(Y, int(k), axis=0).ravel()) >= obs for k in ks)
+    return (1 + ge) / (1 + len(ks))
+
+
+def maxT_pairs(pairs: list, n_shift: int, rng) -> tuple:
+    """Westfall-Young single-step max-T over many (S, Y) pairs on ONE
+    calendar, all rotated by the SAME offsets. Each statistic is
+    standardised by its own null; the family-wise adjusted p of test i is
+    the share of shifts whose MAXIMUM standardised null beats test i. Valid
+    under any dependence between partitions, and - unlike Holm on 1/(n+1)
+    resolution p-values - able to reject (review finding 3: Holm over 400
+    tests with 199 shifts could never go below 1.0). Returns (raw p, adj p, z)."""
+    n = pairs[0][1].shape[0]
+    # The FULL rotation group (every shift 1..n-1) makes the observed
+    # alignment exactly exchangeable with the null rotations; a random
+    # subset from a restricted range does not (neighbouring rotations of a
+    # persistent state cluster, and the family-wise rate ran 7.3% at alpha
+    # 5% over 450 null simulations). n_shift=None or >= n-1 -> full group.
+    if n_shift is None or n_shift >= n - 1:
+        ks = list(range(1, n))
+    else:
+        ks = [int(k) for k in rng.choice(np.arange(1, n), size=n_shift, replace=False)]
+    n_shift = len(ks)
+    obs = np.array([_between(S.ravel(), Y.ravel()) for S, Y in pairs])
+    null = np.array([[_between(S.ravel(), np.roll(Y, k, axis=0).ravel()) for k in ks]
+                     for S, Y in pairs])                              # (m, n_shift)
+    # sqrt stabilises the chi-square-like between-state variance before
+    # standardising (the raw scale's skew misbehaves under a maximum).
+    # Exact Westfall-Young: the observed rotation is one of B+1 exchangeable
+    # rotations, so it enters the standardisation AND the reference set of
+    # maxima (standardising with the null rotations alone broke that
+    # symmetry: 7.7% family-wise at alpha 5% over 300 null simulations).
+    allr = np.sqrt(np.concatenate([obs[:, None], null], axis=1))      # (m, B+1)
+    mu, sd = allr.mean(axis=1), allr.std(axis=1) + 1e-300
+    z = (allr - mu[:, None]) / sd[:, None]
+    z_obs = z[:, 0]
+    max_all = z.max(axis=0)                                           # incl. observed
+    raw = (1 + (null >= obs[:, None]).sum(axis=1)) / (1 + n_shift)
+    adj = (max_all[None, :] >= z_obs[:, None]).sum(axis=1) / (1 + n_shift)
+    return raw, adj, z_obs
+
+
+def maxT_adjusted(S_list: list, Y: np.ndarray, n_shift: int, rng) -> list:
+    return list(maxT_pairs([(S, Y) for S in S_list], n_shift, rng)[1])
 
 
 def holm(p: dict) -> dict:
@@ -225,20 +274,18 @@ def run(cache: Path, k: int, rng) -> dict:
     M = to_matrix(build_panel(cache))
     parts = [random_partition(np.random.default_rng(SEED + i), VARIABLES) for i in range(k)]
     first = M["t"] < np.median(M["t"])
-    rows, pv = [], {}
+    Ss = [states(p, M["ranks"]) for p in parts]
+    pairs = [(S, M[tgt]) for tgt in ("y1", "y7") for S in Ss]           # 2K tests
+    raw, adj, _ = maxT_pairs(pairs, N_SHIFT, rng)
+    _, _, z_first = maxT_pairs([(S[first], M["y7"][first]) for S in Ss], N_SHIFT, rng)
+    rows = []
     for i, part in enumerate(parts):
-        S = states(part, M["ranks"])
-        row = {"i": i, "part": part, "n_states": n_states(part)}
-        for tgt in ("y1", "y7"):
-            row[f"p_{tgt}"] = matrix_shift_pvalue(S, M[tgt], N_SHIFT, rng)
-            pv[f"{i}:{tgt}"] = row[f"p_{tgt}"]
-        row["p_y7_first"] = matrix_shift_pvalue(S[first], M["y7"][first], 99, rng)
-        rows.append(row)
-    hp = holm(pv)
-    for r in rows:
-        r["p_holm_y1"], r["p_holm_y7"] = hp[f"{r['i']}:y1"], hp[f"{r['i']}:y7"]
-    best = min(rows, key=lambda r: r["p_y7_first"])
-    S = states(best["part"], M["ranks"])
+        rows.append({"i": i, "part": part, "n_states": n_states(part),
+                     "p_y1": float(raw[i]), "p_y7": float(raw[k + i]),
+                     "p_adj_y1": float(adj[i]), "p_adj_y7": float(adj[k + i]),
+                     "z_y7_first": float(z_first[i])})
+    best = max(rows, key=lambda r: r["z_y7_first"])      # continuous: no p-value ties
+    S = Ss[best["i"]]
     p_oos = matrix_shift_pvalue(S[~first], M["y7"][~first], N_SHIFT, rng)
     s2, y2 = S[~first].ravel(), M["y7"][~first].ravel()
     ok = (s2 >= 0) & np.isfinite(y2)
@@ -247,12 +294,13 @@ def run(cache: Path, k: int, rng) -> dict:
                           "mean_bps": float(y2[ok][s2[ok] == s].mean() * 1e4),
                           "vs_all_bps": float(y2[ok][s2[ok] == s].mean() * 1e4 - base)}
                  for s in np.unique(s2[ok])}
-    return {"k": k, "n_tests": len(pv), "assets": M["assets"], "days": int(len(M["t"])),
-            "survive_holm": [r["i"] for r in rows if min(r["p_holm_y1"], r["p_holm_y7"]) < 0.05],
-            "min_p_y1": min(r["p_y1"] for r in rows), "min_p_y7": min(r["p_y7"] for r in rows),
-            "share_p_below_05": float(np.mean([v < 0.05 for v in pv.values()])),
+    return {"k": k, "n_tests": 2 * k, "assets": M["assets"], "days": int(len(M["t"])),
+            "survive_family": [r["i"] for r in rows if min(r["p_adj_y1"], r["p_adj_y7"]) < 0.05],
+            "min_p_adj": float(min(adj)),
+            "min_p_y1": float(min(raw[:k])), "min_p_y7": float(min(raw[k:])),
+            "share_p_below_05": float(np.mean(raw < 0.05)),
             "walk_forward": {"chosen": best["i"], "partition": best["part"],
-                             "p_first_half": best["p_y7_first"], "p_second_half": p_oos,
+                             "z_first_half": best["z_y7_first"], "p_second_half": p_oos,
                              "second_half_mean_bps": base, "per_state_7d_oos": per_state},
             "rows": rows}
 
@@ -274,9 +322,10 @@ def main(argv=None) -> int:
           f"tests on {len(res['assets'])} assets (daily, 2023-01..2026-08)")
     print(f"  share of raw p < 0.05: {res['share_p_below_05']:.3f} (null expectation 0.05)")
     print(f"  smallest raw p: next-day {res['min_p_y1']:.4f}, next-week {res['min_p_y7']:.4f}")
-    print(f"  partitions surviving Holm across all tests: {res['survive_holm'] or 'none'}")
-    print(f"  walk-forward: chose #{wf['chosen']} {wf['partition']} on first-half p "
-          f"{wf['p_first_half']:.3f}; second-half p {wf['p_second_half']:.3f}")
+    print(f"  family-wise (Westfall-Young max-T over all {res['n_tests']} tests): smallest "
+          f"adjusted p {res['min_p_adj']:.3f}; surviving: {res['survive_family'] or 'none'}")
+    print(f"  walk-forward: chose #{wf['chosen']} {wf['partition']} on first-half z "
+          f"{wf['z_first_half']:+.2f}; second-half p {wf['p_second_half']:.3f}")
     print(f"    second-half mean next-week drift-adjusted return, all states: "
           f"{wf['second_half_mean_bps']:+.1f} bps")
     for s, v in sorted(wf["per_state_7d_oos"].items()):

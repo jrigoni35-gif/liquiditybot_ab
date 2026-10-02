@@ -18,8 +18,9 @@ alpha(h)     scripts/adverse_selection.py's spread-neutral mid-to-mid
              sub-hour pick-off that tool says it cannot observe (1h grid)
 maker_fee    config pretrade.maker_fee_bps (the booked tier, 15)
 
-REGISTERED (2026-10-02, before the first run): fills = every post_only leg
-in the bot's fills.csv (paper fills from the dry-run simulator: they fill
+REGISTERED (2026-10-02, before the first run): fills = every post_only
+ORDER in the bot's fills.csv (partials aggregated - corrected after code
+review; the first run counted partial legs) (paper fills from the dry-run simulator: they fill
 when the market trades THROUGH the resting price, which is the event
 adverse selection is about - stated as a limit, not hidden); anchor = close
 of the 5m bar CONTAINING the fill; horizons 5, 15, 60, 240 min; day-cluster
@@ -51,20 +52,32 @@ MIN_FILLS = 30
 
 
 def load_maker_fills(path: Path) -> list:
-    out = []
+    """One record per maker ORDER (CS-1 unit): partial fills of the same
+    order_id are aggregated - size-weighted price, first fill time. Counting
+    partials as separate fills inflated n and weighted orders by their
+    partial count (review finding 10)."""
+    orders: dict = {}
     with path.open(encoding="utf-8", newline="") as f:
-        for r in csv.DictReader(f):
+        for i, r in enumerate(csv.DictReader(f)):
             if str(r.get("post_only", "")).strip() not in ("1", "1.0", "True"):
                 continue
             try:
-                out.append({"ts": float(r["ts"]), "asset": r["symbol"].split("/")[0],
-                            "side": r["side"], "price": float(r["fill_price"]),
-                            "purpose": r["purpose"]})
+                ts, px = float(r["ts"]), float(r["fill_price"])
+                qty = float(r.get("fill_size") or 1.0)
             except (KeyError, ValueError):
                 continue
+            key = r.get("order_id") or f"row{i}"
+            o = orders.setdefault(key, {"ts": ts, "asset": r["symbol"].split("/")[0],
+                                        "side": r["side"], "purpose": r["purpose"],
+                                        "q": 0.0, "pq": 0.0})
+            o["ts"] = min(o["ts"], ts)
+            o["q"] += qty
+            o["pq"] += px * qty
+    out = [{"ts": o["ts"], "asset": o["asset"], "side": o["side"], "purpose": o["purpose"],
+            "price": o["pq"] / o["q"] if o["q"] > 0 else 0.0} for o in orders.values()]
     if out:
-        ts, _ = to_seconds(np.array([x["ts"] for x in out]))
-        for x, t in zip(out, ts, strict=True):
+        ts_s, _ = to_seconds(np.array([x["ts"] for x in out]))
+        for x, t in zip(out, ts_s, strict=True):
             x["ts"] = float(t)
     return out
 
@@ -76,37 +89,50 @@ def median_half_spread(path: Path) -> dict:
     return {a: float(g["spread_bps"].median()) / 2 for a, g in d.groupby("asset")}
 
 
-def markouts(fills: list, cache: Path) -> dict:
-    """{asset: [(ts, {h: alpha_bps})]} on Binance 5m closes."""
+def markouts(fills: list, cache: Path, counts: dict | None = None) -> dict:
+    """{asset: [(ts, {h: alpha_bps})]} on Binance 5m closes. `counts`, if
+    given, receives the CS-1 buckets every order lands in."""
+    c = counts if counts is not None else {}
+    for k in ("marked", "asset_not_on_binance", "outside_price_data", "no_full_horizon"):
+        c.setdefault(k, 0)
     out = {}
     for a in sorted({f["asset"] for f in fills}):
+        mine = [x for x in fills if x["asset"] == a]
         d = binance_klines(f"{a}USDT", "5m", BOT_MONTHS, cache)
         if len(d["close"]) < 1000:
+            c["asset_not_on_binance"] += len(mine)
             continue
-        c = d["close"]
+        cl = d["close"]
         rows = []
-        for f in (x for x in fills if x["asset"] == a):
+        for f in mine:
             j = int(entry_index(d["t"], np.array([f["ts"]]))[0])
             if j < 0 or f["ts"] - d["t"][j] > 300:
+                c["outside_price_data"] += 1
                 continue
             al = {}
             for h in HORIZONS_MIN:
                 k = j + h // 5
-                if k < len(c):
-                    al[h] = alpha_bps(f["side"], c[j], c[k])
+                if k < len(cl):
+                    al[h] = alpha_bps(f["side"], cl[j], cl[k])
             if len(al) == len(HORIZONS_MIN):
                 rows.append((f["ts"], al))
+                c["marked"] += 1
+            else:
+                c["no_full_horizon"] += 1
         out[a] = rows
     return out
 
 
 def assess(fills_path: Path, sh_path: Path, maker_fee_bps: float,
            cache: Path) -> dict:
+    from core.cohort import reconcile
     fills = load_maker_fills(fills_path)
     hs = median_half_spread(sh_path)
-    mk = markouts(fills, cache)
-    res = {"maker_fee_bps": maker_fee_bps, "fills_post_only": len(fills),
-           "fills_marked": sum(len(v) for v in mk.values()), "assets": {}}
+    counts: dict = {}
+    mk = markouts(fills, cache, counts)
+    res = {"maker_fee_bps": maker_fee_bps, "unit": "maker order (partials aggregated)",
+           "fills_post_only": len(fills), "fills_marked": counts["marked"],
+           "reconcile": reconcile(len(fills), counts)["line"], "assets": {}}
     pooled_t, pooled = [], {h: [] for h in HORIZONS_MIN}
     for a, rows in mk.items():
         if not rows:
@@ -145,8 +171,7 @@ def main(argv=None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"mm_viability_{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"
     path.write_text(json.dumps(res, indent=1, default=str), encoding="utf-8")
-    print(f"maker fills (post_only legs): {res['fills_post_only']}, marked on Binance 5m: "
-          f"{res['fills_marked']}; maker fee {fee:g} bps")
+    print(f"unit: {res['unit']}; {res['reconcile']}; maker fee {fee:g} bps")
     print("pooled alpha after a maker fill (bps, day-cluster CI):")
     for h, s in res["pooled_alpha"].items():
         print(f"  {h:>4} min  mean {s.get('mean', float('nan')):+7.2f}  CI {s.get('ci95_boot')}")

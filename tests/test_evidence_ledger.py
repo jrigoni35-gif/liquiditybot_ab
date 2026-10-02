@@ -18,7 +18,7 @@ def _series(mean, n=120, block_days=7, start=0.0, seed=1):
 def test_thinning_spaces_blocks_by_the_horizon():
     t = np.arange(10) * 7 * DAY
     idx = el.thin(t, horizon_h=672, block_h=168)          # 28 d horizon, weekly blocks
-    assert list(idx) == [0, 4, 8]
+    assert list(idx) == [0, 5]                            # (block + horizon) / block
 
 
 def test_past_can_eliminate_but_cannot_promote():
@@ -56,3 +56,39 @@ def test_registry_is_well_formed_and_unique():
         assert h["source"] in ("literature", "bot", "llm")
         assert h["forward_from"] >= h["registered_at"] or h["source"] == "bot"
         assert h["bound_bps"] > 0 and h["horizon_h"] > 0
+
+
+def test_tilt_is_judged_against_zero_not_the_round_trip():
+    h = {"id": "g", "horizon_h": 24, "bound_bps": 400, "forward_from": "1970-01-01",
+         "use": "tilt"}
+    r = el.evaluate(h, _series(+20.0, n=400), two_c=45.0)
+    assert r["status"] in ("LIVE", "UNDECIDED")           # +20 bps is a real tilt edge
+    assert not r["status"].startswith("ELIMINATED")
+
+
+def test_elimination_is_sticky_once_crossed():
+    """Ville: deciding at the FIRST crossing is valid; a later decay of the
+    wealth must not un-eliminate."""
+    h = {"id": "x", "horizon_h": 24, "bound_bps": 400, "forward_from": "2030-01-01"}
+    early = _series(0.0, n=150, seed=4)
+    late = _series(+400.0, n=150, seed=5, start=150 * 7 * DAY)
+    both = {"t": early["t"] + late["t"], "x_bps": early["x_bps"] + late["x_bps"],
+            "h_hours": [24.0]}
+    assert el.evaluate(h, both, two_c=45.0)["status"] == "ELIMINATED FOR TRIPS"
+
+
+def test_e_bh_demotion_keeps_the_elimination():
+    rows = [{"id": "a", "family": "f", "forward": {"e_exist": 25.0}, "e_dead_used": 30.0,
+             "status": "EDGE BELOW ROUND TRIP", "use": "trip"},
+            {"id": "b", "family": "f", "forward": {"e_exist": 1.0}, "e_dead_used": 1.0,
+             "status": "UNDECIDED", "use": "trip"},
+            {"id": "c", "family": "f", "forward": {"e_exist": 1.0}, "e_dead_used": 1.0,
+             "status": "UNDECIDED", "use": "trip"}]
+    el.apply_e_bh(rows)
+    assert rows[0]["status"] == "ELIMINATED FOR TRIPS"
+
+
+def test_write_status_never_un_eliminates():
+    reg = [{"id": "a", "status": "ELIMINATED FOR TRIPS"}, {"id": "b", "status": "UNDECIDED"}]
+    el.merge_status(reg, {"a": "UNDECIDED", "b": "ELIMINATED FOR TRIPS"})
+    assert [h["status"] for h in reg] == ["ELIMINATED FOR TRIPS", "ELIMINATED FOR TRIPS"]

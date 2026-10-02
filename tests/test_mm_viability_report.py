@@ -50,3 +50,22 @@ def test_half_spread_is_half_the_median(tmp_path):
     p.write_text("asset,spread_bps\nETH,2\nETH,4\nETH,0\nBTC,1\n", encoding="utf-8")
     hs = mm.median_half_spread(p)
     assert hs == {"BTC": 0.5, "ETH": 1.5}                     # zero spreads dropped
+
+
+def test_partial_fills_aggregate_to_one_order(tmp_path):
+    t = 1_790_000_000
+    p = tmp_path / "fills.csv"
+    with p.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=["ts", "order_id", "symbol", "side", "fill_price",
+                                          "fill_size", "purpose", "post_only"])
+        w.writeheader()
+        w.writerow({"ts": t, "order_id": "o1", "symbol": "ETH/USD", "side": "buy",
+                    "fill_price": 100, "fill_size": 1, "purpose": "entry", "post_only": 1})
+        w.writerow({"ts": t + 10, "order_id": "o1", "symbol": "ETH/USD", "side": "buy",
+                    "fill_price": 102, "fill_size": 3, "purpose": "entry", "post_only": 1})
+        w.writerow({"ts": t, "order_id": "o2", "symbol": "BTC/USD", "side": "sell",
+                    "fill_price": 50, "fill_size": 1, "purpose": "exit", "post_only": 1})
+    out = mm.load_maker_fills(p)
+    assert len(out) == 2                                   # unit: one maker ORDER
+    o1 = next(x for x in out if x["asset"] == "ETH")
+    assert o1["price"] == pytest.approx(101.5) and o1["ts"] == pytest.approx(t)
