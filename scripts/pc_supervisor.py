@@ -116,6 +116,26 @@ try:
 except ValueError:
     CANDLE_COLLECT_SEC = 21600.0
 _CANDLE_COLLECT_STAMP = OUT / ".candle_collect_stamp"
+# FORWARD DATA (operator, 2026-10-02: "Set everything up to gain data for the
+# bot's purposes ... like a real instance yet we are running dry"). Both SAFE,
+# both zero private API, both write only under outputs/:
+#  * scripts/target_book_paper.py --once, hourly: the shadow target book run
+#    forward on Kraken PUBLIC 4h bars at the real instance's capital and fee;
+#    a deterministic replay over an append-merge bar store, so a missed hour
+#    costs nothing (LB_NO_TARGET_PAPER=1 disables).
+#  * scripts/forward_reads.py --once, weekly: every registered hypothesis
+#    re-read with its window rolled to the current month; the forward data
+#    the ledger may promote on (LB_NO_FORWARD_READS=1 disables).
+try:
+    TARGET_PAPER_SEC = float(os.environ.get("LB_TARGET_PAPER_SEC", "3600"))
+except ValueError:
+    TARGET_PAPER_SEC = 3600.0
+try:
+    FORWARD_READ_SEC = float(os.environ.get("LB_FORWARD_READ_SEC", "604800"))
+except ValueError:
+    FORWARD_READ_SEC = 604800.0
+_TARGET_PAPER_STAMP = OUT / ".target_paper_stamp"
+_FORWARD_READ_STAMP = OUT / ".forward_read_stamp"
 _CORPUS_SYNC_STAMP = OUT / ".corpus_sync_stamp"
 # rotation-hazard fast path (task-rotation-report.md): ml/history.py's
 # _ensure_schema rotates the corpus to a fresh .bak_<ts> the instant it sees
@@ -887,6 +907,12 @@ def tick() -> None:
     if (not os.environ.get("LB_NO_CANDLE_COLLECT")
             and _stamp_due(_CANDLE_COLLECT_STAMP, CANDLE_COLLECT_SEC)):
         _spawn([PY, "scripts/candle_collect.py", "--once"], own_log=False)
+    if (not os.environ.get("LB_NO_TARGET_PAPER")
+            and _stamp_due(_TARGET_PAPER_STAMP, TARGET_PAPER_SEC)):
+        _spawn([PY, "scripts/target_book_paper.py", "--once"], own_log=False)
+    if (not os.environ.get("LB_NO_FORWARD_READS")
+            and _stamp_due(_FORWARD_READ_STAMP, FORWARD_READ_SEC)):
+        _spawn([PY, "scripts/forward_reads.py", "--once"], own_log=False)
     if (not os.environ.get("LB_NO_TELEM_BACKUP")
             and _stamp_due(_TELEM_BACKUP_STAMP, TELEM_BACKUP_SEC)):
         _spawn([PY, "scripts/telemetry_backup.py", "--once",

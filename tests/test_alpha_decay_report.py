@@ -295,3 +295,73 @@ def test_relative_return_drift_adjusts_both_legs():
     dbasket = [np.array([0.001, 0.002]), np.array([0.001, 0.002])]
     rel = ad.relative_drift_adjusted(a[0] - da[0], basket, dbasket)
     assert rel == pytest.approx([0.006 - 0.003, 0.012 - 0.006])
+
+
+def _kline_zip(rows):
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("k.csv", "\n".join(
+            f"{t},1,{h},{lo},{c},{v},0,0,0,{tb},0,0" for t, h, lo, c, v, tb in rows))
+    return buf.getvalue()
+
+
+def test_forming_month_is_refetched_daily_settled_month_cached_forever(tmp_path, monkeypatch):
+    """The forward read only works if the month still forming is NOT frozen
+    at its first download (the 2026-10-02 finding: every cache was keyed by
+    the whole range and the windows ended at 2026-08 - forward n stayed 0)."""
+    import datetime as dt
+    calls = []
+    day = {"d": dt.date(2026, 10, 2)}
+    monkeypatch.setattr(ad, "_today", lambda: day["d"])
+
+    def fake_get(url, tries=4):
+        calls.append(url)
+        if "/monthly/" in url and "2026-09" in url:
+            return _kline_zip([(1788000000000, 2, 1, 1.5, 10, 5)])
+        if "/daily/" in url and "2026-10-01" in url:
+            return _kline_zip([(1790800000000, 3, 2, 2.5, 10, 5)])
+        if "/daily/" in url and "2026-10-02" in url and day["d"] > dt.date(2026, 10, 2):
+            return _kline_zip([(1790900000000, 4, 3, 3.5, 10, 5)])
+        return None
+    monkeypatch.setattr(ad, "_get", fake_get)
+    d1 = ad.binance_klines("BTCUSDT", "1h", ("2026-09", "2026-10"), tmp_path)
+    assert list(d1["close"]) == [1.5, 2.5]
+    n1 = len(calls)
+    ad.binance_klines("BTCUSDT", "1h", ("2026-09", "2026-10"), tmp_path)
+    assert len(calls) == n1                              # same day: all cached
+    day["d"] = dt.date(2026, 10, 5)                      # 2026-09 now settled
+    d2 = ad.binance_klines("BTCUSDT", "1h", ("2026-09", "2026-10"), tmp_path)
+    assert list(d2["close"]) == [1.5, 2.5, 3.5]          # the window grew
+    assert len(list(tmp_path.glob("BTCUSDT_1h_2026-10_asof*.npy"))) == 1   # old as-of gone
+    assert (tmp_path / "BTCUSDT_1h_2026-09.npy").exists()      # final copy, once settled
+    n2 = len(calls)
+    day["d"] = dt.date(2026, 10, 6)
+    ad.binance_klines("BTCUSDT", "1h", ("2026-09", "2026-10"), tmp_path)
+    assert not any("2026-09" in u for u in calls[n2:])   # settled: never again
+    assert any("2026-10" in u for u in calls[n2:])       # forming: refreshed
+
+
+def test_set_through_moves_only_the_end_and_never_backwards(monkeypatch):
+    for k in ("PANEL_MONTHS", "BOT_MONTHS", "QH_MONTHS", "LIVE_EXTERNAL"):
+        monkeypatch.setattr(ad, k, getattr(ad, k))
+    p0, q0 = ad.PANEL_MONTHS[0], ad.QH_MONTHS[0]
+    ad.set_through("2027-01")
+    assert ad.PANEL_MONTHS == (p0, "2027-01") and ad.QH_MONTHS == (q0, "2027-01")
+    assert ad.BOT_MONTHS[1] == "2027-01" and ad.LIVE_EXTERNAL
+    ad.set_through("2026-01")
+    assert ad.PANEL_MONTHS[1] == "2027-01"
+
+
+def test_failed_refresh_keeps_the_last_external_copy(tmp_path, monkeypatch):
+    import datetime as dt
+    import os
+    f = tmp_path / "stables_total.npz"
+    np.savez(f, t=np.array([1.0, 2.0]), usd=np.array([5.0, 6.0]))
+    os.utime(f, (0, 0))                                   # yesterday-or-older
+    monkeypatch.setattr(ad, "_today", lambda: dt.date(2026, 10, 2))
+    monkeypatch.setattr(ad, "LIVE_EXTERNAL", True)
+    monkeypatch.setattr(ad, "_get", lambda *a, **k: None)
+    d = ad.defillama_stables(tmp_path)
+    assert list(d["usd"]) == [5.0, 6.0]

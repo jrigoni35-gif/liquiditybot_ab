@@ -73,10 +73,8 @@ def block_weeks(node: dict) -> float:
     return max(d / 604800.0, 1e-9)
 
 
-def main(argv=None) -> int:
-    reg = json.loads((ROOT / "docs" / "quant" / "hypothesis_registry.json").read_text(encoding="utf-8"))
-    rep = json.loads(Path(sorted(glob.glob(str(
-        ROOT / "outputs" / "reports" / "alpha_decay" / "alpha_decay_*.json")))[-1]).read_text(encoding="utf-8"))
+def plan(reg: dict, rep: dict) -> list:
+    """One row per hypothesis with an A estimate, highest decision value first."""
     hyps, meta = {}, {}
     for h in reg["hypotheses"]:
         node = rep.get(h["section"], {}).get(h["key"])
@@ -90,15 +88,33 @@ def main(argv=None) -> int:
         meta[h["id"]] = {"use": h.get("use", "trip"), "A": node["A_bps"],
                          "weeks_per_block": block_weeks(node)}
     kg = knowledge_gradient(hyps)
-    print("knowledge plan - where the next forward data buys the most decision value")
-    print(f"{'hypothesis':<28}{'use':<6}{'A bps':>8}{'net mu':>9}{'sd':>8}{'KG':>9}"
-          f"{'weeks to a decision':>22}")
+    rows = []
     for k in sorted(kg, key=lambda x: -kg[x]):
         h, m = hyps[k], meta[k]
         wk = blocks_to_decision(h["mu"], h["obs_sd"]) * m["weeks_per_block"]
-        wk_s = "never (mu=0)" if math.isinf(wk) else (f"{wk:,.0f}" if wk < 1e6 else ">1e6")
-        print(f"{k:<28}{m['use']:<6}{m['A']:>+8.1f}{h['mu']:>+9.1f}{h['sd']:>8.1f}"
-              f"{kg[k]:>9.2f}{wk_s:>22}")
+        rows.append({"id": k, "use": m["use"], "A_bps": m["A"], "net_mu_bps": h["mu"],
+                     "sd_bps": h["sd"], "kg": kg[k],
+                     "weeks_to_decision": None if math.isinf(wk) else wk})
+    return rows
+
+
+def main(argv=None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--report", default=None, help="alpha_decay JSON (default: newest)")
+    args = ap.parse_args(argv)
+    reg = json.loads((ROOT / "docs" / "quant" / "hypothesis_registry.json").read_text(encoding="utf-8"))
+    path = args.report or sorted(glob.glob(str(
+        ROOT / "outputs" / "reports" / "alpha_decay" / "alpha_decay_*.json")))[-1]
+    rep = json.loads(Path(path).read_text(encoding="utf-8"))
+    print("knowledge plan - where the next forward data buys the most decision value")
+    print(f"{'hypothesis':<28}{'use':<6}{'A bps':>8}{'net mu':>9}{'sd':>8}{'KG':>9}"
+          f"{'weeks to a decision':>22}")
+    for r in plan(reg, rep):
+        wk = r["weeks_to_decision"]
+        wk_s = "never (mu=0)" if wk is None else (f"{wk:,.0f}" if wk < 1e6 else ">1e6")
+        print(f"{r['id']:<28}{r['use']:<6}{r['A_bps']:>+8.1f}{r['net_mu_bps']:>+9.1f}"
+              f"{r['sd_bps']:>8.1f}{r['kg']:>9.2f}{wk_s:>22}")
     return 0
 
 

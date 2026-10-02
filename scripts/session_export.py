@@ -55,6 +55,12 @@ PORTABLE = [
     # ledger, so the one-running-book law (state.json NEVER travels) holds.
     "fills.csv",
     "retrain_history.jsonl",
+    # forward-data records (2026-10-02, operator: "set everything up to gain
+    # data"): the paper target book and the weekly forward reads, so their
+    # results are readable from any clone. Reports only - nothing imports
+    # them into a live ledger. Distinct basenames (export flattens paths).
+    "target_book/paper/target_book_paper.json",
+    "reports/forward/forward_reads.json",
 ]
 NEVER = {"state.json", "state.json.bak", "status.json", "runner.lock",
          "runner.pid"}

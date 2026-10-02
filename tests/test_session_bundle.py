@@ -179,3 +179,15 @@ def test_model_never_overwrites_local(tmp_path):
     assert si.run(str(dst), str(home), apply=True) == 0
     assert (home / "meta_model.json").read_text(encoding="utf-8") == \
         '{"v": "home-authoritative"}'
+
+
+def test_export_carries_the_forward_data_records(tmp_path):
+    """The paper target book and the forward reads travel in the bundle so
+    their results are readable off-box (2026-10-02)."""
+    out = _seed_outputs(tmp_path)
+    (out / "target_book" / "paper").mkdir(parents=True)
+    (out / "target_book" / "paper" / "target_book_paper.json").write_text("{}", encoding="utf-8")
+    (out / "reports" / "forward").mkdir(parents=True)
+    (out / "reports" / "forward" / "forward_reads.json").write_text("{}", encoding="utf-8")
+    m = sx.export(str(out), str(tmp_path / "bundle"), "qa")
+    assert {"target_book_paper.json", "forward_reads.json"} <= set(m["files"])

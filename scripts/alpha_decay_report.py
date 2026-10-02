@@ -168,6 +168,10 @@ PANEL_UNIVERSE = ("BTC", "ETH", "BNB", "XRP", "DOGE", "ADA", "MATIC", "DOT",
                   "XLM", "BCH", "FIL", "SOL")
 PANEL_MONTHS = ("2023-01", "2026-08")
 BOT_MONTHS = ("2026-04", "2026-10")      # warm-up for the expanding drift
+# Whole-history external series (stablecoin supply, GPR) are re-downloaded
+# daily only when the window is rolling forward (set_through); a fixed
+# registered window keeps its first download for reproducibility.
+LIVE_EXTERNAL = False
 WEEK = 7 * 86400
 BV = "https://data.binance.vision/data/spot"
 
@@ -223,43 +227,88 @@ def _parse_zip(blob: bytes) -> list:
     return rows
 
 
+def _today():
+    """UTC date; a seam so tests can move the clock."""
+    import datetime as dt
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
+SETTLE_DAYS = 3     # an archive month is final this many days after it ends
+
+
+def month_settled(mo: str) -> bool:
+    """True once a month ended >= SETTLE_DAYS ago: its archive files are
+    final and may be cached forever. The month still forming (and the few
+    days after it, while daily files lag) is re-fetched once per UTC day -
+    caching it would freeze the forward window at the first fetch."""
+    import datetime as dt
+    y, m = map(int, mo.split("-"))
+    end = dt.date(y + (m == 12), m % 12 + 1, 1)
+    return (_today() - end).days >= SETTLE_DAYS
+
+
+def _month_cache(cache: Path, stem: str, mo: str, fetch) -> np.ndarray:
+    """Per-month cache of raw rows. Settled months: `<stem>_<mo>.npy`, kept
+    forever. Unsettled: `<stem>_<mo>_asof<YYYYMMDD>.npy`, replaced daily
+    (older as-of files of the same month are removed)."""
+    if month_settled(mo):
+        f = cache / f"{stem}_{mo}.npy"
+    else:
+        f = cache / f"{stem}_{mo}_asof{_today():%Y%m%d}.npy"
+    if f.exists():
+        return np.load(f)
+    a = np.array(fetch(mo), dtype=np.float64)
+    np.save(f, a)
+    for old in cache.glob(f"{stem}_{mo}_asof*.npy"):
+        if old != f:
+            old.unlink(missing_ok=True)
+    return a
+
+
+def open_window(months: tuple) -> bool:
+    return not month_settled(months[1])
+
+
 def binance_klines(sym: str, interval: str, months: tuple, cache: Path,
                    market: str = "spot") -> dict:
     """{t (s, bar OPEN), high, low, close, vol, taker_buy, units} from the
-    public archive; a month with no monthly file falls back to daily files."""
+    public archive; a month with no monthly file falls back to daily files.
+    Cached per month (see _month_cache), so a window that reaches the
+    current month keeps growing as forward data arrives."""
     cache.mkdir(parents=True, exist_ok=True)
     tag = "" if market == "spot" else f"{market}_"
-    f = cache / f"{tag}{sym}_{interval}_{months[0]}_{months[1]}.npz"
-    if f.exists():
-        d = dict(np.load(f, allow_pickle=True))
+    legacy = cache / f"{tag}{sym}_{interval}_{months[0]}_{months[1]}.npz"
+    if legacy.exists() and not open_window(months):
+        d = dict(np.load(legacy, allow_pickle=True))
         d["units"] = d["units"].item()
         return d
     base = BV if market == "spot" else f"https://data.binance.vision/data/futures/{market}"
-    rows: list = []
-    for mo in _months(*months):
+
+    def fetch(mo):
         blob = _get(f"{base}/monthly/klines/{sym}/{interval}/{sym}-{interval}-{mo}.zip")
         if blob is not None:
-            rows += _parse_zip(blob)
-            continue
+            return _parse_zip(blob)
         y, m = map(int, mo.split("-"))
+        rows = []
         for day in range(1, 32):
             b = _get(f"{base}/daily/klines/{sym}/{interval}/{sym}-{interval}-{y:04d}-{m:02d}-{day:02d}.zip", tries=2)
             if b is not None:
                 rows += _parse_zip(b)
-    if not rows:
-        d = {"t": np.array([]), "high": np.array([]), "low": np.array([]),
-             "close": np.array([]), "vol": np.array([]), "taker_buy": np.array([]),
-             "units": {"us": 0, "ms": 0, "s": 0}}
-    else:
-        a = np.array(sorted(set(rows)))
-        t, units = to_seconds(a[:, 0])
-        _, keep = np.unique(t, return_index=True)
-        d = {"t": t[keep], "high": a[keep, 1], "low": a[keep, 2],
-             "close": a[keep, 3], "vol": a[keep, 4], "taker_buy": a[keep, 5],
-             "units": units}
-    np.savez(f, **{k: (np.array(v, dtype=object) if k == "units" else v)
-                   for k, v in d.items()})
-    return d
+        return rows
+    parts = [a for a in (_month_cache(cache, f"{tag}{sym}_{interval}", mo, fetch)
+                         for mo in _months(*months)) if len(a)]
+    if not parts:
+        return {"t": np.array([]), "high": np.array([]), "low": np.array([]),
+                "close": np.array([]), "vol": np.array([]), "taker_buy": np.array([]),
+                "units": {"us": 0, "ms": 0, "s": 0}}
+    a = np.unique(np.concatenate(parts), axis=0)
+    t, units = to_seconds(a[:, 0])
+    order = np.argsort(t, kind="stable")
+    t, a = t[order], a[order]
+    _, keep = np.unique(t, return_index=True)
+    return {"t": t[keep], "high": a[keep, 1], "low": a[keep, 2],
+            "close": a[keep, 3], "vol": a[keep, 4], "taker_buy": a[keep, 5],
+            "units": units}
 
 
 def coinbase_5m(product: str, t0: float, t1: float, cache: Path) -> dict:
@@ -716,30 +765,35 @@ PERP_SYMBOL = {"SHIB": "1000SHIBUSDT"}
 
 
 def binance_funding(asset: str, months: tuple, cache: Path) -> dict:
-    """Perp funding prints {t (s), rate}; empty if the asset had no perp."""
+    """Perp funding prints {t (s), rate}; empty if the asset had no perp.
+    Monthly archive only: the forming month arrives when Binance publishes
+    it (a disclosed lag of up to one month for funding-based signals)."""
     cache.mkdir(parents=True, exist_ok=True)
-    f = cache / f"funding_{asset}_{months[0]}_{months[1]}.npz"
-    if f.exists():
-        return dict(np.load(f))
+    legacy = cache / f"funding_{asset}_{months[0]}_{months[1]}.npz"
+    if legacy.exists() and not open_window(months):
+        return dict(np.load(legacy))
     sym = PERP_SYMBOL.get(asset, f"{asset}USDT")
-    rows = []
-    for mo in _months(*months):
+
+    def fetch(mo):
         blob = _get(f"{FUT}/monthly/fundingRate/{sym}/{sym}-fundingRate-{mo}.zip", tries=2)
+        rows = []
         if blob is None:
-            continue
+            return rows
         with zipfile.ZipFile(io.BytesIO(blob)) as z:
             for name in z.namelist():
                 for line in z.read(name).decode("utf-8").splitlines():
                     p = line.split(",")
                     if p and p[0].strip().isdigit():
                         rows.append((float(p[0]), float(p[-1])))
-    if rows:
-        a = np.array(sorted(set(rows)))
-        d = {"t": to_seconds(a[:, 0])[0], "rate": a[:, 1]}
-    else:
-        d = {"t": np.array([]), "rate": np.array([])}
-    np.savez(f, **d)
-    return d
+        return rows
+    parts = [x for x in (_month_cache(cache, f"funding_{asset}", mo, fetch)
+                         for mo in _months(*months)) if len(x)]
+    if not parts:
+        return {"t": np.array([]), "rate": np.array([])}
+    a = np.unique(np.concatenate(parts), axis=0)
+    t = to_seconds(a[:, 0])[0]
+    o = np.argsort(t, kind="stable")
+    return {"t": t[o], "rate": a[o, 1]}
 
 
 def binance_oi(asset: str, months: tuple, cache: Path) -> dict:
@@ -747,18 +801,10 @@ def binance_oi(asset: str, months: tuple, cache: Path) -> dict:
     archive (daily files only)."""
     import datetime as dt
     cache.mkdir(parents=True, exist_ok=True)
-    f = cache / f"oi_{asset}_{months[0]}_{months[1]}.npz"
-    if f.exists():
-        return dict(np.load(f))
+    legacy = cache / f"oi_{asset}_{months[0]}_{months[1]}.npz"
+    if legacy.exists() and not open_window(months):
+        return dict(np.load(legacy))
     sym = f"{asset}USDT"
-    y0, m0 = map(int, months[0].split("-"))
-    y1, m1 = map(int, months[1].split("-"))
-    day = dt.date(y0, m0, 1)
-    end = (dt.date(y1 + (m1 == 12), m1 % 12 + 1, 1))
-    days = []
-    while day < end:
-        days.append(day.isoformat())
-        day += dt.timedelta(days=1)
 
     def one(ds):
         b = _get(f"{FUT}/daily/metrics/{sym}/{sym}-metrics-{ds}.zip", tries=2)
@@ -773,20 +819,41 @@ def binance_oi(asset: str, months: tuple, cache: Path) -> dict:
                             tzinfo=dt.timezone.utc).timestamp()
                         return (t, float(p[3]))
         return None
-    with cf.ThreadPoolExecutor(8) as ex:
-        rows = [r for r in ex.map(one, days) if r]
-    a = np.array(sorted(rows)) if rows else np.zeros((0, 2))
-    d = {"t": a[:, 0] if len(a) else a, "oi": a[:, 1] if len(a) else a}
-    np.savez(f, **d)
-    return d
+
+    def fetch(mo):
+        y, m = map(int, mo.split("-"))
+        day, end = dt.date(y, m, 1), dt.date(y + (m == 12), m % 12 + 1, 1)
+        days = []
+        while day < end and day < _today():
+            days.append(day.isoformat())
+            day += dt.timedelta(days=1)
+        with cf.ThreadPoolExecutor(8) as ex:
+            return [r for r in ex.map(one, days) if r]
+    parts = [x for x in (_month_cache(cache, f"oi_{asset}", mo, fetch)
+                         for mo in _months(*months)) if len(x)]
+    if not parts:
+        return {"t": np.zeros(0), "oi": np.zeros(0)}
+    a = np.unique(np.concatenate(parts), axis=0)
+    return {"t": a[:, 0], "oi": a[:, 1]}
+
+
+def _fresh_today(f: Path) -> bool:
+    """A whole-history download (no month split) is reused only on the UTC
+    day it was fetched, so the forward window keeps reaching today."""
+    import datetime as dt
+    if not f.exists():
+        return False
+    return dt.datetime.fromtimestamp(f.stat().st_mtime, dt.timezone.utc).date() == _today()
 
 
 def defillama_stables(cache: Path) -> dict:
     cache.mkdir(parents=True, exist_ok=True)
     f = cache / "stables_total.npz"
-    if f.exists():
+    if _fresh_today(f) or (f.exists() and not LIVE_EXTERNAL):
         return dict(np.load(f))
     b = _get("https://stablecoins.llama.fi/stablecoincharts/all")
+    if b is None and f.exists():
+        return dict(np.load(f))          # a failed refresh keeps the last copy
     rows = []
     for r in json.loads(b or b"[]"):
         v = (r.get("totalCirculatingUSD") or {}).get("peggedUSD")
@@ -1047,11 +1114,12 @@ def load_gpr(cache: Path) -> dict:
     import pandas as pd
     cache.mkdir(parents=True, exist_ok=True)
     f = cache / "gpr_daily.dta"
-    if not f.exists():
+    if not f.exists() or (LIVE_EXTERNAL and not _fresh_today(f)):
         b = _get(GPR_URL)
-        if b is None:
+        if b is not None:
+            f.write_bytes(b)
+        elif not f.exists():
             return {"t": np.array([]), "v": np.array([])}
-        f.write_bytes(b)
     d = pd.read_stata(f)
     # Unit-explicit: datetime64[s] vs [ns] differ by 1e9 under astype(int64)
     # (pinned by test_gpr_dates_load_as_unix_seconds).
@@ -1139,6 +1207,22 @@ def run_macro(cache: Path, reps: int, rng) -> dict:
 
 
 # ================================================================== main
+def current_month() -> str:
+    return f"{_today():%Y-%m}"
+
+
+def set_through(month: str) -> None:
+    """Roll every registered window's END forward to `month` (the forward
+    read). Starts are registered and never move; definitions are unchanged;
+    the ledger separates back from forward by each hypothesis's
+    forward_from, so extending the window adds evidence, never re-fits."""
+    global PANEL_MONTHS, BOT_MONTHS, QH_MONTHS, LIVE_EXTERNAL
+    PANEL_MONTHS = (PANEL_MONTHS[0], max(PANEL_MONTHS[1], month))
+    BOT_MONTHS = (BOT_MONTHS[0], max(BOT_MONTHS[1], month))
+    QH_MONTHS = (QH_MONTHS[0], max(QH_MONTHS[1], month))
+    LIVE_EXTERNAL = True
+
+
 def _verdict(r: dict, hp_exist: float, hp_trade: float) -> str:
     lo = r["A_ci_bps"][0]
     halves = r.get("halves", {})
@@ -1160,7 +1244,12 @@ def main(argv=None) -> int:
     ap.add_argument("--skip-long", action="store_true")
     ap.add_argument("--skip-cribs", action="store_true")
     ap.add_argument("--skip-macro", action="store_true")
+    ap.add_argument("--through", default=None,
+                    help="roll every window's end to YYYY-MM, or 'now' for the "
+                         "current month (forward reads); default = registered window")
     args = ap.parse_args(argv)
+    if args.through:
+        set_through(current_month() if args.through == "now" else args.through)
     out_dir = Path(args.out) if args.out else ROOT / "outputs" / "reports" / "alpha_decay"
     cache = out_dir / "cache"
     rng = np.random.default_rng(SEED)
