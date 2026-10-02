@@ -61,7 +61,7 @@ def test_wealth_never_goes_negative_even_at_the_bound():
 def test_status_mapping():
     T = 20.0
     assert ev.status(25, 1, T) == "LIVE"
-    assert ev.status(1, 25, T) == "ELIMINATED"
+    assert ev.status(1, 25, T) == "ELIMINATED FOR TRIPS"   # the trip question only
     assert ev.status(25, 25, T) == "EDGE BELOW ROUND TRIP"
     assert ev.status(5, 5, T) == "UNDECIDED"
 
@@ -75,7 +75,7 @@ def test_e_bh_controls_the_family():
 
 def test_registry_refuses_to_retry_an_eliminated_idea():
     reg = [{"id": "h1", "family": "tsmom", "signal": "tsmom_24", "horizon_h": 24,
-            "status": "ELIMINATED"}]
+            "status": "ELIMINATED FOR TRIPS"}]
     with pytest.raises(ev.AlreadyEliminated):
         ev.propose(reg, {"id": "h2", "family": "tsmom", "signal": "tsmom_24",
                          "horizon_h": 24}, today="2026-10-02")
@@ -84,3 +84,13 @@ def test_registry_refuses_to_retry_an_eliminated_idea():
     assert new["forward_from"] == "2026-10-02"      # evidence counts only after proposal
     assert new["status"] == "UNDECIDED"
     assert ev.trials(reg + [new], "tsmom") == 2
+
+
+def test_trip_elimination_does_not_block_a_tilt_question():
+    """C1 (quarter-hour) has an edge too small for trips. Failure memory must
+    refuse a re-test of the SAME trip question, not a different use."""
+    reg = [{"id": "c1", "family": "cribs", "signal": "quarter_hour_imb", "horizon_h": 8,
+            "status": "ELIMINATED FOR TRIPS", "use": "trip"}]
+    new = ev.propose(reg, {"id": "c1t", "family": "cribs", "signal": "quarter_hour_imb",
+                           "horizon_h": 8, "use": "tilt"}, today="2026-10-02")
+    assert new["use"] == "tilt"

@@ -105,6 +105,30 @@ looking is a new registration and must say so.
                       side closes before it pays. 20-asset hourly panel,
                       horizons 1, 2, 4 h; primary 1 h; expect +.
 
+  MACRO / GEOPOLITICAL FAMILY - registered 2026-10-02 BEFORE its data was
+  read (operator: "influencers of the market including geopolitical
+  aspects"). Exogenous drivers of the bot's own haven ladder
+  (regime/haven.py reads that ladder from prices only):
+    G1 gpr_haven      Caldara & Iacoviello daily Geopolitical Risk index
+                      (GPRD, news-count based). When its 7-day mean is > 1
+                      sigma above the prior 90 days, go long PAXG relative to
+                      the equal-weight crypto basket (sign(z) when |z| > 1);
+                      expect + (flight to the most tangible rung). Horizons
+                      1, 3, 7, 14 d; primary 7 d. A TILT question (no trips).
+    G2 gpr_crypto     same trigger, -sign(z) on each crypto asset: risk-off
+                      drags crypto below its drift; expect +. Primary 7 d.
+    M1 pre_fomc       long each crypto asset over the 24 h before an FOMC
+                      statement (14:00 New York, from the Fed's own calendar);
+                      expect + (the pre-announcement drift of Lucca & Moench
+                      2015, here tested in crypto). Horizons 6, 12, 24 h;
+                      primary 24 h.
+    M2 fomc_vol       report-only: realised |return| in the 24 h after a
+                      statement vs all other 24 h windows - a risk input for
+                      vol targeting, not a signal.
+  Gaps stated, not filled: influencer posts (X/Twitter API is paid; no
+  access), GDELT news tone (rate-limited 2026-10-02), BLS CPI calendar
+  (blocked).
+
   CONTROLS (the instrument is tested before its readings are used):
     null_gbm      every panel signal on iid-normal returns with each asset's
                   own vol, R replications -> false-positive rate of
@@ -582,12 +606,12 @@ def _bar_open_of(t: np.ndarray, bars: dict, assets: list) -> list:
     return out
 
 
-def _with_halves(t, X, H, reps, rng, bar_h) -> dict:
-    r = analyse(t, X, H, reps, rng, bar_h)
+def _with_halves(t, X, H, reps, rng, bar_h, block: float = WEEK) -> dict:
+    r = analyse(t, X, H, reps, rng, bar_h, block)
     mid = np.median(t)
     r["halves"] = {}
     for half, m in (("first", t < mid), ("second", t >= mid)):
-        rh = analyse(t[m], X[m], H, max(reps // 4, 200), rng, bar_h)
+        rh = analyse(t[m], X[m], H, max(reps // 4, 200), rng, bar_h, block)
         r["halves"][half] = {"A_bps": rh["A_bps"], "A_ci_bps": rh["A_ci_bps"],
                              "weeks": rh["weeks"]}
     return r
@@ -953,6 +977,143 @@ def run_cribs(cache: Path, reps: int, rng) -> dict:
     return res
 
 
+# ===================================================== macro / geopolitics
+H_GPR = (24, 72, 168, 336)
+H_FOMC = (6, 12, 24)
+FOMC_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+GPR_URL = "https://www.matteoiacoviello.com/gpr_files/data_gpr_daily_recent.dta"
+_MONTHS = {m: i for i, m in enumerate(
+    ("January February March April May June July August September October "
+     "November December").split(), start=1)}
+_MON3 = {m[:3]: i for m, i in _MONTHS.items()}
+
+
+def parse_fomc(html: str) -> list:
+    """FOMC statement times (UTC seconds): the LAST day of each meeting at
+    14:00 America/New_York, from the Fed calendar page (DST-aware)."""
+    import datetime as dt
+    import re
+    from zoneinfo import ZoneInfo
+    ny = ZoneInfo("America/New_York")
+    pat = re.compile(r"(\d{4}) FOMC Meetings|fomc-meeting__month[^>]*><strong>([^<]+)<"
+                     r"|fomc-meeting__date[^>]*>([^<]+)<")
+    year, month, out = None, None, []
+    for m in pat.finditer(html):
+        if m.group(1):
+            year = int(m.group(1))
+        elif m.group(2):
+            month = m.group(2).strip()
+        elif m.group(3) and year and month:
+            days = re.findall(r"\d+", m.group(3))
+            if not days:
+                continue
+            last = month.split("/")[-1].strip()
+            mo = _MONTHS.get(last) or _MON3.get(last[:3])
+            if not mo:
+                continue
+            local = dt.datetime(year, mo, int(days[-1]), 14, 0, tzinfo=ny)
+            out.append(local.astimezone(dt.timezone.utc).timestamp())
+            month = None
+    return sorted(set(out))
+
+
+def gpr_signal(at: np.ndarray, t_series: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """sign(z) of the 7-day mean geopolitical risk vs its prior 90 days, when
+    |z| > 1; uses only days completed before each event."""
+    z = _daily_z(t_series, v, at, "level7")
+    return np.where(np.abs(np.nan_to_num(z)) > 1, np.sign(np.nan_to_num(z)), 0.0)
+
+
+def load_gpr(cache: Path) -> dict:
+    import pandas as pd
+    cache.mkdir(parents=True, exist_ok=True)
+    f = cache / "gpr_daily.dta"
+    if not f.exists():
+        b = _get(GPR_URL)
+        if b is None:
+            return {"t": np.array([]), "v": np.array([])}
+        f.write_bytes(b)
+    d = pd.read_stata(f)
+    # Unit-explicit: datetime64[s] vs [ns] differ by 1e9 under astype(int64)
+    # (pinned by test_gpr_dates_load_as_unix_seconds).
+    t = pd.to_datetime(d["date"]).to_numpy().astype("datetime64[s]").astype("int64")
+    return {"t": t.astype(float), "v": d["GPRD"].astype(float).to_numpy()}
+
+
+def run_macro(cache: Path, reps: int, rng) -> dict:
+    data = {a: binance_klines(f"{a}USDT", "1h", PANEL_MONTHS, cache) for a in PANEL_UNIVERSE}
+    lp = {a: np.log(d["close"]) for a, d in data.items() if len(d["close"]) >= 2000}
+    tt = {a: data[a]["t"] for a in lp}
+    paxg = binance_klines("PAXGUSDT", "1h", PANEL_MONTHS, cache)
+    gpr = load_gpr(cache)
+    res = {"_coverage": {"gpr_days": int(len(gpr["t"])), "paxg_bars": int(len(paxg["close"]))}}
+    # common daily event grid at 00:00 UTC on BTC's clock
+    tb = tt["BTC"]
+    day_idx = np.where((tb % 86400) == 0)[0]
+    day_idx = day_idx[day_idx >= 720]
+    ev_t = tb[day_idx]
+    sg = gpr_signal(ev_t, gpr["t"], gpr["v"])
+    # G2: crypto drifts below its own drift after a spike
+    T_, X_ = [], []
+    for a, x in lp.items():
+        F = forward(x, H_GPR)
+        D = expanding_drift(x, H_GPR, 720)
+        j = np.searchsorted(tt[a], ev_t)
+        ok = (j < len(x)) & (tt[a][np.minimum(j, len(x) - 1)] == ev_t) & (sg != 0)
+        jj = j[ok]
+        m = np.isfinite(D[jj, 0])
+        T_.append(ev_t[ok][m])
+        X_.append((-sg[ok][m])[:, None] * (F[jj][m] - D[jj][m]))
+    res["gpr_crypto"] = _with_halves(np.concatenate(T_), np.vstack(X_), H_GPR, reps, rng,
+                                     1.0, LONG_BLOCK)
+    # G1: PAXG minus the equal-weight crypto basket
+    if len(paxg["close"]) >= 2000:
+        pl = np.log(paxg["close"])
+        PF = forward(pl, H_GPR) - expanding_drift(pl, H_GPR, 720)
+        rows_t, rows_x = [], []
+        for k, t0 in enumerate(ev_t):
+            if sg[k] == 0:
+                continue
+            jp = np.searchsorted(paxg["t"], t0)
+            if jp >= len(pl) or paxg["t"][jp] != t0:
+                continue
+            basket = []
+            for a, x in lp.items():
+                j = np.searchsorted(tt[a], t0)
+                if j < len(x) and tt[a][j] == t0:
+                    basket.append(forward(x[j:j + max(H_GPR) + 1], H_GPR)[0])
+            if not basket or not np.isfinite(PF[jp, 0]):
+                continue
+            rel = PF[jp] - np.nanmean(np.array(basket), axis=0)
+            rows_t.append(t0)
+            rows_x.append(sg[k] * rel)
+        if rows_t:
+            res["gpr_haven"] = _with_halves(np.array(rows_t), np.array(rows_x), H_GPR, reps,
+                                            rng, 1.0, LONG_BLOCK)
+    # M1: pre-FOMC drift; M2: post-statement volatility (report-only)
+    html = (_get(FOMC_URL) or b"").decode("utf-8", "replace")
+    st = np.array(parse_fomc(html))
+    res["_coverage"]["fomc_statements"] = int(len(st))
+    T_, X_, vol_ev, vol_all = [], [], [], []
+    for a, x in lp.items():
+        F = forward(x, H_FOMC)
+        D = expanding_drift(x, H_FOMC, 720)
+        r1 = np.abs(np.diff(x))
+        for s_ in st:
+            j = np.searchsorted(tt[a], s_ - 24 * 3600)
+            if 720 <= j < len(x) - 48 and tt[a][j] == s_ - 24 * 3600 and np.isfinite(D[j, 0]):
+                T_.append(tt[a][j])
+                X_.append(F[j] - D[j])
+                vol_ev.append(r1[j + 24:j + 48].sum())
+        vol_all.append(np.convolve(r1, np.ones(24), "valid")[720:].mean())
+    if T_:
+        res["pre_fomc"] = _with_halves(np.array(T_), np.array(X_), H_FOMC, reps, rng, 1.0)
+        res["_fomc_vol"] = {"post_statement_24h_abs_ret": float(np.mean(vol_ev)),
+                            "all_24h_abs_ret": float(np.mean(vol_all)),
+                            "ratio": float(np.mean(vol_ev) / np.mean(vol_all))}
+    return res
+
+
 # ================================================================== main
 def _verdict(r: dict, hp_exist: float, hp_trade: float) -> str:
     lo = r["A_ci_bps"][0]
@@ -974,6 +1135,7 @@ def main(argv=None) -> int:
     ap.add_argument("--skip-controls", action="store_true")
     ap.add_argument("--skip-long", action="store_true")
     ap.add_argument("--skip-cribs", action="store_true")
+    ap.add_argument("--skip-macro", action="store_true")
     args = ap.parse_args(argv)
     out_dir = Path(args.out) if args.out else ROOT / "outputs" / "reports" / "alpha_decay"
     cache = out_dir / "cache"
@@ -1034,6 +1196,15 @@ def main(argv=None) -> int:
             cr[k]["p_holm_exists"], cr[k]["p_holm_tradeable"] = he[k], ht[k]
             cr[k]["verdict"] = _verdict(cr[k], he[k], ht[k])
         rep["cribs"] = cr
+    if not args.skip_macro:
+        mc = run_macro(cache, args.reps, rng)
+        mn = [k for k in mc if not k.startswith("_")]
+        he = holm({k: mc[k]["p_A_le_0"] for k in mn})
+        ht = holm({k: mc[k]["p_A_le_2c"][str(TWO_C)] for k in mn})
+        for k in mn:
+            mc[k]["p_holm_exists"], mc[k]["p_holm_tradeable"] = he[k], ht[k]
+            mc[k]["verdict"] = _verdict(mc[k], he[k], ht[k])
+        rep["macro"] = mc
     rep["secs"] = time.time() - t0
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"alpha_decay_{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"
@@ -1103,6 +1274,18 @@ def _print(rep: dict) -> None:
             print(_row(k, r))
             print("      CAR bps " + " ".join(f"{h / 24:g}d:{c:+.1f}" for h, c in
                                             zip(r["h_hours"], r["car_bps"], strict=True)))
+    mc = rep.get("macro")
+    if mc:
+        print(f"MACRO / GEOPOLITICAL (registered before data; coverage {mc['_coverage']})")
+        for k, r in mc.items():
+            if k.startswith("_"):
+                continue
+            print(_row(k, r))
+            print("      CAR bps " + " ".join(f"{h:g}h:{c:+.1f}" for h, c in
+                                            zip(r["h_hours"], r["car_bps"], strict=True)))
+        if "_fomc_vol" in mc:
+            v = mc["_fomc_vol"]
+            print(f"  FOMC post-statement 24h |ret| / all 24h windows: {v['ratio']:.2f}x")
     cr = rep.get("cribs")
     if cr:
         print("CRIB CATALOGUE (registered before data)")

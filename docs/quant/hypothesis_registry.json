@@ -1,5 +1,5 @@
 {
- "_doc": "Hypothesis registry - the research plane's memory (SAFE). Every idea ever tested, registered with its primary horizon, bound and mechanism. scripts/evidence_ledger.py scores it: the PAST may eliminate, only data dated >= forward_from may promote. core/evidence.propose refuses an idea whose (signal, horizon) is already ELIMINATED. Bounds = 3 x 50 bps x sqrt(h), fixed before scoring. 'source' = literature | bot | llm (proposed by the AI in session 2026-10-02 - leakage risk named in Profit Mirage 2025). Statuses are written only by evidence_ledger --write-status.",
+ "_doc": "Hypothesis registry - the research plane's memory (SAFE). Every idea ever tested, registered with its primary horizon, bound and mechanism. scripts/evidence_ledger.py scores it: the PAST may eliminate, only data dated >= forward_from may promote. core/evidence.propose refuses an idea whose (signal, horizon) is already ELIMINATED. Bounds = 3 x 50 bps x sqrt(h), fixed before scoring. 'source' = literature | bot | llm (proposed by the AI in session 2026-10-02 - leakage risk named in Profit Mirage 2025). Statuses are written only by evidence_ledger --write-status. 'use' = trip | tilt: the ledger's e_dead asks the trip question (edge vs 2c); failure memory is keyed on (signal, horizon, use).",
  "two_c_bps": 45.0,
  "threshold_e": 20.0,
  "hypotheses": [
@@ -15,7 +15,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "one-week time-series momentum (Liu & Tsyvinski 2021)",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "P2_tsmom_24",
@@ -29,7 +30,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "large-cap daily momentum",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "P3_rev_large",
@@ -43,7 +45,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "reversal after a >2 sigma hour",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "P4_flow_rev",
@@ -57,7 +60,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "reversal after aggressive taker flow",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "P5_xs_mom_168",
@@ -71,7 +75,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "cross-sectional one-week momentum",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "L1_btc_tsmom_168",
@@ -85,7 +90,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "BTC weekly TSMOM",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "L2_tsmom_672",
@@ -99,7 +105,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "four-week TSMOM",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "L3_funding_crowd",
@@ -113,7 +120,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "crowded longs pay: contrarian on 7d funding z",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "L4_oi_crowd",
@@ -127,7 +135,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "contrarian on 7d open-interest change z",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "L5_stable_flow",
@@ -141,7 +150,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "new stablecoin supply is dry powder",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "B1_all_candidates",
@@ -155,7 +165,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "every candidate's direction",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "B1_all_candidates_mkt_rel",
@@ -169,7 +180,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "candidates, market-relative",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "B2_live",
@@ -183,7 +195,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "taken trades",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "B2_live_mkt_rel",
@@ -197,7 +210,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "taken trades, market-relative",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "B3_top_confidence",
@@ -211,7 +225,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "top-third confidence (timing)",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "B3_top_confidence_mkt_rel",
@@ -225,7 +240,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "top-third confidence, market-relative",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "C1_quarter_hour_imb",
@@ -239,7 +255,8 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "algorithmic quarter-hour opening imbalance continues 4-12 h (Kim & Hansen 2026); OOS to their sample from 2024-11",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
   },
   {
    "id": "C2_funding_settle",
@@ -253,7 +270,53 @@
    "registered_at": "2026-10-02",
    "forward_from": "2026-10-02",
    "mechanism": "funding payers exit in the hour before settlement",
-   "status": "UNDECIDED"
+   "status": "UNDECIDED",
+   "use": "trip"
+  },
+  {
+   "id": "G1_gpr_haven",
+   "family": "macro",
+   "signal": "gpr_haven",
+   "source": "llm",
+   "section": "macro",
+   "key": "gpr_haven",
+   "horizon_h": 168.0,
+   "bound_bps": 1944,
+   "registered_at": "2026-10-02",
+   "forward_from": "2026-10-02",
+   "mechanism": "geopolitical-risk spike -> capital climbs the tangibility ladder to PAXG (exogenous driver of regime/haven.py)",
+   "status": "UNDECIDED",
+   "use": "tilt"
+  },
+  {
+   "id": "G2_gpr_crypto",
+   "family": "macro",
+   "signal": "gpr_crypto",
+   "source": "llm",
+   "section": "macro",
+   "key": "gpr_crypto",
+   "horizon_h": 168.0,
+   "bound_bps": 1944,
+   "registered_at": "2026-10-02",
+   "forward_from": "2026-10-02",
+   "mechanism": "geopolitical-risk spike drags crypto below its drift",
+   "status": "UNDECIDED",
+   "use": "trip"
+  },
+  {
+   "id": "M1_pre_fomc",
+   "family": "macro",
+   "signal": "pre_fomc",
+   "source": "llm",
+   "section": "macro",
+   "key": "pre_fomc",
+   "horizon_h": 24.0,
+   "bound_bps": 735,
+   "registered_at": "2026-10-02",
+   "forward_from": "2026-10-02",
+   "mechanism": "pre-FOMC announcement drift (Lucca & Moench 2015) tested in crypto",
+   "status": "UNDECIDED",
+   "use": "trip"
   }
  ]
 }

@@ -222,3 +222,49 @@ def test_funding_settle_bets_against_the_payer_one_hour_before():
     idx2, s2 = ad.funding_settle_signal(t, ft, rate2)
     early = t[idx] < ft[45]
     assert np.array_equal(s[early], s2[early])
+
+
+FOMC_HTML = """
+<div class="panel-heading"><h4><a id="1">2025 FOMC Meetings</a></h4></div>
+<div class="fomc-meeting__month col-xs-5 col-sm-3 col-md-2"><strong>January</strong></div>
+<div class="fomc-meeting__date col-xs-4 col-sm-9 col-md-10 col-lg-1">28-29</div>
+<div class="fomc-meeting__month col-xs-5 col-sm-3 col-md-2"><strong>Apr/May</strong></div>
+<div class="fomc-meeting__date col-xs-4 col-sm-9 col-md-10 col-lg-1">30-1*</div>
+<div class="fomc-meeting__month col-xs-5 col-sm-3 col-md-2"><strong>July</strong></div>
+<div class="fomc-meeting__date col-xs-4 col-sm-9 col-md-10 col-lg-1">29-30</div>
+"""
+
+
+def test_fomc_statement_times_parse_to_2pm_new_york_in_utc():
+    ts = ad.parse_fomc(FOMC_HTML)
+    import datetime as dt
+    got = [dt.datetime.fromtimestamp(t, dt.timezone.utc) for t in ts]
+    assert [g.strftime("%Y-%m-%d %H:%M") for g in got] == [
+        "2025-01-29 19:00",          # EST: 14:00 ET = 19:00 UTC
+        "2025-05-01 18:00",          # Apr/May straddle -> statement on May 1, EDT
+        "2025-07-30 18:00"]
+
+
+def test_gpr_signal_follows_spikes_and_reads_only_completed_days():
+    day = 86400.0
+    t = np.arange(400) * day
+    v = 100.0 + np.random.default_rng(9).normal(0, 5, 400)   # a noisy, calm index
+    v[300:307] = 400.0                                  # a geopolitical spike
+    at = np.array([303 * day, 310 * day, 250 * day])
+    s = ad.gpr_signal(at, t, v)
+    assert s[0] == 1.0 and s[2] == 0.0                  # spike seen; calm day silent
+    v2 = v.copy()
+    v2[303:] = 0.0                                      # poison the event day onward
+    assert ad.gpr_signal(at[:1], t, v2)[0] == ad.gpr_signal(at[:1], t, v)[0]
+
+
+def test_gpr_dates_load_as_unix_seconds(tmp_path):
+    """Units trap: Stata dates may arrive as datetime64[s] or [ns]; both must
+    land on true UNIX seconds (an empty-looking join is the failure mode)."""
+    import pandas as pd
+    df = pd.DataFrame({"date": pd.to_datetime(["2026-09-30", "2026-10-01"]),
+                       "GPRD": [100.0, 120.0]})
+    df.to_stata(tmp_path / "gpr_daily.dta", write_index=False)
+    g = ad.load_gpr(tmp_path)
+    assert g["t"][1] == pytest.approx(1790812800.0)        # 2026-10-01 00:00 UTC
+    assert list(g["v"]) == [100.0, 120.0]

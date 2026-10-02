@@ -13,8 +13,11 @@ variables by betting"; e-BH: Wang & Ramdas 2022).
 TWO E-PROCESSES PER HYPOTHESIS (side, null):
   e_exist  ("greater", 0)   - evidence the mean edge is ABOVE zero
   e_dead   ("less", 2c)     - evidence the mean edge is BELOW the round trip
-Status: LIVE | ELIMINATED | EDGE BELOW ROUND TRIP (a tilt candidate, never
-a trip) | UNDECIDED, at threshold 1/alpha (20 = 13.0 dB at alpha 0.05).
+Status: LIVE | ELIMINATED FOR TRIPS | EDGE BELOW ROUND TRIP (a tilt
+candidate, never a trip) | UNDECIDED, at threshold 1/alpha (20 = 13.0 dB at
+alpha 0.05). The ledger asks the TRIP question (edge vs 2c); "eliminated for
+trips" says nothing about a smaller edge used as a tilt, which pays no round
+trip - that is a different question with its own registration ("use").
 
 BOUNDS (stated, not hidden). Observations are assumed inside [-B, B] around
 the null. The upper tail is clipped at +B, which can only LOWER the mean, so
@@ -71,7 +74,7 @@ def status(e_exist: float, e_dead: float, threshold: float = 20.0) -> str:
     if alive:
         return "LIVE"
     if dead:
-        return "ELIMINATED"
+        return "ELIMINATED FOR TRIPS"
     return "UNDECIDED"
 
 
@@ -87,14 +90,14 @@ def e_bh(e_values: dict, alpha: float = 0.05) -> set:
 
 
 def _fingerprint(h: dict) -> tuple:
-    return (h.get("signal"), h.get("horizon_h"))
+    return (h.get("signal"), h.get("horizon_h"), h.get("use", "trip"))
 
 
 def propose(registry: list, hypothesis: dict, today: str) -> dict:
     """Admit a new hypothesis unless the ledger already eliminated it."""
     fp = _fingerprint(hypothesis)
     for h in registry:
-        if _fingerprint(h) == fp and h.get("status") == "ELIMINATED":
+        if _fingerprint(h) == fp and str(h.get("status", "")).startswith("ELIMINATED"):
             raise AlreadyEliminated(f"{fp} was eliminated as {h.get('id')}")
     return {**hypothesis, "registered_at": today, "forward_from": today,
             "status": "UNDECIDED"}

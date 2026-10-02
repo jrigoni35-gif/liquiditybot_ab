@@ -27,7 +27,7 @@ def test_past_can_eliminate_but_cannot_promote():
     assert strong["status"] != "LIVE"                     # all data pre-registration
     assert strong["forward"]["n"] == 0
     dead = el.evaluate(h, _series(0.0), two_c=45.0)
-    assert dead["status"] == "ELIMINATED"                 # history can kill
+    assert dead["status"] == "ELIMINATED FOR TRIPS"       # history can kill
 
 
 def test_forward_data_can_promote():
