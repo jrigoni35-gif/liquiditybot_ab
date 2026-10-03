@@ -1406,6 +1406,10 @@ class LiquidityBot:
         # point), config-gated for a clean A/B and instant rollback.
         self.maker_first_profit_exits = bool(
             esc.get("maker_first_profit_exits", True))
+        # PATIENT-1: time-based exits get the same first maker attempt.
+        # Default off in code; config.json turns it on (cohort fork).
+        self.maker_first_time_exits = bool(
+            esc.get("maker_first_time_exits", False))
         self._exit_attempts: dict = {}      # position_id -> failed attempts
         # last time the entry pipeline ADMITTED an order (signal passed the
         # gates and a submit succeeded) — the ML-073 drought clock. Left
@@ -2572,7 +2576,8 @@ class LiquidityBot:
 
     def _submit_exit(self, pos: Position, close_pct: float, reason: str,
                  tier_fired: int = 0, now: Optional[float] = None,
-                 profit_take: bool = False, reason_code: str = "") -> None:
+                 profit_take: bool = False, reason_code: str = "",
+                 patient: bool = False) -> None:
         """Risk-reduction exit: marketable limit, slippage-capped, never
         blocked by the pre-trade edge gate (exits are risk management).
 
@@ -2604,7 +2609,9 @@ class LiquidityBot:
             # already an escape in flight (the ladder re-attempts on expiry), and
             # a profit-take never preempts anything.
             preemptable = [o for o in live if o.post_only]
-            if profit_take or not preemptable:
+            # a PATIENT (time-based) exit is no more urgent than a
+            # profit-take: it never preempts anything either
+            if profit_take or patient or not preemptable:
                 return
             for o in preemptable:
                 self.orders.cancel_order(o, reason=f"preempted by {reason}")
@@ -2690,7 +2697,16 @@ class LiquidityBot:
         # are risk-off, so profit_take is False) - being out fast beats the
         # spread. Requires a live two-sided book; degrades to marketable if
         # the touch is missing.
-        maker_first = bool(self.maker_first_profit_exits and profit_take
+        # PATIENT-1 (2026-10-03): TIME-based exits (bracket vertical
+        # barrier tb_time, PT-060 time-stop scratch, non-urgent stale purge,
+        # ML-073 label realization) are expiring, not escaping - they get the
+        # same first maker attempt. 108 of 113 exit legs since cut #12 paid
+        # taker. Risk-off exits still preempt the rest (above). Record:
+        # docs/quant/2026-10-03_inventory_netting_patient_exits.md
+        _patient = bool(patient and getattr(self, "maker_first_time_exits",
+                                            False))
+        maker_first = bool(((self.maker_first_profit_exits and profit_take)
+                            or _patient)
                            and attempts == 0 and bids and asks
                            and not go_market)
         if pos.direction == "long":
@@ -3180,7 +3196,8 @@ class LiquidityBot:
                 pos = self.state.get_position(act.position_id)
                 if pos and self._stop_ok.get(self._asset_of(pos.symbol), True) \
                         and self._mark_fresh(pos.symbol, now):
-                    self._submit_exit(pos, act.close_pct, act.reason, now=now)
+                    self._submit_exit(pos, act.close_pct, act.reason, now=now,
+                                      patient=not act.urgent)
             except Exception:
                 self._exit_eval_failures += 1
                 log.exception("derisk action raised - other positions still "
@@ -3490,7 +3507,8 @@ class LiquidityBot:
                     self._submit_exit(pos, action.close_pct, reason,
                                     tier_fired=action.tier_fired, now=now,
                                     profit_take=action.is_profit_take,
-                                    reason_code=reason_code)
+                                    reason_code=reason_code,
+                                    patient=is_time_stop)
                     bracket_exit_pending = False
                 elif suppressed_for_bracket:
                     # T5 review fix (IMPORTANT-2): ProfitTierEngine.
@@ -3554,11 +3572,12 @@ class LiquidityBot:
                               profit_take=True)
             return
         if pos.bracket_deadline_ts > EPS and now >= pos.bracket_deadline_ts:
-            # vertical barrier: an aging bracket gets no special leniency
-            # (marketable-first, like the legacy time-stop scratch it
-            # replaces for this position) - being out fast beats holding
-            # a thesis whose label horizon has already expired.
-            self._submit_exit(pos, 100.0, "tb_time", now=now)
+            # vertical barrier. Until 2026-10-03 this was marketable-first
+            # ("being out fast beats holding an expired thesis"); PATIENT-1
+            # gives it ONE maker attempt at the touch (an order timeout),
+            # then the marketable ladder. The label is the barrier, not the
+            # fill price, and a risk-off exit still preempts the rest.
+            self._submit_exit(pos, 100.0, "tb_time", now=now, patient=True)
 
     def _has_resting_profit_take(self, pos: Position) -> bool:
         """True iff `pos` already has an OPEN resting (post-only) profit-
@@ -6593,7 +6612,7 @@ class LiquidityBot:
         log.warning(f"{Code.ML_LABEL_REALIZE.value}: realizing {pos.symbol} "
                     f"{pos.position_id[:8]} - {age_h:.1f}h > {mature_h:.1f}h "
                     f"label horizon; banking live label")
-        self._submit_exit(pos, 100.0, reason, now=now)
+        self._submit_exit(pos, 100.0, reason, now=now, patient=True)
 
     # ------------------------------------------------------------------
     # HOURLY cycle - macro regime + turbulence

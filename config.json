@@ -205,7 +205,9 @@
       "widen_mult": 2.0,
       "max_slippage_cap_pct": 3.0,
       "market_after_attempts": 3,
-      "maker_first_profit_exits": true
+      "maker_first_profit_exits": true,
+    "maker_first_time_exits": true,
+    "_maker_first_time_exits_doc": "PATIENT-1 (2026-10-03, operator: inventory control to stop fees cutting into profits). Time-based exits - bracket vertical barrier tb_time, PT-060 time-stop scratch, non-urgent stale-inventory purge, ML-073 label realization - are expiring, not escaping: they rest post-only at the touch on their FIRST attempt (maker fee) and escalate into the unchanged marketable ladder if unfilled; a risk-off exit preempts the rest. Stops, trails, floors and urgent hard-cap derisk stay marketable-first. Measured since cut #12: 108 of 113 exit legs paid the 30 bps taker rate. false restores the pre-2026-10-03 behaviour. A decision-cohort fork - record docs/quant/2026-10-03_inventory_netting_patient_exits.md."
     }
   },
   "risk_protocols": {
@@ -405,7 +407,9 @@
     "hard_cap_pct_of_equity": 25,
     "stale_max_age_hours": 36,
     "stale_min_loss_pct": 0.5,
-    "max_same_side_positions_per_asset": 2
+    "max_same_side_positions_per_asset": 2,
+    "refuse_opposite_side": true,
+    "_refuse_opposite_side_doc": "NET-1 (2026-10-03, operator: 'the bot has to have control and conscious of the inventory to improve upon the fees'). Each trip is its own bracketed position, so an entry OPPOSITE an open same-asset position does not net the book - it opens a second trade paying a full round trip of fees for exposure that cancels. Measured since cut #12: 36 of 112 entries opened against an open opposite position and paid $9.07 of $27.81 trip fees. true refuses such entries (SZ-062); hedges are not counted; false restores the pre-2026-10-03 behaviour. A decision-cohort fork - record docs/quant/2026-10-03_inventory_netting_patient_exits.md."
   },
   "hedging": {
     "enabled": false,
