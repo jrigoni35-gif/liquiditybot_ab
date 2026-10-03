@@ -986,7 +986,8 @@ def _author_command():
     # ---- the only detail worth showing before going deeper ---------------
     row("Positions")
     table("Open positions", 24, 9,
-          cols=[("liquiditybot_position_notional_usd", "notional", USD, 2,
+          cols=[("liquiditybot_position_lots", "lots", "short", 0, None),
+                ("liquiditybot_position_notional_usd", "notional", USD, 2,
                  None, "text"),
                 ("liquiditybot_position_upnl_usd", "uP&L $", USD, 2, PNL,
                  "text"),
@@ -1005,7 +1006,12 @@ def _author_command():
                 ("liquiditybot_position_stop_dist_pct", "stop dist",
                  "percent", 2, None)],
           label_keys=["symbol", "side"], sort="uP&L $",
-          desc="One row per open position, joined on symbol. An empty table "
+          desc="One row per instrument AND SIDE, not per position: the "
+               "exporter sums every open lot of the same symbol and side "
+               "(lots = how many). notional, uP&L $ are sums; uP&L % is on "
+               "their combined cost; conviction is notional-weighted; age is "
+               "the OLDEST lot; stop dist is the NEAREST stop. A long and a "
+               "short of the same symbol are two rows. An empty table "
                "is AMBIGUOUS and must not be read as a flat book: the same "
                "emptiness appears when the runner freezes, because every "
                "liquiditybot_position_* series stops being emitted while the "
@@ -1403,13 +1409,15 @@ def _author_learning():
     # render here; keep it that way. The target comes from the metric
     # (liquiditybot_cohort_min_n), never a hardcoded literal.
     row("The verdict clock")
-    bargauge("Era-4 verdict progress", M("liquiditybot_cohort_closes"),
+    bargauge("Running cohort - verdict progress", M("liquiditybot_cohort_closes"),
              24, 5, legend="closed trades counted", decimals=0, steps=BLUE,
              mn=0,
              extra=[(M("liquiditybot_cohort_min_n"),
                      "pre-registered target")],
-             desc="Closed trades counted toward the pre-registered verdict, "
-                  "against the target the readout needs - the target is "
+             desc="Closed trades of the decision cohort the bot is RUNNING "
+                  "now (its decision fingerprint, read from status.json) "
+                  "toward the pre-registered verdict, against the target the "
+                  "readout needs - the target is "
                   "read from the bot, never hardcoded. The gate DECIDES "
                   "nothing until the target is reached, and the accruing "
                   "win/loss numbers are deliberately on no board: reading "
