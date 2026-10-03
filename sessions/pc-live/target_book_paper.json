@@ -17,31 +17,31 @@
   }
  },
  "unit": "step = one 4h bar decided at its close, settled on the next",
- "steps": 1,
+ "steps": 2,
  "warmup_bars": 722,
  "gap_bars": 0,
  "first_decision_open_utc": "2026-10-03T00:00:00Z",
- "last_settled_open_utc": "2026-10-03T04:00:00Z",
+ "last_settled_open_utc": "2026-10-03T08:00:00Z",
  "arms": {
   "target_book": {
    "id": "g3-a0.5-equal-none",
    "born_i": 722,
-   "steps": 1,
+   "steps": 2,
    "status": "accruing",
    "fills": 0,
    "attempts": 0,
    "fees_usd": 1.08,
    "traded_usd": 0.0,
-   "cum_return": -0.0002555445355399977,
-   "cum_bench": -0.00025519955041708453,
-   "mean_excess": -3.44985122913144e-07,
-   "sharpe_excess": null,
+   "cum_return": -0.00038164904596071914,
+   "cum_bench": -0.00038113381974880234,
+   "mean_excess": -2.5765659739107605e-07,
+   "sharpe_excess": -2.0862682169830333,
    "dsr": null,
    "codes": {
-    "TB-000": 4
+    "TB-000": 8
    },
-   "equity_usd": 798.7158403596665,
-   "max_drawdown": 0.0016051995504169358,
+   "equity_usd": 798.6150929442011,
+   "max_drawdown": 0.0017311338197485426,
    "units": {
     "BTC": 0.0021255415702792608,
     "ETH": 0.06712335407942184,
@@ -53,21 +53,21 @@
   "target_book_vol40": {
    "id": "g3-a0.5-equal-none",
    "born_i": 722,
-   "steps": 1,
+   "steps": 2,
    "status": "accruing",
    "fills": 0,
    "attempts": 0,
    "fees_usd": 0.924,
    "traded_usd": 0.0,
-   "cum_return": -0.0005564439982833624,
-   "cum_bench": -0.00025519955041708453,
-   "mean_excess": -0.0003012444478662779,
-   "sharpe_excess": null,
+   "cum_return": -0.00014811475318354805,
+   "cum_bench": -0.00038113381974880234,
+   "mean_excess": 0.0001166392759985313,
+   "sharpe_excess": 0.19736691883681257,
    "dsr": null,
    "codes": {
-    "TB-000": 4
+    "TB-000": 8
    },
-   "equity_usd": 798.6313671250992,
+   "equity_usd": 798.9576532282942,
    "max_drawdown": 0.0017107910936259296,
    "units": {
     "BTC": 0.0021255415702792608,
@@ -78,9 +78,9 @@
    "cash_usd": 183.0814575206173
   },
   "buy_hold": {
-   "equity_usd": 798.7177637140952,
-   "cum_return": -0.0016027953573809484,
-   "max_drawdown": 0.0002551612762254907,
+   "equity_usd": 798.617167193411,
+   "cum_return": -0.0017285410082362729,
+   "max_drawdown": 0.0003810766582497127,
    "fees_usd": 1.0783824263604593
   }
  },
@@ -96,6 +96,12 @@
    "target_book": 798.7158,
    "target_book_vol40": 798.6314,
    "buy_hold": 798.7178
+  },
+  {
+   "open_utc": "2026-10-03T08:00:00Z",
+   "target_book": 798.6151,
+   "target_book_vol40": 798.9577,
+   "buy_hold": 798.6172
   }
  ],
  "lab": {
@@ -108,15 +114,33 @@
    {
     "id": "g3-a0.5-equal-none",
     "born_i": 722,
+    "steps": 2,
+    "status": "accruing",
+    "fills": 0,
+    "attempts": 0,
+    "fees_usd": 1.08,
+    "traded_usd": 0.0,
+    "cum_return": -0.00038164904596071914,
+    "cum_bench": -0.00038113381974880234,
+    "mean_excess": -2.5765659739107605e-07,
+    "sharpe_excess": -2.0862682169830333,
+    "dsr": null,
+    "codes": {
+     "TB-000": 8
+    }
+   },
+   {
+    "id": "g1.5-a0.25-equal-none",
+    "born_i": 722,
     "steps": 1,
     "status": "accruing",
     "fills": 0,
     "attempts": 0,
     "fees_usd": 1.08,
     "traded_usd": 0.0,
-    "cum_return": -0.0002555445355399977,
-    "cum_bench": -0.00025519955041708453,
-    "mean_excess": -3.44985122913144e-07,
+    "cum_return": -0.00012304069835589182,
+    "cum_bench": -0.00012287459341309148,
+    "mean_excess": -1.6610494280033805e-07,
     "sharpe_excess": null,
     "dsr": null,
     "codes": {
@@ -124,56 +148,44 @@
     }
    },
    {
-    "id": "g1.5-a0.25-equal-none",
-    "born_i": 722,
-    "steps": 0,
-    "status": "accruing",
-    "fills": 0,
-    "attempts": 0,
-    "fees_usd": 0.0,
-    "traded_usd": 0.0,
-    "cum_return": 0.0,
-    "cum_bench": 0.0,
-    "mean_excess": null,
-    "sharpe_excess": null,
-    "dsr": null,
-    "codes": {}
-   },
-   {
     "id": "g1.5-a0.25-inverse_vol-none",
     "born_i": 722,
-    "steps": 0,
+    "steps": 1,
     "status": "accruing",
     "fills": 0,
     "attempts": 0,
-    "fees_usd": 0.0,
+    "fees_usd": 1.08,
     "traded_usd": 0.0,
-    "cum_return": 0.0,
-    "cum_bench": 0.0,
-    "mean_excess": null,
+    "cum_return": 0.000591393487495484,
+    "cum_bench": -0.00012287459341309148,
+    "mean_excess": 0.0007142680809085755,
     "sharpe_excess": null,
     "dsr": null,
-    "codes": {}
+    "codes": {
+     "TB-000": 4
+    }
    },
    {
     "id": "g1.5-a0.5-equal-none",
     "born_i": 722,
-    "steps": 0,
+    "steps": 1,
     "status": "accruing",
     "fills": 0,
     "attempts": 0,
-    "fees_usd": 0.0,
+    "fees_usd": 1.08,
     "traded_usd": 0.0,
-    "cum_return": 0.0,
-    "cum_bench": 0.0,
-    "mean_excess": null,
+    "cum_return": -0.00012304069835589182,
+    "cum_bench": -0.00012287459341309148,
+    "mean_excess": -1.6610494280033805e-07,
     "sharpe_excess": null,
     "dsr": null,
-    "codes": {}
+    "codes": {
+     "TB-000": 4
+    }
    }
   ]
  },
  "read_point": null,
- "written_at_utc": "2026-10-03T11:33:10Z",
+ "written_at_utc": "2026-10-03T12:33:23Z",
  "fetch_errors": []
 }
