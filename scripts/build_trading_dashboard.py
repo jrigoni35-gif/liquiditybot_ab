@@ -110,6 +110,7 @@ CODE_LABELS = {
     "SZ-053": "SZ-053 · probe tuition governor",
     "SZ-060": "SZ-060 · inventory aggression scaled",
     "SZ-061": "SZ-061 · inventory skew scaled",
+    "SZ-062": "SZ-062 · opposes open inventory",
     "CV-000": "CV-000 · conviction admitted",
     "CV-010": "CV-010 · agreement below floor",
     "CV-020": "CV-020 · edge below cost multiple",

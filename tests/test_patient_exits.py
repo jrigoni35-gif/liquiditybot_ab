@@ -84,6 +84,6 @@ def test_call_sites_mark_exactly_the_time_based_exits_patient():
     src = inspect.getsource(main_mod.LiquidityBot)
     assert 'self._submit_exit(pos, 100.0, "tb_time", now=now, patient=True)' in src
     assert "patient=is_time_stop" in src
-    assert "patient=not act.urgent" in src
+    assert 'patient=not getattr(act, "urgent", True)' in src
     assert "self._submit_exit(pos, 100.0, reason, now=now, patient=True)" in src
     assert '"hard stop", now=now)' in src                 # stops untouched

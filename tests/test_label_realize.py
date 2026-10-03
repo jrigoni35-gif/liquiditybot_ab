@@ -134,7 +134,8 @@ def test_learning_unwinds_gate_on_trusted_marks():
     assert src.count("self._mark_fresh(pos.symbol, now)") >= 3
     # and both unwind exits run on injected engine time, not wall clock
     assert 'self._submit_exit(pos, 100.0, "unteachable unwind (ML-071)",' in src
-    assert "self._submit_exit(pos, 100.0, reason, now=now)" in src
+    # PATIENT-1 (2026-10-03): ML-073 is a time-based exit -> patient=True
+    assert "self._submit_exit(pos, 100.0, reason, now=now, patient=True)" in src
 
 
 def _order(purpose, pid, post_only=False):
@@ -284,4 +285,5 @@ def test_bracket_backstop_threads_tb_time_reason():
         encoding="utf-8")
     assert '"tb_time" if bracket_backstop' in src
     assert '"label-mature realization (ML-073)"' in src
-    assert "self._submit_exit(pos, 100.0, reason, now=now)" in src
+    # PATIENT-1 (2026-10-03): ML-073 is a time-based exit -> patient=True
+    assert "self._submit_exit(pos, 100.0, reason, now=now, patient=True)" in src

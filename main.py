@@ -3196,8 +3196,10 @@ class LiquidityBot:
                 pos = self.state.get_position(act.position_id)
                 if pos and self._stop_ok.get(self._asset_of(pos.symbol), True) \
                         and self._mark_fresh(pos.symbol, now):
+                    # an action without the flag counts as URGENT
+                    # (marketable) - never the reverse
                     self._submit_exit(pos, act.close_pct, act.reason, now=now,
-                                      patient=not act.urgent)
+                                      patient=not getattr(act, "urgent", True))
             except Exception:
                 self._exit_eval_failures += 1
                 log.exception("derisk action raised - other positions still "
