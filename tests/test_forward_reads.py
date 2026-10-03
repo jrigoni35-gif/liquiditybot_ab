@@ -75,3 +75,32 @@ def test_a_fresh_lock_skips_and_a_stale_one_is_reclaimed(tmp_path, monkeypatch):
     monkeypatch.setattr(fr.ad, "main", lambda argv: 1)
     assert fr.run_once(out) == 1                         # stale: reclaimed, ran
     assert not lock.exists()
+
+
+def test_every_run_appends_a_timestamped_evidence_line(tmp_path, monkeypatch):
+    """The view-blend arms must use, at each past bar, only the evidence that
+    existed THEN - so each forward read appends (ts, id, status, dB) to an
+    append-only log rather than only overwriting the summary."""
+    rep = {"registered": {"panel_months": ["2023-01", "2026-10"]}}
+
+    def fake_ad(argv):
+        d = tmp_path / "out" / "alpha_decay"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "alpha_decay_20261009T000000Z.json").write_text(json.dumps(rep), encoding="utf-8")
+        return 0
+
+    def fake_el(argv):
+        d = tmp_path / "out" / "ledger"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "ledger_20261009T000000Z.json").write_text(json.dumps(
+            {"rows": [_row(f"h{i}", "UNDECIDED") for i in range(21)], "missing": []}),
+            encoding="utf-8")
+        return 0
+    monkeypatch.setattr(fr.ad, "main", fake_ad)
+    monkeypatch.setattr(fr.el, "main", fake_el)
+    out = tmp_path / "out"
+    assert fr.run_once(out) == 0 and fr.run_once(out) == 0
+    lines = [json.loads(x) for x in (out / fr.EVIDENCE_LOG).read_text(encoding="utf-8").splitlines()]
+    assert len(lines) == 42                                   # 21 ids x 2 runs, appended
+    assert {"ts", "id", "status", "db_exist_forward"} <= set(lines[0])
+    assert all(isinstance(x["ts"], float) for x in lines)

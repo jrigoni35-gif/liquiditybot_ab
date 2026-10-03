@@ -43,6 +43,9 @@ from scripts import knowledge_plan as kp  # noqa: E402
 REPS = 1000
 LOCK_STALE_S = 12 * 3600
 SUMMARY_NAME = "forward_reads.json"
+# append-only (ts, id, status, dB) - lets a replay use, at each past bar,
+# only the evidence that existed then (scripts/target_book_paper.py view arms)
+EVIDENCE_LOG = "evidence_log.jsonl"
 
 
 def default_dir() -> Path:
@@ -118,6 +121,11 @@ def run_once(out: Path, reps: int = REPS) -> int:
         doc["report"], doc["ledger"] = rep_path.name, led_path.name
         (out / SUMMARY_NAME).write_text(json.dumps(doc, indent=1, default=str),
                                         encoding="utf-8")
+        now = time.time()
+        with (out / EVIDENCE_LOG).open("a", encoding="utf-8") as f:
+            for r in doc["rows"]:
+                f.write(json.dumps({"ts": now, "id": r["id"], "status": r["status"],
+                                    "db_exist_forward": r["db_exist_forward"]}) + "\n")
         print(f"forward_reads: window {doc['window']}; {doc['reconcile']}")
         return 0
     finally:

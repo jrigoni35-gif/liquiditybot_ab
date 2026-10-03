@@ -5,6 +5,8 @@ import json
 import math
 from pathlib import Path
 
+import pytest
+
 from scripts import target_book_paper as tp
 from scripts.target_book_replay import align
 
@@ -51,7 +53,8 @@ def test_arms_use_the_real_instance_terms_and_reconcile():
     reg = doc["registered"]
     assert reg["cash_usd"] == CFG["capital_management"]["starting_capital_usd"]
     assert reg["maker_fee_bps"] == CFG["pretrade"]["maker_fee_bps"]
-    assert set(doc["arms"]) == {"buy_hold", "target_book", "target_book_vol40"}
+    assert set(doc["arms"]) == {"buy_hold", "target_book", "target_book_vol40",
+                                "bl_window_vol40", "bl_gated", "bl_ungated_c25"}
     assert doc["lab"]["reconcile"].endswith("[OK]")
     for a in doc["arms"].values():
         assert a["equity_usd"] > 0 and 0 <= a["max_drawdown"] < 1
@@ -85,3 +88,48 @@ def test_unreachable_venue_reports_the_stored_bars(tmp_path, monkeypatch):
     again = json.loads((out / tp.STATUS_NAME).read_text(encoding="utf-8"))
     assert again["steps"] == first["steps"] and len(again["fetch_errors"]) == 4
     assert len((out / "runs.jsonl").read_text(encoding="utf-8").splitlines()) == 2
+
+
+# ---- view-blend arms (core/view_blend.py), registered 2026-10-03 ----------
+def _bl_series(n_after=200):
+    before = (tp.bl_from_ts() - tp.paper_from_ts()) // STEP
+    return _series(400, int(before) + n_after, seed=3)
+
+
+def test_gated_arm_equals_the_vol_basket_while_nothing_is_promoted():
+    doc = tp.run(align(_bl_series()), CFG, evidence=[])
+    g, ref = doc["arms"]["bl_gated"], doc["arms"]["bl_window_vol40"]
+    assert g["steps"] > 50 and g["equity_usd"] == pytest.approx(ref["equity_usd"], rel=1e-12)
+
+
+def test_ungated_views_actually_move_the_book():
+    doc = tp.run(align(_bl_series()), CFG, evidence=[])
+    assert doc["arms"]["bl_ungated_c25"]["equity_usd"] != pytest.approx(
+        doc["arms"]["bl_window_vol40"]["equity_usd"], rel=1e-9)
+
+
+def test_a_promotion_changes_only_bars_after_it_was_recorded():
+    bars = align(_bl_series())
+    mid = tp.bl_from_ts() + 100 * STEP
+    ev = [{"ts": float(mid), "id": tp.VIEW_HYPOTHESES["xs_mom"],
+           "status": "LIVE", "db_exist_forward": 20.0}]
+    base = tp.run(bars, CFG, evidence=[])["curve"]
+    prom = tp.run(bars, CFG, evidence=ev)["curve"]
+    before = [r for r in base if r["open_utc"] < tp._iso(mid)]
+    assert [r["bl_gated"] for r in before] == \
+        [r["bl_gated"] for r in prom[:len(before)]]
+    assert [r["bl_gated"] for r in base] != [r["bl_gated"] for r in prom]
+
+
+def test_views_read_nothing_after_the_decision_bar():
+    s = _bl_series()
+    bars = align(s)
+    i = len(bars) - 60
+    w0 = {a: 0.2 for a in bars.close}
+    r1 = tp.make_reshape(lambda key, t: 0.25)(dict(w0), bars, i)
+    for a in s:
+        for k in range(i + 1, len(s[a])):
+            t_, h, lo, c = s[a][k]
+            s[a][k] = (t_, h * 3, lo * 3, c * 3)
+    r2 = tp.make_reshape(lambda key, t: 0.25)(dict(w0), align(s), i)
+    assert r1 == pytest.approx(r2, rel=1e-12)

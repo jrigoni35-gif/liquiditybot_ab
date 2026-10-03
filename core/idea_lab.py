@@ -223,9 +223,13 @@ def book_params(idea: Idea, base: BookParams) -> BookParams:
 
 
 def decide(book: ShadowBook, bars: Bars, i: int, base: BookParams,
-           cfg: dict, lim: PressureLimits):
+           cfg: dict, lim: PressureLimits, reshape=None):
     """The decision at close i. Reads bars[: i + 1] ONLY - pinned by a test
-    that hands it bars truncated at i. Returns (plan, prices at i)."""
+    that hands it bars truncated at i. Returns (plan, prices at i).
+
+    reshape(weights, bars, i) -> weights, optional: replaces the
+    (vol-targeted) basket weights before tilts - the hook the view-blend
+    arms use (core/view_blend.py). It must read bars[: i + 1] only."""
     idea = book.idea
     params = book_params(idea, base)
     px = {a: c[i] for a, c in bars.close.items()}
@@ -237,6 +241,8 @@ def decide(book: ShadowBook, bars: Bars, i: int, base: BookParams,
         sig = _sigmas(bars, i, int(cfg.get("vol_lookback_bars", 30)))
         w = vol_target_scale(w, {a: v * math.sqrt(per_year) for a, v in sig.items()},
                              params.vol_target_ann, params.vol_cap)
+    if reshape is not None:
+        w = reshape(dict(w), bars, i)
     tgt = tilted_targets(w, _tilts(bars, i, idea.tilt,
                                    int(cfg["tilt_lookback_bars"])),
                          params.tilt_cap)
@@ -284,9 +290,9 @@ def decide(book: ShadowBook, bars: Bars, i: int, base: BookParams,
 
 
 def step_book(book: ShadowBook, bars: Bars, i: int, base: BookParams,
-              cfg: dict, lim: PressureLimits) -> None:
+              cfg: dict, lim: PressureLimits, reshape=None) -> None:
     """Decide at close i (data <= i), fill on bar i+1, mark at close i+1."""
-    p, px = decide(book, bars, i, base, cfg, lim)
+    p, px = decide(book, bars, i, base, cfg, lim, reshape)
     eq = book.equity(px)
     fee = base.maker_fee_bps / 1e4
     off = float(cfg["quote_offset_bps"]) / 1e4
