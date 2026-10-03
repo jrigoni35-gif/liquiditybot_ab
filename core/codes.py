@@ -247,6 +247,9 @@ class Code(str, Enum):
                                      # rolls (probation, never a life sentence)
     SZ_INV_AGGRO = "SZ-060"          # inventory-aware aggression scaling applied
     SZ_INV_SKEW = "SZ-061"           # A-S reservation skew: signed-inventory-increasing entry scaled
+    SZ_OPPOSES_INVENTORY = "SZ-062"  # NET-1: entry opposite an open same-asset position refused
+                                     # (separate bracketed trips do not net - two round trips of
+                                     # fees for cancelling exposure; 2026-10-03)
     SZ_APPROVED = "SZ-000"
 
     # ---- risk protocol stack (advanced overlay) --------------------------

@@ -61,6 +61,11 @@ class InventoryManager:
         self.max_age_hours = float(cfg.get("stale_max_age_hours", 36.0))
         self.stale_loss_pct = float(cfg.get("stale_min_loss_pct", 0.5))
         self.max_same_side = int(cfg.get("max_same_side_positions_per_asset", 2))
+        # NET-1 (2026-10-03): refuse an entry OPPOSITE an open same-asset
+        # position. Default off in code so every other constructor keeps its
+        # behaviour; config.json turns it on (a decision-cohort fork, record
+        # docs/quant/2026-10-03_inventory_netting_patient_exits.md).
+        self.refuse_opposite = bool(cfg.get("refuse_opposite_side", False))
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -100,6 +105,21 @@ class InventoryManager:
                                f"(variety rule)",
                                code=Code.SZ_ASSET_CROWDED)
 
+        if self.refuse_opposite:
+            # Each trip is its own bracketed position, so an "opposite add"
+            # does not net the book: it opens a second trade paying a full
+            # round trip of fees for exposure that cancels the first.
+            n_opp = sum(1 for pos in state.open_positions()
+                        if self._asset_of(pos.symbol) == asset
+                        and pos.direction != direction
+                        and not getattr(pos, "is_hedge", False))
+            if n_opp:
+                return AddDecision(False, 0.0,
+                                   f"{n_opp} open opposite position(s) in "
+                                   f"{asset} - a {direction} trip would pay a "
+                                   f"round trip to cancel exposure (NET-1)",
+                                   code=Code.SZ_OPPOSES_INVENTORY)
+
         inv = self.inventory_usd(state, asset, marks)
         soft = equity * self.soft_cap_pct / 100.0
         hard = equity * self.hard_cap_pct / 100.0
@@ -117,7 +137,8 @@ class InventoryManager:
             return AddDecision(False, 0.0, "no headroom to hard cap",
                             tier_tighten=True)
         allowed = min(order_usd, headroom)
-        # opposite-side adds reduce net inventory - always fine up to cap
+        # opposite-side adds reduce net inventory - fine up to cap ONLY when
+        # NET-1 is off (refuse_opposite_side=false); see the check above
         tighten = same_side and (sgn * inv + allowed) >= soft
         return AddDecision(True, allowed, tier_tighten=tighten)
 
