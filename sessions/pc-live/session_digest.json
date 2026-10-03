@@ -1,23 +1,23 @@
 {
-  "generated_at": 1791052109.1646361,
+  "generated_at": 1791055710.4601312,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1791052098.0,
-    "duration_h": 2050.58
+    "end": 1791055704.954,
+    "duration_h": 2051.58
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 727,
-      "signal_records": 577,
+      "records": 721,
+      "signal_records": 574,
       "by_src": {
         "long_book": 201,
-        "exploration": 176,
+        "exploration": 170,
         "conviction": 141,
         "entry_sweep": 98,
-        "ml_governor": 66,
-        "order_manager": 35,
+        "ml_governor": 67,
+        "order_manager": 34,
         "exit": 6,
         "startup": 2,
         "fault": 2
@@ -33,11 +33,11 @@
         ],
         [
           "ML-070",
-          68
+          67
         ],
         [
           "SZ-051",
-          67
+          66
         ],
         [
           "EN-000",
@@ -49,7 +49,7 @@
         ],
         [
           "OM-040",
-          22
+          21
         ],
         [
           "ML-016",
@@ -65,26 +65,30 @@
         ],
         [
           "SZ-052",
-          15
+          14
         ],
         [
-          "SZ-049",
-          14
+          "OM-000",
+          13
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.334,
+      "dominant_frac": 0.336,
       "retrain_requests": 3,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 1993,
+      "records": 2285,
       "by_level": {
-        "INFO": 1989,
-        "WARNING": 3,
+        "INFO": 2280,
+        "WARNING": 4,
         "CRITICAL": 1
       },
       "top_warnings": [
+        [
+          "ML-031: feature drift 13/29 shifted (beyond each feature's in-sample consecutive null): ['sigma_bar_pct', 'vol_percentile', 'imbalance_dir',",
+          2
+        ],
         [
           "ML-031: feature drift 14/29 shifted (beyond each feature's in-sample consecutive null): ['sigma_bar_pct', 'vol_percentile', 'imbalance_dir',",
           1
@@ -94,32 +98,29 @@
           1
         ],
         [
-          "ML-031: feature drift 13/29 shifted (beyond each feature's in-sample consecutive null): ['sigma_bar_pct', 'vol_percentile', 'imbalance_dir',",
-          1
-        ],
-        [
           "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 163d old (> 35d)) - snapshot degraded",
           1
         ]
       ],
       "liquidity_tally": {
-        "thin": 323
+        "thin": 404,
+        "spoofy": 1
       },
-      "spoofy_frac": 0.0,
+      "spoofy_frac": 0.002,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 136,
+      "cycles_estimate": 178,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 750.38,
+    "equity_end": 750.2,
     "equity_min": 749.79,
     "equity_max": 806.91,
     "equity_range": 57.12,
     "capital_epochs": 5,
-    "epoch_samples": 288986,
+    "epoch_samples": 289223,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 749.79,
     "lifetime_equity_max": 100000.03,
@@ -127,23 +128,23 @@
     "realized_pnl_total": -32.72,
     "fees_paid_total": 45.0577,
     "open_positions": 4,
-    "samples": 456777
+    "samples": 457014
   },
   "activity": {
-    "signal_rows_total": 36231,
+    "signal_rows_total": 36234,
     "live_labeled_trades": 530,
-    "candidate_rows": 35701
+    "candidate_rows": 35704
   },
   "audit": {
-    "records": 93166,
-    "signal_records": 36795,
+    "records": 93177,
+    "signal_records": 36806,
     "by_src": {
       "exploration": 79487,
-      "long_book": 4003,
-      "ml_governor": 3779,
+      "long_book": 4007,
+      "ml_governor": 3780,
       "order_manager": 2349,
-      "conviction": 1403,
-      "entry_sweep": 832,
+      "conviction": 1407,
+      "entry_sweep": 834,
       "exit": 435,
       "startup": 353,
       "fault": 334,
@@ -167,7 +168,7 @@
       ],
       [
         "LB-010",
-        2661
+        2665
       ],
       [
         "OM-000",
@@ -175,7 +176,7 @@
       ],
       [
         "ML-031",
-        1441
+        1442
       ],
       [
         "CV-030",
@@ -212,8 +213,8 @@
     "chain_seams": 63,
     "chain_torn_tail": false,
     "chain_error": null,
-    "records_all_lines": 95407,
-    "main_chain_records": 93166,
+    "records_all_lines": 95418,
+    "main_chain_records": 93177,
     "off_chain_records": 2241,
     "off_chain_codes": {
       "FW-050": 312,
@@ -342,13 +343,17 @@
     ]
   },
   "events": {
-    "records": 1993,
+    "records": 2285,
     "by_level": {
-      "INFO": 1989,
-      "WARNING": 3,
+      "INFO": 2280,
+      "WARNING": 4,
       "CRITICAL": 1
     },
     "top_warnings": [
+      [
+        "ML-031: feature drift 13/29 shifted (beyond each feature's in-sample consecutive null): ['sigma_bar_pct', 'vol_percentile', 'imbalance_dir',",
+        2
+      ],
       [
         "ML-031: feature drift 14/29 shifted (beyond each feature's in-sample consecutive null): ['sigma_bar_pct', 'vol_percentile', 'imbalance_dir',",
         1
@@ -358,20 +363,17 @@
         1
       ],
       [
-        "ML-031: feature drift 13/29 shifted (beyond each feature's in-sample consecutive null): ['sigma_bar_pct', 'vol_percentile', 'imbalance_dir',",
-        1
-      ],
-      [
         "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 163d old (> 35d)) - snapshot degraded",
         1
       ]
     ],
     "liquidity_tally": {
-      "thin": 323
+      "thin": 404,
+      "spoofy": 1
     },
-    "spoofy_frac": 0.0,
+    "spoofy_frac": 0.002,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 136,
+    "cycles_estimate": 178,
     "feed_error_events": 0
   },
   "model": {
@@ -402,7 +404,7 @@
       "unavailable": "signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 25838,
+      "triple_barrier_h432": 25841,
       "triple_barrier": 5328,
       "exit_sim": 2825,
       "legacy": 1781,
@@ -422,14 +424,14 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 36231,
+    "corpus_rows": 36234,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
     "corpus_last_ts": "2026-10-03T08:25:00Z",
     "corpus_span_days": 81.83,
     "signal_ts_missing": 0,
     "rows_per_cohort": {
       "legacy": 34330,
-      "6709bbc2778d": 872,
+      "6709bbc2778d": 875,
       "75e19fa38ffb": 395,
       "6709bb74df3e": 359,
       "0f773bf5fc67": 162,
@@ -506,7 +508,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 33% of 577 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 34% of 574 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
