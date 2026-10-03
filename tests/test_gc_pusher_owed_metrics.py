@@ -447,3 +447,63 @@ def test_cohort_gauge_falls_back_to_pooled_when_segmentation_absent(
     gauge are indistinguishable on a board."""
     m = gp._cohort_metrics(1000.0)
     assert _val(m, "liquiditybot_cohort_closes") == 37.0
+
+
+# 2026-10-03 measured regression: exec_era froze at cut #13, so the
+# "current era" bucket is the LEGACY decision cohort and stopped meaning
+# "what is accruing" the day cohorts became fingerprint-keyed. The board
+# read 89/50 (a passed gate) while the running cohort 6709bbc2778d held 7.
+_COHORT_JSON_FP = {
+    "era4": {"n": 216, "min_n": 50},
+    "homogeneity": {
+        "current_era": "12-10d4d0c2",
+        "by_era": {"7-e7d5ca1a": 56, "12-10d4d0c2": 89},
+        "by_fp": {"6709bbc2778d": 7, "6709bb74df3e": 6, "0f773bf5fc67": 2},
+    },
+}
+
+
+@pytest.fixture
+def cohort_env_fp(tmp_path, monkeypatch):
+    script = tmp_path / "fake_cohort_eval_fp.py"
+    script.write_text(
+        "import json\nprint(json.dumps(%s))\n" % json.dumps(_COHORT_JSON_FP),
+        encoding="utf-8")
+    monkeypatch.setattr(gp, "COHORT_SCRIPT", script)
+    monkeypatch.setattr(gp, "_cohort_cache",
+                        {"next_attempt": 0.0, "values": None})
+    status = tmp_path / "status.json"
+    monkeypatch.setattr(gp, "COHORT_STATUS_PATH", status)
+    return status
+
+
+def test_cohort_gauge_publishes_the_RUNNING_fingerprint_cohort(cohort_env_fp):
+    cohort_env_fp.write_text('{"decision_fp": "6709bbc2778d"}', encoding="utf-8")
+    m = gp._cohort_metrics(1000.0)
+    n = _val(m, "liquiditybot_cohort_closes")
+    assert n == 7.0, (f"gauge published {n} - 89 is the frozen legacy exec-era "
+                      f"bucket; the running cohort 6709bbc2778d holds 7 of 50")
+    assert _val(m, "liquiditybot_cohort_min_n") == 50.0
+
+
+def test_a_just_forked_cohort_with_no_trips_reads_zero_not_legacy(cohort_env_fp):
+    cohort_env_fp.write_text('{"decision_fp": "aaaabbbbcccc"}', encoding="utf-8")
+    assert _val(gp._cohort_metrics(1000.0), "liquiditybot_cohort_closes") == 0.0
+
+
+def test_legacy_or_unknown_running_cohort_keeps_the_era_count(cohort_env_fp):
+    cohort_env_fp.write_text('{"decision_fp": "legacy"}', encoding="utf-8")
+    assert _val(gp._cohort_metrics(1000.0), "liquiditybot_cohort_closes") == 89.0
+    gp._cohort_cache.update(next_attempt=0.0, values=None)
+    cohort_env_fp.unlink()                               # unreadable status
+    assert _val(gp._cohort_metrics(1000.0), "liquiditybot_cohort_closes") == 89.0
+
+
+def test_the_local_running_fp_mirror_matches_core_cohort(tmp_path):
+    from core import cohort
+    assert gp.LEGACY_FP == cohort.LEGACY_FP
+    f = tmp_path / "s.json"
+    for body in ('{"decision_fp": " 6709bbc2778d "}', '{}', 'not json'):
+        f.write_text(body, encoding="utf-8")
+        assert gp.running_fp(f) == cohort.running_fp(f)
+    assert gp.running_fp(tmp_path / "absent.json") == cohort.running_fp(tmp_path / "absent.json") == ""

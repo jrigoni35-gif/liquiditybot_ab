@@ -1187,6 +1187,22 @@ def _lineage_metrics(ts: float) -> list:
 
 COHORT_MIN_INTERVAL_SEC = 1800.0   # >= 30 min between subprocess ATTEMPTS
 COHORT_TIMEOUT_SEC = 30.0          # hard wall on the child process
+# The running process's decision fingerprint is read from the same status
+# file collect() reads (LB_STATUS, repo-relative by default).
+_st = os.environ.get("LB_STATUS", "outputs/status.json")
+COHORT_STATUS_PATH = Path(_st) if os.path.isabs(_st) else _REPO_ROOT / _st
+# Mirrors core.cohort.LEGACY_FP / running_fp (this exporter stays free of
+# engine imports; tests/test_gc_pusher_owed_metrics.py pins the equality).
+LEGACY_FP = "legacy"
+
+
+def running_fp(status_path) -> str:
+    """decision_fp from status.json, or "" when unreadable (= unknown)."""
+    try:
+        s = json.loads(Path(status_path).read_text(encoding="utf-8"))
+        return str(s.get("decision_fp") or "").strip()
+    except (OSError, ValueError, AttributeError):
+        return ""
 _cohort_cache: dict = {"next_attempt": 0.0, "values": None}
 
 
@@ -1231,6 +1247,18 @@ def _run_cohort_eval():
         cur = hg.get("current_era")
         by_era = hg.get("by_era") or {}
         n = by_era.get(cur) if cur and isinstance(by_era, dict) else None
+        # PUBLISH THE RUNNING DECISION COHORT (2026-10-03). exec_era froze at
+        # cut #13 (CLAUDE.md, CS-1): since cohorts became fingerprint-keyed
+        # (2026-09-26) the "current era" bucket is the LEGACY decision cohort
+        # and no longer moves. Measured: the board read 89/50 - a passed
+        # gate - while the running cohort 6709bbc2778d held 7. When the
+        # running fingerprint is a fork, its own count is the accrual; a
+        # fork with no closed trips yet is 0, never the legacy number.
+        # Unknown ("" - status unreadable) or legacy keeps the era count.
+        run = running_fp(COHORT_STATUS_PATH)
+        by_fp = hg.get("by_fp")
+        if run and run != LEGACY_FP and isinstance(by_fp, dict):
+            n = by_fp.get(run, 0)
         if n is None:
             n = era4.get("n")
         # finiteness enforced HERE: collect()'s NaN choke point does not

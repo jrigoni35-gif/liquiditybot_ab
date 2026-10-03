@@ -1332,7 +1332,7 @@
       "id": 18,
       "type": "table",
       "title": "Open positions",
-      "description": "One row per open position, joined on symbol. An empty table is AMBIGUOUS and must not be read as a flat book: the same emptiness appears when the runner freezes, because every liquiditybot_position_* series stops being emitted while the positions are still genuinely open (measured 2026-08-15 - 5 open, 0 series). Read the Runner and Data age tiles before concluding anything from an empty table. NOTE (corrected 2026-09-05): this panel used to assert the book was EXPECTED quiet because cut #8's derived entry bar had risen to 0.8335 and stopped conviction entries. Cut #9 UNWOUND that - it corrected a ~2x fee over-statement, the bar fell and conviction resumed - so an empty table is NO LONGER explained away by cost. Treat it as unexplained until you have checked Runner/Data age and the entry-veto codes; the bar is derived from the live fee stack and is printed on the runner's startup line, so read it there rather than from this text.",
+      "description": "One row per instrument AND SIDE, not per position: the exporter sums every open lot of the same symbol and side (lots = how many). notional, uP&L $ are sums; uP&L % is on their combined cost; conviction is notional-weighted; age is the OLDEST lot; stop dist is the NEAREST stop. A long and a short of the same symbol are two rows. An empty table is AMBIGUOUS and must not be read as a flat book: the same emptiness appears when the runner freezes, because every liquiditybot_position_* series stops being emitted while the positions are still genuinely open (measured 2026-08-15 - 5 open, 0 series). Read the Runner and Data age tiles before concluding anything from an empty table. NOTE (corrected 2026-09-05): this panel used to assert the book was EXPECTED quiet because cut #8's derived entry bar had risen to 0.8335 and stopped conviction entries. Cut #9 UNWOUND that - it corrected a ~2x fee over-statement, the bar fell and conviction resumed - so an empty table is NO LONGER explained away by cost. Treat it as unexplained until you have checked Runner/Data age and the entry-veto codes; the bar is derived from the live fee stack and is printed on the runner's startup line, so read it there rather than from this text.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"
@@ -1356,6 +1356,22 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "lots"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -1606,7 +1622,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "liquiditybot_position_notional_usd{job=\"liquiditybot\"}",
+          "expr": "liquiditybot_position_lots{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
           "format": "table"
@@ -1617,7 +1633,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "liquiditybot_position_upnl_usd{job=\"liquiditybot\"}",
+          "expr": "liquiditybot_position_notional_usd{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
           "format": "table"
@@ -1628,7 +1644,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "liquiditybot_position_upnl_pct{job=\"liquiditybot\"}",
+          "expr": "liquiditybot_position_upnl_usd{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
           "format": "table"
@@ -1639,7 +1655,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "liquiditybot_position_r_multiple{job=\"liquiditybot\"}",
+          "expr": "liquiditybot_position_upnl_pct{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
           "format": "table"
@@ -1650,7 +1666,7 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "liquiditybot_position_conviction{job=\"liquiditybot\"}",
+          "expr": "liquiditybot_position_r_multiple{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
           "format": "table"
@@ -1661,13 +1677,24 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "liquiditybot_position_age_hours{job=\"liquiditybot\"}",
+          "expr": "liquiditybot_position_conviction{job=\"liquiditybot\"}",
           "instant": true,
           "range": false,
           "format": "table"
         },
         {
           "refId": "G",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "grafanacloud-prom"
+          },
+          "expr": "liquiditybot_position_age_hours{job=\"liquiditybot\"}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "H",
           "datasource": {
             "type": "prometheus",
             "uid": "grafanacloud-prom"
@@ -1699,24 +1726,26 @@
           "options": {
             "excludeByName": {},
             "renameByName": {
-              "Value #A": "notional",
-              "Value #B": "uP&L $",
-              "Value #C": "uP&L %",
-              "Value #D": "R",
-              "Value #E": "conviction",
-              "Value #F": "age",
-              "Value #G": "stop dist"
+              "Value #A": "lots",
+              "Value #B": "notional",
+              "Value #C": "uP&L $",
+              "Value #D": "uP&L %",
+              "Value #E": "R",
+              "Value #F": "conviction",
+              "Value #G": "age",
+              "Value #H": "stop dist"
             },
             "indexByName": {
               "symbol": 0,
               "side": 1,
-              "notional": 2,
-              "uP&L $": 3,
-              "uP&L %": 4,
-              "R": 5,
-              "conviction": 6,
-              "age": 7,
-              "stop dist": 8
+              "lots": 2,
+              "notional": 3,
+              "uP&L $": 4,
+              "uP&L %": 5,
+              "R": 6,
+              "conviction": 7,
+              "age": 8,
+              "stop dist": 9
             }
           }
         }

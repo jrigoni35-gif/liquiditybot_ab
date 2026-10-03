@@ -2328,8 +2328,8 @@
     {
       "id": 32,
       "type": "bargauge",
-      "title": "Era-4 verdict progress",
-      "description": "Closed trades counted toward the pre-registered verdict, against the target the readout needs - the target is read from the bot, never hardcoded. The gate DECIDES nothing until the target is reached, and the accruing win/loss numbers are deliberately on no board: reading them early is how a verdict gets tuned instead of measured. Count refreshes about every 30 minutes.",
+      "title": "Running cohort - verdict progress",
+      "description": "Closed trades of the decision cohort the bot is RUNNING now (its decision fingerprint, read from status.json) toward the pre-registered verdict, against the target the readout needs - the target is read from the bot, never hardcoded. The gate DECIDES nothing until the target is reached, and the accruing win/loss numbers are deliberately on no board: reading them early is how a verdict gets tuned instead of measured. Count refreshes about every 30 minutes.",
       "datasource": {
         "type": "prometheus",
         "uid": "grafanacloud-prom"

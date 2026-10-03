@@ -124,6 +124,7 @@ _COMMAND_HERO_PANELS = frozenset({
     (17, "Positions", "row", ()),
     (18, "Open positions", "table",
      ("liquiditybot_position_age_hours", "liquiditybot_position_conviction",
+      "liquiditybot_position_lots",
       "liquiditybot_position_notional_usd", "liquiditybot_position_r_multiple",
       "liquiditybot_position_stop_dist_pct", "liquiditybot_position_upnl_pct",
       "liquiditybot_position_upnl_usd")),
@@ -184,7 +185,7 @@ _LEARNING_PANELS = frozenset({
     (29, 'Model lifecycle events', 'bargauge', ('liquiditybot_ml_lineage_events',)),
     (30, 'Is the model orphaned?', 'stat', ('liquiditybot_ml_orphan_ratio',)),
     (31, 'The verdict clock', 'row', ()),
-    (32, 'Era-4 verdict progress', 'bargauge', ('liquiditybot_cohort_closes', 'liquiditybot_cohort_min_n')),
+    (32, 'Running cohort - verdict progress', 'bargauge', ('liquiditybot_cohort_closes', 'liquiditybot_cohort_min_n')),
     (33, 'The cost of learning', 'row', ()),
     (34, 'Probe tokens in the tank', 'gauge', ('liquiditybot_probe_budget_tokens',)),
     # STREAM 7c (audit MERGE 42->41): Tuition cap folded into this desc.
