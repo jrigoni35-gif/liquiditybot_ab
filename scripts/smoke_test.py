@@ -1372,6 +1372,27 @@ def test_moomoo_feed():
           f"{i_calm:.2f} -> {i_sell:.2f}")
 
 
+def _in_scratch_cwd(fn):
+    """Run fn with cwd in a throwaway dir (SMOKE-CWD-1). A real BotRunner
+    resolves ControlChannel, StatusWriter and the paused/entries_off/
+    force_dry sentinels against cwd, so run from the repo root section [20]
+    drained the operator's queued commands, deleted their risk-off
+    sentinels and wrote force_dry.on into the live outputs/ - measured by
+    injection 2026-10-03. FORCE_DRY_SENTINEL itself stays cwd-relative by
+    design (never relocatable); the harness moves, not the runner."""
+    import os
+    import shutil
+    scratch = TMP / "smoke_cwd"
+    shutil.rmtree(scratch, ignore_errors=True)
+    scratch.mkdir(parents=True)
+    prev = os.getcwd()
+    os.chdir(scratch)
+    try:
+        fn()
+    finally:
+        os.chdir(prev)
+
+
 def test_runtime_and_runner():
     import shutil
     import os
@@ -2239,7 +2260,7 @@ if __name__ == "__main__":
     print("[17] sentiment scanner (free)"); test_sentiment_scanner()
     print("[18] webdata feed");             test_webdata_feed()
     print("[19] moomoo feed");              test_moomoo_feed()
-    print("[20] runtime + runner + safety");test_runtime_and_runner()
+    print("[20] runtime + runner + safety"); _in_scratch_cwd(test_runtime_and_runner)
     print("[21] DL upgrades");              test_dl_upgrades()
     print("[22] record/replay/sweep");      test_record_replay_sweep()
     print("[23] security hardening");        test_security_hardening()
