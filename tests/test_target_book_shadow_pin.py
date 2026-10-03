@@ -13,7 +13,7 @@ from core import cohort
 from core.config_guard import validate
 
 ROOT = Path(__file__).resolve().parents[1]
-PAT = re.compile(r"target_book|idea_lab|TargetBook|IdeaLab")
+PAT = re.compile(r"target_book|idea_lab|view_blend|TargetBook|IdeaLab")
 
 
 def _decision_files():
