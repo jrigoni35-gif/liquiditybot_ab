@@ -1076,7 +1076,20 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — **REFUTE
   red→green; injection both arms in a scratch cwd) and the live recording ring
   was byte-identical through the real DoD smoke gate. Full DoD 2026-09-14
   23:25-23:42Z: 7 green, OF-5 the operator-settled red; the 36 pytest reds
-  were a harness basetemp artifact (three suites re-run 57/57). **Next SAFE
+  were a harness basetemp artifact (three suites re-run 57/57). **ROOT CAUSES
+  MEASURED 2026-10-04, both fixed in `tests/conftest.py`:** (1) git fixtures
+  past MAX_PATH - the receiving side of a local push writes
+  `objects/tmp_objdir-incoming-*` and a long basetemp crosses 260 chars
+  (`-c` and GIT_CONFIG_COUNT do not reach receive-pack; a session-scoped
+  GIT_CONFIG_GLOBAL with core.longpaths does). 57 is exactly the test count
+  of test_telemetry_backup + test_remote_control + test_corpus_sync, so the
+  09-14 reds were very likely this [I]. (2) a dead `pytest-current` link made
+  by an elevated scheduled run, which ordinary sessions can neither remove nor
+  read, crashed pytest's session-end cleanup AFTER the tests ran (exit 1, no
+  summary); conftest now tolerates it and prints one line naming it.
+  Pins + a Markov-chain scrutiny of the refusal policy:
+  `tests/test_conftest_harness.py`. Run the battery as `test_windows.bat`
+  does - `-n 8 -m "not timing"`, then a serial `-m timing` pass. **Next SAFE
   fix in the same class, owed:** `runner.py:310/:345/:365-369` resolve
   `ControlChannel()`, `StatusWriter()` and the three sentinels cwd-relative,
   so the DoD smoke gate deletes an operator's `entries_off.on`/`paused.on`
