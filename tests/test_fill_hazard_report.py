@@ -340,3 +340,70 @@ def test_the_report_says_consecutive_runs_are_not_independent():
     assert "ROLLING WINDOW" in src, (
         "the report no longer warns that consecutive runs share corpus, so two "
         "agreeing reports will be cited as corroboration again")
+
+
+# --------------------------------------------------------------------------
+# Default output location (2026-10-04). The daily panel run (cwd=ROOT) wrote
+# the report into cwd-relative docs/quant/, leaving it untracked in the PC
+# deploy tree; committing the same file later made `git merge --ff-only`
+# refuse, wedging the updater. The draft now lands in gitignored
+# outputs/fill_hazard/, anchored to the tree; filing copies it to docs/quant/.
+# --------------------------------------------------------------------------
+
+def test_default_out_is_anchored_to_the_tree_not_cwd(monkeypatch, tmp_path):
+    import scripts.fill_hazard_report as fh
+    monkeypatch.chdir(tmp_path)
+    out = fh.default_out()
+    root = Path(fh.__file__).resolve().parents[1]
+    assert out.is_absolute(), "default_out() must not depend on cwd"
+    assert out.parent == root / "outputs" / "fill_hazard"
+    assert out.name.endswith("_fill_hazard_l1.md")
+
+
+def test_default_out_is_gitignored():
+    """Asks git when there is a repo; a fresh-extract zip has none, so it then
+    reads the .gitignore rule itself. Never stands down: a skipped referee is
+    not running (tests/test_skip_census.py ratchets skips)."""
+    import shutil
+    import subprocess  # nosec B404 - fixed argv, no shell
+    import scripts.fill_hazard_report as fh
+    root = Path(fh.__file__).resolve().parents[1]
+    git = shutil.which("git")
+    if git is not None and (root / ".git").exists():
+        p = subprocess.run([git, "check-ignore", "-q", str(fh.default_out())],  # nosec B603
+                           cwd=str(root), check=False)
+        ignored = p.returncode == 0
+    else:
+        rules = (root / ".gitignore").read_text(encoding="utf-8").splitlines()
+        ignored = any(r.strip().rstrip("/") in ("outputs", "/outputs") for r in rules)
+    assert ignored, (
+        "the daily report must land on a gitignored path, or the deploy tree "
+        "accumulates untracked files that wedge `git merge --ff-only`")
+
+
+def test_main_reads_and_writes_its_own_tree_from_any_cwd(monkeypatch, tmp_path):
+    """A run launched from another checkout's cwd must not grade THAT tree's
+    recordings and then overwrite THIS tree's dated report."""
+    import sys
+    import scripts.fill_hazard_report as fh
+    seen = {}
+
+    def fake_run(cfg, rec_dir, out):
+        seen.update(cfg=cfg, rec=Path(rec_dir), out=Path(out))
+        return 0
+    monkeypatch.setattr(fh, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["fill_hazard_report.py"])
+    # The decoy matters: main.load_config PREFERS a config.json in cwd and
+    # only falls back to the package dir when cwd has none, so an empty cwd
+    # cannot see a cwd-relative --config default (a mutant survived that).
+    (tmp_path / "config.json").write_text(
+        json.dumps({"_decoy": True,
+                    "system": {"recording_dir": "decoy_recordings"}}),
+        encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert fh.main() == 0
+    root = Path(fh.__file__).resolve().parents[1]
+    real = json.loads((root / "config.json").read_text(encoding="utf-8"))
+    assert "_decoy" not in seen["cfg"], "loaded the cwd's config.json, not this tree's"
+    assert seen["rec"] == root / real["system"]["recording_dir"], seen["rec"]
+    assert seen["out"].parent == root / "outputs" / "fill_hazard"
