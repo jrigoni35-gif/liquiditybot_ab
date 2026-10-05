@@ -1,23 +1,23 @@
 {
-  "generated_at": 1791185419.7356157,
+  "generated_at": 1791189020.8337367,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1791185414.0,
-    "duration_h": 2087.61
+    "end": 1791189012.0,
+    "duration_h": 2088.61
   },
   "recent": {
     "hours": 48.0,
     "audit": {
-      "records": 578,
-      "signal_records": 541,
+      "records": 580,
+      "signal_records": 536,
       "by_src": {
         "long_book": 200,
-        "conviction": 124,
+        "conviction": 120,
         "entry_sweep": 100,
-        "ml_governor": 75,
-        "exploration": 47,
-        "order_manager": 17,
+        "ml_governor": 72,
+        "exploration": 55,
+        "order_manager": 18,
         "exit": 6,
         "startup": 4,
         "fault": 4,
@@ -30,7 +30,7 @@
         ],
         [
           "CV-000",
-          124
+          120
         ],
         [
           "EN-000",
@@ -42,6 +42,10 @@
         ],
         [
           "ML-070",
+          22
+        ],
+        [
+          "SZ-051",
           19
         ],
         [
@@ -50,19 +54,15 @@
         ],
         [
           "ML-016",
-          16
+          15
         ],
         [
           "ML-042",
-          16
+          15
         ],
         [
           "ML-041",
-          16
-        ],
-        [
-          "SZ-051",
-          16
+          15
         ],
         [
           "OM-000",
@@ -70,19 +70,19 @@
         ],
         [
           "SZ-049",
-          7
+          8
         ]
       ],
       "dominant_code": "LB-010",
-      "dominant_frac": 0.37,
+      "dominant_frac": 0.373,
       "retrain_requests": 5,
       "kill_switch_events": 0
     },
     "events": {
-      "records": 19611,
+      "records": 20201,
       "by_level": {
-        "INFO": 19527,
-        "WARNING": 80,
+        "INFO": 20116,
+        "WARNING": 81,
         "CRITICAL": 4
       },
       "top_warnings": [
@@ -96,6 +96,10 @@
         ],
         [
           "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
+          4
+        ],
+        [
+          "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 164d old (> 35d)) - snapshot degraded",
           4
         ],
         [
@@ -121,31 +125,27 @@
         [
           "TH-016: BTC: candle hole 30000s (~100 bars) - swing/sweep context fenced",
           3
-        ],
-        [
-          "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 164d old (> 35d)) - snapshot degraded",
-          3
         ]
       ],
       "liquidity_tally": {
-        "thin": 3097,
+        "thin": 3197,
         "spoofy": 80
       },
-      "spoofy_frac": 0.025,
+      "spoofy_frac": 0.024,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 1223,
+      "cycles_estimate": 1246,
       "feed_error_events": 0
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 752.81,
+    "equity_end": 752.74,
     "equity_min": 749.79,
     "equity_max": 806.91,
     "equity_range": 57.12,
     "capital_epochs": 5,
-    "epoch_samples": 297673,
+    "epoch_samples": 297910,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 749.79,
     "lifetime_equity_max": 100000.03,
@@ -153,23 +153,23 @@
     "realized_pnl_total": -31.25,
     "fees_paid_total": 46.4109,
     "open_positions": 4,
-    "samples": 465464
+    "samples": 465701
   },
   "activity": {
-    "signal_rows_total": 36848,
+    "signal_rows_total": 36862,
     "live_labeled_trades": 535,
-    "candidate_rows": 36313
+    "candidate_rows": 36327
   },
   "audit": {
-    "records": 93611,
-    "signal_records": 37204,
+    "records": 93626,
+    "signal_records": 37212,
     "by_src": {
-      "exploration": 79531,
-      "long_book": 4159,
+      "exploration": 79539,
+      "long_book": 4163,
       "ml_governor": 3841,
-      "order_manager": 2364,
+      "order_manager": 2365,
       "conviction": 1483,
-      "entry_sweep": 908,
+      "entry_sweep": 910,
       "exit": 440,
       "startup": 356,
       "fault": 337,
@@ -181,11 +181,11 @@
     "top_codes": [
       [
         "ML-070",
-        29293
+        29296
       ],
       [
         "SZ-051",
-        26774
+        26777
       ],
       [
         "SZ-047",
@@ -193,7 +193,7 @@
       ],
       [
         "LB-010",
-        2817
+        2821
       ],
       [
         "OM-000",
@@ -213,7 +213,7 @@
       ],
       [
         "OM-040",
-        756
+        757
       ],
       [
         "ML-016",
@@ -229,7 +229,7 @@
       ]
     ],
     "dominant_code": "SZ-047",
-    "dominant_frac": 0.599,
+    "dominant_frac": 0.598,
     "retrain_requests": 285,
     "kill_switch_events": 3,
     "chain_ok": false,
@@ -238,8 +238,8 @@
     "chain_seams": 63,
     "chain_torn_tail": false,
     "chain_error": null,
-    "records_all_lines": 95852,
-    "main_chain_records": 93611,
+    "records_all_lines": 95867,
+    "main_chain_records": 93626,
     "off_chain_records": 2241,
     "off_chain_codes": {
       "FW-050": 312,
@@ -368,10 +368,10 @@
     ]
   },
   "events": {
-    "records": 19611,
+    "records": 20201,
     "by_level": {
-      "INFO": 19527,
-      "WARNING": 80,
+      "INFO": 20116,
+      "WARNING": 81,
       "CRITICAL": 4
     },
     "top_warnings": [
@@ -385,6 +385,10 @@
       ],
       [
         "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
+        4
+      ],
+      [
+        "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 164d old (> 35d)) - snapshot degraded",
         4
       ],
       [
@@ -410,19 +414,15 @@
       [
         "TH-016: BTC: candle hole 30000s (~100 bars) - swing/sweep context fenced",
         3
-      ],
-      [
-        "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 164d old (> 35d)) - snapshot degraded",
-        3
       ]
     ],
     "liquidity_tally": {
-      "thin": 3097,
+      "thin": 3197,
       "spoofy": 80
     },
-    "spoofy_frac": 0.025,
+    "spoofy_frac": 0.024,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1223,
+    "cycles_estimate": 1246,
     "feed_error_events": 0
   },
   "model": {
@@ -453,7 +453,7 @@
       "unavailable": "signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)"
     },
     "rows_per_label_era": {
-      "triple_barrier_h432": 26452,
+      "triple_barrier_h432": 26466,
       "triple_barrier": 5328,
       "exit_sim": 2828,
       "legacy": 1781,
@@ -473,18 +473,18 @@
     },
     "pooling_hazard": true,
     "pooling_hazard_source": "fills.exec_era",
-    "corpus_rows": 36848,
+    "corpus_rows": 36862,
     "corpus_first_ts": "2026-07-13T12:35:47Z",
-    "corpus_last_ts": "2026-10-05T02:40:00Z",
-    "corpus_span_days": 83.59,
+    "corpus_last_ts": "2026-10-05T05:25:00Z",
+    "corpus_span_days": 83.7,
     "signal_ts_missing": 0,
     "rows_per_cohort": {
       "legacy": 34330,
-      "6709bbc2778d": 1365,
+      "6709bbc2778d": 1372,
       "75e19fa38ffb": 395,
       "6709bb74df3e": 359,
       "0f773bf5fc67": 162,
-      "575386195006": 124,
+      "575386195006": 131,
       "281334f23604": 90,
       "6709bb58cd7c": 23
     },
@@ -571,7 +571,7 @@
       "id": "SD-004",
       "severity": "warn",
       "title": "audit trail dominated by one code",
-      "detail": "LB-010 is 37% of 541 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
+      "detail": "LB-010 is 37% of 536 non-routine records (last 48h)  -  consequential dispositions are buried; rate-limit that emitter"
     },
     {
       "id": "SD-010",
