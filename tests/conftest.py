@@ -87,6 +87,100 @@ def _isolated_audit_trail(tmp_path_factory):
     configure_registry(tmp_path_factory.mktemp("models"))
 
 
+# ======================================================================
+# WINDOWS PATH LIMITS ARE A PROPERTY OF THE BOX, NOT A TEST RESULT
+# ======================================================================
+
+@pytest.fixture(scope="session", autouse=True)
+def _git_longpaths_on_windows(tmp_path_factory):
+    """Let git-driven fixtures work under any basetemp on Windows.
+
+    MEASURED 2026-10-04. With a 130-char --basetemp under -n 8, 32 tests in
+    test_telemetry_backup / test_remote_control / test_corpus_sync errored in
+    setup: the RECEIVING side of a local `git push` writes incoming objects
+    to <bare>.git/objects/tmp_objdir-incoming-*/ and crossed MAX_PATH
+    ("remote: error: unable to write file"; LongPathsEnabled=0 on this box).
+    For a local push git drops both `-c` and GIT_CONFIG_COUNT before it
+    starts receive-pack - each measured, each still failed - but the
+    receiving side does read the GLOBAL config. So the session gets a global
+    config that includes the operator's own (git's precedence order: XDG,
+    then ~/.gitconfig) and adds core.longpaths last, so it wins. No-op off
+    Windows; the operator's environment is restored at session end.
+    """
+    if os.name != "nt":
+        yield
+        return
+    prev = os.environ.get("GIT_CONFIG_GLOBAL")
+    if prev:
+        includes = [Path(prev)]
+    else:
+        home = Path(os.environ.get("HOME") or Path.home())
+        xdg = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+        includes = [xdg / "git" / "config", home / ".gitconfig"]
+    cfg = tmp_path_factory.mktemp("gitcfg") / "config"
+    cfg.write_text(
+        "".join(f"[include]\n\tpath = {p.as_posix()}\n"
+                for p in includes if p.is_file())
+        + "[core]\n\tlongpaths = true\n", encoding="utf-8")
+    os.environ["GIT_CONFIG_GLOBAL"] = str(cfg)
+    try:
+        yield
+    finally:
+        if prev is None:
+            os.environ.pop("GIT_CONFIG_GLOBAL", None)
+        else:
+            os.environ["GIT_CONFIG_GLOBAL"] = prev
+
+
+# ======================================================================
+# A STALE LINK NOBODY CAN REMOVE MUST NOT FAIL A PASSING SESSION
+# ======================================================================
+
+def _tolerant_cleanup_dead_symlinks(root: Path) -> None:
+    """Stand-in for _pytest.pathlib.cleanup_dead_symlinks (pytest 9.1.1).
+
+    MEASURED 2026-10-04. pytest's version unlinks every dead symlink in the
+    shared temp root (%TEMP%/pytest-of-<user>) with no error handling. On
+    this box a non-elevated session can neither CREATE a directory symlink
+    (WinError 1314) nor read or remove one an elevated process made
+    (WinError 5), and the PC's elevated scheduled runs leave `pytest-current`
+    there. Once its target was pruned, every non-elevated default-basetemp
+    session crashed in sessionfinish AFTER its tests ran: exit 1 and no
+    summary line - a passing suite reported as red (reproduced with
+    tests/test_skip_census.py alone). A link whose target cannot even be
+    resolved is left alone: what this session cannot inspect, it does not
+    touch.
+    """
+    for left_dir in root.iterdir():
+        try:
+            if not left_dir.is_symlink() or left_dir.resolve().exists():
+                continue
+        except OSError:
+            continue
+        try:
+            left_dir.unlink()
+        except OSError:
+            try:
+                os.rmdir(left_dir)   # Windows removes a dead DIRECTORY link this way, when allowed
+            except OSError as e:
+                sys.stderr.write(
+                    f"\nconftest: left a dead link this session may not remove: "
+                    f"{left_dir} ({type(e).__name__}) - likely made by an elevated "
+                    f'run; clear it from an elevated prompt: rmdir "{left_dir}"\n')
+
+
+try:  # private pytest API - tests/test_conftest_harness.py pins the hook point
+    import _pytest.pathlib as _pytest_pathlib
+    # Stashed once, so the Markov-chain test can drive pytest's own version
+    # as the control arm (it must crash where this one must not).
+    if not hasattr(_pytest_pathlib, "_lb_original_cleanup_dead_symlinks"):
+        _pytest_pathlib._lb_original_cleanup_dead_symlinks = (  # type: ignore[attr-defined]
+            _pytest_pathlib.cleanup_dead_symlinks)
+    _pytest_pathlib.cleanup_dead_symlinks = _tolerant_cleanup_dead_symlinks
+except ImportError:  # pragma: no cover - pytest internals moved
+    pass
+
+
 # Module attributes naming a production path under outputs/. A module that
 # exposes one of these gets it redirected to tmp for every test, so a code
 # path whose destination is a module default cannot write to the operator's
