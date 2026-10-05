@@ -35,7 +35,8 @@ reported alongside for context.
 Report-only and standalone: reads config.json for the sim knobs
 (order_manager.sim_fill.*, order_manager.order_timeout_sec,
 system.polling_interval_sec — never hardcoded), writes a markdown
-report, exits 0 always, needs no operator input. With no recordings it
+report (default: gitignored outputs/fill_hazard/), exits 0 always, needs
+no operator input. With no recordings it
 writes an INSUFFICIENT_EVIDENCE report and still exits 0.
 
     .venv/bin/python scripts/fill_hazard_report.py
@@ -50,7 +51,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from core.codes import Code  # noqa: E402
 from core.fill_calibration import D_MAX_DEFAULT, wilson_interval  # noqa: E402
@@ -93,8 +95,16 @@ SIGMA_FALLBACK_BPS = 30.0
 
 
 def default_out() -> Path:
-    """Runtime-dated default report path (overridable via --out)."""
-    return Path("docs/quant") / (
+    """Runtime-dated default report path (overridable via --out).
+
+    Gitignored outputs/fill_hazard/, anchored to this tree rather than cwd.
+    It was cwd-relative docs/quant/: the daily panel run left each report
+    untracked in the PC deploy tree, and `git merge --ff-only` refuses to
+    overwrite an untracked file even when identical, so filing a batch
+    wedged the updater until the local copies were deleted. The committed
+    dated series is unchanged - file a report by copying it from
+    outputs/fill_hazard/ into docs/quant/ on a branch."""
+    return ROOT / "outputs" / "fill_hazard" / (
         time.strftime("%Y-%m-%d", time.gmtime()) + "_fill_hazard_l1.md")
 
 
@@ -731,12 +741,13 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description="L1 maker-fill hazard time-consistency report "
                     "(report-only; exit 0 always)")
-    ap.add_argument("--config", default="config.json")
+    ap.add_argument("--config", default=str(ROOT / "config.json"))
     ap.add_argument("--recording-dir", default=None,
                     help="default: system.recording_dir from config")
     ap.add_argument("--out", default=None,
-                    help="default: docs/quant/<today>_fill_hazard_l1.md "
-                         "(dated at runtime)")
+                    help="default: outputs/fill_hazard/<today>_fill_hazard_l1.md "
+                         "(dated at runtime, gitignored; file a report by "
+                         "copying it into docs/quant/)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.WARNING,
                         format="%(asctime)s %(levelname)s %(name)s: "
@@ -745,6 +756,12 @@ def main() -> int:
     cfg = load_config(args.config)
     rec_dir = args.recording_dir or cfg.get("system", {}).get(
         "recording_dir", "outputs/recordings")
+    # Defaults read the SAME tree default_out() writes. Anchoring only the
+    # output would let a run from another checkout's cwd grade that tree's
+    # recordings and overwrite this tree's dated report. An explicit
+    # --recording-dir keeps ordinary cwd-relative CLI semantics.
+    if not args.recording_dir and not Path(rec_dir).is_absolute():
+        rec_dir = str(ROOT / rec_dir)
     out = Path(args.out) if args.out else default_out()
     return run(cfg, rec_dir, out)
 
