@@ -46,9 +46,11 @@ def test_git_sees_longpaths_during_the_session_on_windows():
 # (operator, 2026-10-04: "consistently scrutinized by my Markov chains,
 #  specifically built for that line of code")
 #
-# Two kinds of session touch %TEMP%/pytest-of-<user>: E, the PC's elevated
-# scheduled runs, which can create and remove links; N, ordinary runs, which
-# can do neither (WinError 1314 / 5, measured 2026-10-04). Each session makes
+# Two kinds of session touch %TEMP%/pytest-of-<user>: E, a session that can
+# create and remove links (on the PC: the updater's battery - scheduled task,
+# RunLevel Limited, S4U logon - until 2026-10-05, when it moved to a private
+# basetemp); N, interactive runs, which can do neither (WinError 1314 / 5,
+# measured 2026-10-04). Each session makes
 # one numbered dir and pytest keeps the newest KEEP; at start an E session
 # repoints `pytest-current` at its own new dir (pytest 9.1.1 _force_symlink,
 # errors swallowed), an N session cannot. So the link is NONE, LIVE k (k dirs
@@ -57,10 +59,18 @@ def test_git_sees_longpaths_during_the_session_on_windows():
 # unlink allowed -> the unlink line; unlink refused, rmdir allowed -> the
 # rmdir line; both refused -> the warning line.
 #
-# NOT measured on this box: whether even an ELEVATED unlink removes a
-# directory link. H1 says it cannot - then the rmdir line is the only thing
-# that ever frees the link, and pytest's own cleanup crashes elevated runs
-# (the deploy battery) too. Every assertion runs in both worlds.
+# MODEL LIMIT, observed 2026-10-05: an N session cannot see through an
+# E-made link at all (lstat ok, traversal WinError 5), so to N every such
+# link reads DEAD even while its target exists - on the PC, N met "dead" on
+# every run after any E run, not at the chain's q**(KEEP-1). The chain is
+# still the right scrutiny of the CODE (every branch, both arms); its rates
+# describe an observer that can tell live from dead.
+#
+# H1 - an E-side unlink cannot remove a directory link, so only the rmdir
+# line frees it (and pytest's own cleanup crashes E runs too). Observed
+# 2026-10-05: the battery rewrote the link at 13:01, i.e. its unlink worked:
+# H1 is false on the PC [I]. Both worlds stay tested - the rmdir line is the
+# net for a box where it holds.
 #
 # The chain drives the REAL functions and reads its next state back from the
 # filesystem: what the code did, not what the model assumed. Only the

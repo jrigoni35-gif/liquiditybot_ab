@@ -363,11 +363,20 @@ def battery_passes(worktree: Path) -> bool:
     # The developer battery and the PC's own manual runs keep it HARD, which
     # is where a hygiene regression should be caught.
     env = {**os.environ, "LB_ALLOW_OUTPUT_WRITES": "1"}
+    # PRIVATE basetemp inside the throwaway worktree (2026-10-05). With the
+    # default, this S4U-logon run made %TEMP%/pytest-of-<user>/pytest-current,
+    # a directory link the operator's interactive sessions can neither read
+    # nor remove (WinError 5) - every interactive default-basetemp run then
+    # crashed in pytest's session-end cleanup (now tolerated by
+    # tests/conftest.py, which prints a notice instead). An explicit
+    # basetemp makes no numbered dirs and no link, and dies with `worktree
+    # remove --force` below. Kept short: MAX_PATH on git fixtures.
     _wall = battery_timeout_sec()
     _t0 = time.time()
     try:
         p = subprocess.run([py, "-m", "pytest", "tests/", "-q",  # nosec B603
-                            "-x", "--no-header"],
+                            "-x", "--no-header",
+                            f"--basetemp={worktree / '.pt'}"],
                            cwd=str(worktree), capture_output=True, text=True,
                            timeout=_wall, env=env,
                            creationflags=_NOWIN)
