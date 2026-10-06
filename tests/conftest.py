@@ -139,17 +139,22 @@ def _git_longpaths_on_windows(tmp_path_factory):
 def _tolerant_cleanup_dead_symlinks(root: Path) -> None:
     """Stand-in for _pytest.pathlib.cleanup_dead_symlinks (pytest 9.1.1).
 
-    MEASURED 2026-10-04. pytest's version unlinks every dead symlink in the
-    shared temp root (%TEMP%/pytest-of-<user>) with no error handling. On
-    this box a non-elevated session can neither CREATE a directory symlink
-    (WinError 1314) nor read or remove one an elevated process made
-    (WinError 5), and the PC's elevated scheduled runs leave `pytest-current`
-    there. Once its target was pruned, every non-elevated default-basetemp
-    session crashed in sessionfinish AFTER its tests ran: exit 1 and no
-    summary line - a passing suite reported as red (reproduced with
-    tests/test_skip_census.py alone). A link whose target cannot even be
-    resolved is left alone: what this session cannot inspect, it does not
-    touch.
+    pytest's version unlinks every "dead" symlink in the shared temp root
+    (%TEMP%/pytest-of-<user>) with no error handling. MEASURED 2026-10-04/05
+    on the PC: an interactive session cannot CREATE a directory symlink
+    (WinError 1314), yet the updater's battery - a scheduled task, RunLevel
+    Limited, S4U logon - left `pytest-current` there. The interactive session
+    can lstat that link but not traverse it (WinError 5), so `resolve()
+    .exists()` is False even while its target exists (pytest-360 did): here
+    "dead" means "this session cannot see through it", not "target pruned".
+    Every interactive default-basetemp run after a battery run therefore
+    crashed in sessionfinish AFTER its tests ran: exit 1, no summary line, a
+    passing suite reported as red (reproduced with tests/test_skip_census.py
+    alone). Since 2026-10-05 the battery uses a private basetemp
+    (scripts/auto_update.py), so it stops making new links; one already
+    there stays until a session allowed to remove it does, and until then
+    this prints one notice per run. A link whose resolve() raises is left
+    alone: what this session cannot inspect, it does not touch.
     """
     for left_dir in root.iterdir():
         try:
@@ -164,9 +169,10 @@ def _tolerant_cleanup_dead_symlinks(root: Path) -> None:
                 os.rmdir(left_dir)   # Windows removes a dead DIRECTORY link this way, when allowed
             except OSError as e:
                 sys.stderr.write(
-                    f"\nconftest: left a dead link this session may not remove: "
-                    f"{left_dir} ({type(e).__name__}) - likely made by an elevated "
-                    f'run; clear it from an elevated prompt: rmdir "{left_dir}"\n')
+                    f"\nconftest: left a link this session may not read or remove: "
+                    f"{left_dir} ({type(e).__name__}) - made under another logon "
+                    f"(e.g. the updater's battery before 2026-10-05); harmless. "
+                    f'To clear it: rmdir "{left_dir}" from a session that may.\n')
 
 
 try:  # private pytest API - tests/test_conftest_harness.py pins the hook point

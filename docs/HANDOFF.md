@@ -1087,6 +1087,14 @@ GB-1 `give_back.arm_gain_pct=0.6` arms inside the break-even buffer — **REFUTE
   by an elevated scheduled run, which ordinary sessions can neither remove nor
   read, crashed pytest's session-end cleanup AFTER the tests ran (exit 1, no
   summary); conftest now tolerates it and prints one line naming it.
+  **CORRECTED 2026-10-05 (both sides kept):** the link was not "elevated" and
+  not dead - the scheduled tasks are RunLevel Limited, S4U logon, and the
+  link pointed at a live dir (pytest-360); interactive sessions simply cannot
+  traverse it (WinError 5), so pytest's `resolve().exists()` reads it as
+  dead. Every interactive default-basetemp run after any battery run
+  crashed, not only after pruning. Root fix: `scripts/auto_update.py` now
+  gives the battery a private `--basetemp` inside its throwaway worktree.
+  LongPathsEnabled was set to 1 on the PC the same day (operator consent).
   Pins + a Markov-chain scrutiny of the refusal policy:
   `tests/test_conftest_harness.py`. Run the battery as `test_windows.bat`
   does - `-n 8 -m "not timing"`, then a serial `-m timing` pass. **Next SAFE
