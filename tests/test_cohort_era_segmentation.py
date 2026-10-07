@@ -157,8 +157,13 @@ def test_segmentation_matches_the_real_ledger_shape():
         pytest.skip("no outputs/fills.csv on this box (the PC owns the ledger)")
     trips = ce.era4_trips(str(fills))
     hg = ce.homogeneity(trips, epochs=[], cohort_start=0.0)
-    total = (sum(hg["by_era"].values()) + hg["era_straddling_trips"]
-             + hg["era_unstamped_trips"] + hg["era_partial_stamp_trips"])
+    # by_fp joins the exhaustive sum since C1 (2026-09-28): a forked-cohort
+    # trip is read there, never folded into an era bucket. The unit pin
+    # below already sums it; this pin missed it and went red as soon as a
+    # fork's trips reached the real ledger.
+    total = (sum(hg["by_era"].values()) + sum(hg["by_fp"].values())
+             + hg["era_straddling_trips"] + hg["era_unstamped_trips"]
+             + hg["era_partial_stamp_trips"])
     assert total == hg["n"] == len(trips), (
         f"on the REAL ledger the buckets sum to {total} but n={hg['n']}")
     # no trip may be both counted pure and carrying an unattributable leg
