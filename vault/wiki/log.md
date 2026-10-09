@@ -2857,3 +2857,6 @@ Operator: 'Is the model better now than before? August'. Paired loss differentia
 
 ## [2026-10-05] measure | power of the August-vs-today test + learning curve
 Operator: 'future test those 60 days in our own simulation'. Simulated the measurement, not the market: 80% power needs ~106 days at the observed gap (57% at 60d) - corrects the same-day ~60d estimate. Learning curve flat (10.5k->26.3k rows). Addendum on sources/session-20261005-model-vs-august.
+
+## [2026-10-09] ops | pre-move backup + the sidecar has failed since 10-05
+Operator moving house, PC offline for a while. FOUND: every telemetry_backup push since 2026-10-05 19:32 was rejected - the bundle's audit.jsonl (123 MB) crossed GitHub's 100 MB per-file limit; pc_status pushes were unaffected, so nothing looked wrong. Cold backup pushed to branch backup/pre-move-2026-10-09 (b4eac9c88; 507 files, hashes verified): learning bundle (38,668 rows @ 20:48:05Z, audit gzipped + sha256), models + registry, paper state, darkpool mirror, this vault, Claude memory/config. Local-only branches saved as backup/markov-instruments-local-2026-10-09 and backup/vscode-bridge-5548d1-2026-10-09. NOT backed up: outputs/recordings (11 GB) - on the PC disk only. OWED after the move: sidecar fix (compress or split oversized bundle files; restore path must accept it), PR #14 merge.
