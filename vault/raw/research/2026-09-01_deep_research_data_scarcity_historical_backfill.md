@@ -1,0 +1,2646 @@
+# Deep research 2026-09-01: closing the MinBTL gap - historical data sources, feature reconstructability, effective-n statistics
+
+_Filed 2026-09-01 from deep-research workflow output (106 agents, 5149229 tokens). Verbatim structured result; interpretation lives on the source page that cites this file._
+
+## Question
+
+```
+RESEARCH QUESTION (verify every claim against primary documentation, exact URLs, exact coverage dates, exact prices; tag every number with its source; a claim that cannot be traced to a primary page is REFUTED, not "likely"):
+
+A Kraken-spot crypto trading bot (Python, ccxt available, Windows, dry-run paper trading) has only 50 days (2026-07-13 to 2026-09-01) of loadable own-signal history: ~22,000 rows of 64 features (order-book imbalance from L2 snapshots, realized volatility, trend/chop regime, sentiment, microstructure detectors) with a triple-barrier label. The False Strategy Theorem (Bailey & Lopez de Prado) says detecting an edge of realistic size needs a backtest of ~2 to ~9 YEARS. How does a professional edge-hunting desk close this gap? Cover FIVE angles, each with concrete tools/CLIs/papers:
+
+(1) HISTORICAL DATA SOURCES for Kraken spot and comparable venues: Kraken public REST /0/public/Trades endpoint (full tick history since pair listing? pagination via `since` nanosecond cursor? rate limits? confirm from docs.kraken.com), Kraken's official historical OHLCVT CSV downloads (support.kraken.com "Downloadable historical market data"), Binance Vision data.binance.vision (aggTrades/klines/bookDepth coverage), Tardis.dev (L2 book snapshots for Kraken — coverage start date, pricing), Kaiko, CoinAPI, CryptoDataDownload, Bitstamp/Coinbase public trade APIs, Kaggle datasets. For EACH: what depth (tick / candle / L2 book), from what date, free or price, and whether ORDER-BOOK history (needed to reconstruct imbalance features) exists at all outside paid vendors.
+
+(2) FEATURE RECONSTRUCTABILITY: which of the bot's feature classes (candle-derived volatility/trend/regime: YES from OHLCV; L2 book imbalance: needs stored snapshots; sentiment: needs archived social/news feeds) can be rebuilt from historical data, and what the literature says about proxying book imbalance from trade-tape (Lee-Ready, bulk volume classification, order-flow imbalance from aggTrades).
+
+(3) STATISTICAL METHODS THAT RAISE EFFECTIVE SAMPLE WITHOUT CALENDAR TIME: cross-sectional pooling across many assets (panel stacking — how much does N_assets multiply effective n given cross-asset correlation ~0.6-0.8 in crypto?), Combinatorial Purged Cross-Validation (CPCV, Lopez de Prado AFML ch.12), block/stationary bootstrap for backtest confidence, Deflated Sharpe Ratio and PBO as trial-count corrections, Monte Carlo / synthetic path generation for stress (and its known failure modes), Bayesian shrinkage toward zero edge, meta-labeling for sample efficiency. For each: peer-reviewed source, open-source implementation (mlfinlab forks, skfolio, vectorbt, nautilus_trader, qlib, backtesting.py), and the honest caveat.
+
+(4) BACKFILL TOOLING: CLIs/libraries that automate multi-year historical backfill for ccxt-supported venues (ccxt fetch_trades/fetch_ohlcv pagination patterns, cryptofeed, cryptostore, freqtrade download-data, OctoBot, jesse, hummingbot history), with rate-limit and gap-handling behavior documented.
+
+(5) STANDARD PRACTICE FOR EDGE ANALYSIS ON CRYPTO BOTS: what a professional market-making / stat-arb desk measures BEFORE trusting a signal — markout / adverse-selection curves at 1s,10s,60s,5min after fill, realized spread vs quoted, queue-position value, fill-rate vs fill-toxicity, minimum viable account size given fee tier — and how they DETECT (not perform) manipulation they are being run over by: spoofing/layering signatures in L2 (Kraken-specific studies if any), wash-trading prevalence on exchanges (Cong et al. 2023 "Crypto Wash Trading"; Amiram/Lyandres/Rabetti), stop-hunt/liquidation-cascade patterns. Peer-reviewed or regulator-published sources (CFTC/SEC/ESMA/FCA reports) preferred; practitioner sources allowed if primary.
+
+OUTPUT: for each angle a ranked table of options with [source URL, coverage/depth, cost, verification status], then a synthesis: the cheapest path to a 2+ year multi-asset feature-reconstructible dataset for this specific bot, and which bot features CANNOT be recovered historically no matter what. Mark UNRUN scans explicitly if search budget runs out — never present silence as a null.
+```
+
+## Summary
+
+The gap cannot be closed with Kraken's own free channels: Kraken publishes full-life trade-tick CSVs (time/price/volume only, ~5-month quarterly lag) and OHLCVT candles, and /0/public/Trades paginates 1000 trades per call on a nanosecond `last`->`since` cursor, but no Kraken channel (CSV, REST /Depth, WS) carries historical order-book state, so the bot's L2 imbalance feature is unrecoverable from Kraken for free. Stored Kraken L2 history exists only as a paid product: Tardis.dev holds depth-1000 incremental L2 plus derived 25/5-level snapshots for all Kraken pairs since 2019-06-04 (live-probed: 2019-07-01 through 2026-08-01 downloadable; first-of-month days free, otherwise $450-$1,350/mo spot plans), with a symbol-format break at 2026-07-10. Binance Vision is free/anonymous and reaches back to 2017-08 for spot klines/aggTrades/trades, but spot has NO bookDepth (futures only), so it supplies candle-derived and trade-tape-proxy features only. On the statistics, the False Strategy Theorem's MinBTL < 2 ln N / E[max_N]^2 is a function of calendar years and trial count with no q term: at SR=0 the ~22,000 intraday rows do not shrink the Sharpe estimator's variance (SE ~2.7 annualized at 50 days), CPCV multiplies correlated OOS paths not independent n, and panel-stacking N assets at cross-asset ICC rho inflates by deff = 1 + rho(N-1) (10 assets at rho=0.7 -> ~1.37x, not 10x). Cheapest 2+ year multi-asset path: Kraken tick CSV + OHLCVT (free) for candle-class features and tick-rule-signed trade flow (~77% direction accuracy on BTC/USD per Ma & Zhai 2021), Binance Vision spot for cross-venue breadth, and a Tardis Academic/Solo plan if exact L2 imbalance must be rebuilt; sentiment/social features and the bot's exact depth-weighted L2 imbalance are not recoverable from any free source found. Angles 4 (backfill tooling) and 5 (markout/adverse-selection practice, manipulation detection) produced zero surviving claims and are UNRUN.
+
+## Findings (survived adversarial verify) (9)
+
+- **Kraken officially distributes free bulk historical trade-tick CSVs (every trade: timestamp, price, volume) for all currency pairs from each market's inception, as a single all-history ZIP plus quarterly ZIPs on Google Drive, and a sibling OHLCVT candle dump (1/5/15/30/60/240/720/1440-min). The tick archive lags ~5 months (newest quarterly file as of 2026-09-01 is Q1_2026, so the bot's own 2026-07-13..09-01 window is not yet covered), carries no side/aggressor flag (direction must be tick-rule inferred), and per a practitioner source omits delisted pairs (survivorship bias, unverified by download).**
+  - confidence: high
+  - sources: ["https://support.kraken.com/articles/360047543791-downloadable-historical-market-data-time-and-sales-", "https://support.kraken.com/articles/360047124832-downloadable-historical-ohlcvt-open-high-low-close-volume-trades-data", "https://support.kraken.com/sections/360009899492-csv-data"]
+  - evidence: Support page (last updated 2026-04-26) states verbatim: 'downloadable CSV files that include all of the trading history for each of our currency pairs from the beginning of each market up to the present'; contents enumerated as date/time, price, volume only. Verifier curl of both Drive links returned HTTP 200 (Kraken_Trading_History.zip; folder listing Q3_2025, Q4_2025, Q1_2026). Concretum Research (2026) notes the OHLCVT dump 'only includes active or recently active Kraken markets'. 7GB+ tick ZIP pair inventory NOT downloaded [UNRUN].
+  - vote: 3-0 (two merged claims, both 3-0)
+- **Kraken's REST /0/public/Trades returns at most 1000 trades per call and is paginated by feeding the response's `last` (19-digit nanosecond timestamp) back as `since`; Kraken's developer docs recommend 100-200 ms inter-request delay under IP-based rate limits, explicitly state 'Kraken does not provide a bulk historical data dump or websocket replay service', do not mention the support-site CSV dumps, and do not state how far back /Trades history reaches ('full history since listing' via REST is UNVERIFIED).**
+  - confidence: medium
+  - sources: ["https://docs.kraken.com/exchange/guides/general/historical-data", "https://docs.kraken.com/api/docs/rest-api/get-recent-trades", "https://support.kraken.com/articles/advanced-api-faq"]
+  - evidence: Docs page: 'up to 1000 trades per call'; since = 'Nanosecond timestamp'; 'use last as the since value in the next call. The since value is in nanoseconds.' REST reference: count max 1000, example last=1688671969993150842. Advanced API FAQ: 'a standard UNIX timestamp in seconds with 9 additional digits'. freqtrade issue #12961 independently documents float-truncation of the ns token causing repeat pages. Raw page grep found no csv/OHLCVT/support.kraken mention. Two claims each voted 2-1 (split) though verifier evidence was rated high, hence medium.
+  - vote: 2-1 and 2-1
+- **No Kraken-native channel carries historical order-book state: GET /0/public/Depth is live-only (max 500 levels/side, parameters pair/count/assetVersion/asset_class, no time parameter), the tick CSVs hold no depth fields, and WS v2 book / Level3 have no replay. The bot's L2 order-book imbalance feature therefore cannot be reconstructed for past dates from Kraken's own public API or free downloads.**
+  - confidence: high
+  - sources: ["https://docs.kraken.com/exchange/guides/general/historical-data", "https://docs.kraken.com/api/docs/rest-api/get-order-book/", "https://support.kraken.com/articles/360047543791-downloadable-historical-market-data-time-and-sales-"]
+  - evidence: Docs: 'The Depth endpoint returns the current order book at the time of the request. It is not a historical endpoint — it reflects the live state.' OpenAPI spec shows count min 1/max 500/default 100 and no since/time/date parameter. CSV section lists only order-minimums, OHLCVT and time-and-sales articles. Whether Kraken sells book history under a separate institutional contract was not found on any doc page [UNRUN].
+  - vote: 3-0 (two merged claims, both 3-0)
+- **Tardis.dev is a verified paid source of Kraken spot L2 history: for all Kraken pairs since 2019-06-04 it captured the WS `book` channel at depth=1000 (v1 until 2026-07-10, v2 after) and offers CSV types incremental_book_L2, trades, quotes, plus derived book_snapshot_25 / book_snapshot_5 and book_ticker (from WS `spread` pre-2026-07-10, WS v2 `ticker` after). Live probe: datasets.tardis.dev/v1/kraken/book_snapshot_25/2020/01/01/XBT-USD.csv.gz -> HTTP 200 (19.1 MB gz, 670,511 rows, 25 bid/ask levels); 2019/07/01 and 2026/08/01 (BTC-USD) also 200; non-first-of-month days -> 401 (key required); 2019/06/01 -> 400 (pre-coverage). Pricing as-of 2026-09-01: Spot plans Academic $450/mo, Solo $900/mo, Professional $1,350/mo, Business $3,500/mo; all-exchanges $650/$1,200/$2,200/$6,000. Caveats: ~300-3000 ms gaps at daily 00:00 UTC re-subscription plus exchange-outage gaps (~99.9% completeness, not guaranteed); symbol rename XBT/XDG -> BTC/DOGE at 2026-07-10 requires stitching; pairs covered only from Kraken listing (SUI/ARB/MINA/FLOW depth unverified).**
+  - confidence: high
+  - sources: ["https://docs.tardis.dev/historical-data-details/kraken", "https://docs.tardis.dev/faq/data", "https://docs.tardis.dev/faq/order-books", "https://docs.tardis.dev/downloadable-csv-files/data-types", "https://datasets.tardis.dev/v1/kraken/book_snapshot_25/2020/01/01/XBT-USD.csv.gz", "https://tardis.dev/"]
+  - evidence: Per-exchange page: 'Kraken historical data for all its currency pairs is available since 2019-06-04'; v2 'Level 2 order book snapshots and updates with depth=1000'. FAQ book_ticker table row: '| Kraken | 2019-06-04 | WS spread channel before 2026-07-10; WS v2 ticker channel since |'. Changelog 2026-07-10 confirms 1000-level books. Endpoint probe corroborates vendor claims independently (first row kraken,XBT/USD,1577836800792546,...). Three merged claims (5, 9, 10), all 3-0.
+  - vote: 3-0 x3
+- **Binance Vision (data.binance.vision) gives free, anonymous, curl/wget-retrievable daily and monthly ZIPs for SPOT, USD-M and COIN-M futures; SPOT carries exactly three types — aggTrades (/api/v3/aggTrades), klines (1s,1m,3m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d,3d,1w,1mo) and trades (/api/v3/historicalTrades) — with NO bookDepth/bookTicker/metrics for spot (those exist only under futures/um and futures/cm, daily files only). The README states no coverage start date; the S3 bucket listing shows BTCUSDT 1m monthly klines from 2017-08, so depth must be verified per symbol against the bucket, not the README. Daily files appear next day, monthly on the first Monday.**
+  - confidence: high
+  - sources: ["https://github.com/binance/binance-public-data", "https://data.binance.vision/", "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision?delimiter=/&prefix=data/spot/daily/", "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision?delimiter=/&prefix=data/spot/monthly/klines/BTCUSDT/1m/"]
+  - evidence: Verifier ran the system 2026-09-01 22:51 UTC from a US POP: HEAD spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2017-08.zip -> 200 (595,271 B); futures/um daily bookDepth 2023-01-05 -> 200; monthly bookDepth -> 404; full GET of spot daily 2026-08-30 1m klines succeeded with sha256 matching published .CHECKSUM. Spot bucket prefix lists only aggTrades/, klines/, trades/; futures/um lists aggTrades, bookDepth, bookTicker, indexPriceKlines, klines, markPriceKlines, metrics, premiumIndexKlines, trades. No geo-block observed on the data host (api.binance.com restrictions do not apply). One vantage point, one time; per-IP throttling untested. Three merged claims (6, 7, 8), all 3-0.
+  - vote: 3-0 x3
+- **Feature reconstructability: Cont-Kukanov-Stoikov OFI is defined from best-bid/best-ask price and size changes only, so a Cont-style OFI feature is rebuildable from a complete L1 quote-event stream (e.g. Tardis `quotes`/`book_ticker`) without deep L2 snapshots — but the bot's own depth-weighted L2 imbalance is a different feature and still needs stored multi-level snapshots to rebuild exactly. From trade-tape alone, the tick rule signs BTC/USD trades correctly 76.87% overall (Bitstamp, 11.9M trades; daily range 68.98%-83.76%), and the same paper warns tick-rule-derived order imbalances lack sufficient accuracy when inter-trade gaps are long. All claims asserting trade-tape imbalance is an adequate (or better) proxy for book imbalance were REFUTED in verification, as was the claim that it is measurably worse — the proxy quality question is OPEN, not settled either way.**
+  - confidence: high
+  - sources: ["https://arxiv.org/abs/1011.6402", "https://journals.sagepub.com/doi/full/10.1177/21582440211014504", "https://ideas.repec.org/a/sae/sagope/v11y2021i2p21582440211014504.html"]
+  - evidence: Cont et al. abstract: 'price changes are mainly driven by the order flow imbalance, defined as the imbalance between supply and demand at the best bid and ask prices' (NYSE TAQ, 50 stocks, April 2010, 10-s intervals; no crypto data — transfer to Kraken not established). Qualifiers: Xu-Gould-Howison 2018 and Cont-Cucuringu-Zhang 2023 find multi-level OFI explains more than best-level. Ma & Zhai 2021 (SAGE Open 11(2)) abstract: 'overall success rate of the tick rule is 76.87%'; full text 403 so sample dates/ground-truth method unread [UNRUN]. Refuted in the panel: BitMEX trade-flow-beats-OFI claim (0-3), 'tape proxies not adequate' (0-3), 'tape proxies measurably worse' (0-3).
+  - vote: 3-0 and 3-0 (two merged); related proxy claims refuted 0-3
+- **False Strategy Theorem arithmetic, re-derived: MinBTL (years) < 2 ln[N] / E[max_N]^2 is a necessary, non-sufficient bound that depends only on the number of independent trials N and the target IS Sharpe, not on edge size — because at true SR=0 the annualized Sharpe estimator is N(0, 1/y) and 'increasing q does not reduce the variance'. Paper's examples reproduce exactly (N=45 -> 5.0 yr; N=7 -> 1.92 yr at IS SR=1). For the bot: y = 50/365 = 0.137 yr gives SE(annualized SR-hat) = 2.70, so 2-sigma rejection needs annualized SR > ~5.4; N=2 trials already yields E[max SR_IS] = 1.40 and MinBTL(N=2) = 99 days > 50 days; even a single trial has P(SR-hat >= 1 | SR=0) = 0.356. The ~22,000 intraday rows do not rescue this (and they are overlapping triple-barrier rows, so effective n is far below 22,000, making the calendar-time conclusion hold a fortiori). Note the research question's '~2 to ~9 years for an edge of realistic size' is NOT what the theorem states; it fixes OOS SR at zero and asks how long a backtest must be to stop a skill-less max-of-N reaching a target IS Sharpe.**
+  - confidence: high
+  - sources: ["https://www.ams.org/notices/201405/rnoti-p458.pdf", "https://www.davidhbailey.com/dhbpapers/backtest-pseudo.pdf"]
+  - evidence: AMS URL blocked (403/429) on 2026-09-01; authors' own mirror (peer-reviewed for Notices AMS 61(5):458-471, 2014) text-extracted with pypdf. Verbatim Theorem 3.1/Eq 3.2 matches published Theorem 2/Eq 6; 'Note that, because SR = 0, increasing q does not reduce the variance of the distribution'; 'MinBTL should be considered a necessary, non-sufficient condition to avoid overfitting'; 'if only 5 years of data are available, no more than 45 independent model configurations should be tried'. Double-derived from Eq 2.4 E[max_N] = (1-g)Z^-1(1-1/N) + g Z^-1(1-1/(Ne)), g=0.5772: N=45 -> 2.236/sqrt(5)=1.000; N=7 -> 1.387/sqrt(2)=0.981. Caveats: IID Normal returns, y->inf asymptotics, Prop 2.1 'for a large N' (N=2 extrapolation is outside the stated regime); independent-trials assumption is 'quite conservative' — correlated trials lower effective N. Three merged claims (13, 14, 15), all 3-0.
+  - vote: 3-0 x3
+- **Combinatorial Purged CV is available open-source (BSD) as skfolio.model_selection.CombinatorialPurgedCV(n_folds=10, n_test_folds=8, purged_size=0, embargo_size=0), which uses k-p training folds with p>1 test folds so that phi(N,k) = (k/N)*C(N,N-k) backtest paths are recombined from one dataset. It is only partially sklearn-compatible (does not inherit BaseCrossValidator; split() yields multiple test arrays per split, so not a drop-in for GridSearchCV — use skfolio's own cross_val_predict). Honest caveat: recombined paths share data and are correlated; path count raises the number of OOS paths, NOT independent/effective n, and must not be presented as an effective-n multiplier.**
+  - confidence: high
+  - sources: ["https://skfolio.org/generated/skfolio.model_selection.CombinatorialPurgedCV.html", "https://raw.githubusercontent.com/skfolio/skfolio/main/src/skfolio/model_selection/_combinatorial.py"]
+  - evidence: Doc page (copyright 2026) signature verbatim; source file __init__(self, n_folds: int = 10, n_test_folds: int = 8, purged_size: int = 0, embargo_size: int = 0); doc text: 'CombinatorialPurgedCV uses k - p folds for the training set with p > 1 being the number of test folds' and 'can recombine multiple testing paths'; n_folds >= 3, n_test_folds >= 2. Cites Lopez de Prado AFML (2018) ch. 12. Two merged claims (16, 17), both 3-0.
+  - vote: 3-0 x2
+- **Cross-sectional pooling gain is bounded by the Kish/Moulton design effect deff = 1 + rho(n* - 1) with rho the intraclass correlation of the pooled residual/label within a cluster (here: one timestamp across N assets) — NOT raw return correlation. At N=10 assets and rho=0.7, deff = 7.3, so stacking yields n_eff = N/deff = ~1.37x one asset's observations, not 10x. This captures only cross-sectional dependence at a timestamp; serial dependence from overlapping triple-barrier labels is a separate, additional deflation. The mapping to asset panels is the researcher's analogy (standard in panel econometrics as the Moulton factor), not stated by the survey-sampling source.**
+  - confidence: high
+  - sources: ["https://cran.r-project.org/web/packages/PracTools/vignettes/Design-effects.html"]
+  - evidence: PracTools vignette (Zipf & Valliant, 2026-01-14): 'deff_clus,h = 1 + rho_h (n_h* - 1)', rho_h = 'the intraclass correlation coefficient in stratum h', n_h* = weighted average elements per cluster. Arithmetic re-derived: 1 + 0.7*9 = 7.3; 10/7.3 = 1.370. Moulton (1986/1990) and Angrist & Pischke MHE ch. 8 corroboration rests on search summaries and textbook knowledge — MHE PDF (ECONNREFUSED) and ScienceDirect overview (403) not fetched. Assumes equicorrelated within-cluster errors and equal cluster sizes.
+  - vote: 3-0
+
+## Refuted (6)
+
+- **The /0/public/OHLC endpoint returns a maximum of 720 candles per call, so 1-minute candles cover only ~12 hours per request and daily candles ~2 years per request; deep minute-level OHLC history via this endpoint requires many paginated calls (and the page does not state whether old 1-minute candles remain retrievable).**
+  - vote: 0-3
+  - source: https://docs.kraken.com/exchange/guides/general/historical-data
+- **Tardis.dev holds Kraken spot historical data for all currency pairs starting 2019-06-04, i.e. roughly 7 years of coverage as of 2026-09 — enough calendar span to satisfy the ~2-9 year False Strategy Theorem window for Kraken specifically.**
+  - vote: 1-2
+  - source: https://docs.tardis.dev/historical-data-details/kraken
+- **The OFI-to-price-change relation is linear with a slope inversely proportional to market depth, and is stable across time scales and stocks — implying a depth-normalized OFI feature may transfer across assets (relevant to cross-sectional panel pooling).**
+  - vote: 1-2
+  - source: https://arxiv.org/abs/1011.6402
+- **Proxying book imbalance from trade volume alone (trade-tape) is measurably worse than using order-book events: the price-change vs trade-volume relation is noisier and less robust than the OFI relation.**
+  - vote: 0-3
+  - source: https://arxiv.org/abs/1011.6402
+- **In BitMEX XBTUSD perpetual data, trade flow imbalance (derived from the trade tape) explains contemporaneous price changes BETTER than the aggregate order flow imbalance built from order-book events — directly relevant to whether the bot's L2 book-imbalance feature can be proxied from trade history (Binance Vision aggTrades, Kraken /Trades) when no L2 snapshot archive exists.**
+  - vote: 0-3
+  - source: https://link.springer.com/article/10.1007/s42521-019-00007-w
+- **Order-flow imbalance series built by signing trades with the tick rule are NOT an adequate proxy for true order imbalance in the Bitcoin market (i.e., trade-tape-derived imbalance cannot faithfully substitute for signed/book-derived imbalance).**
+  - vote: 0-3
+  - source: https://journals.sagepub.com/doi/full/10.1177/21582440211014504
+
+## Unverified (0)
+
+
+## Caveats (2357)
+
+- C
+- o
+- v
+- e
+- r
+- a
+- g
+- e
+-  
+- g
+- a
+- p
+- s
+- ,
+-  
+- s
+- t
+- a
+- t
+- e
+- d
+-  
+- a
+- s
+-  
+- U
+- N
+- R
+- U
+- N
+-  
+- n
+- o
+- t
+-  
+- n
+- u
+- l
+- l
+- :
+-  
+- (
+- a
+- )
+-  
+- A
+- n
+- g
+- l
+- e
+-  
+- 4
+-  
+- (
+- b
+- a
+- c
+- k
+- f
+- i
+- l
+- l
+-  
+- t
+- o
+- o
+- l
+- i
+- n
+- g
+-  
+- —
+-  
+- c
+- c
+- x
+- t
+-  
+- p
+- a
+- g
+- i
+- n
+- a
+- t
+- i
+- o
+- n
+-  
+- p
+- a
+- t
+- t
+- e
+- r
+- n
+- s
+- ,
+-  
+- c
+- r
+- y
+- p
+- t
+- o
+- f
+- e
+- e
+- d
+- ,
+-  
+- c
+- r
+- y
+- p
+- t
+- o
+- s
+- t
+- o
+- r
+- e
+- ,
+-  
+- f
+- r
+- e
+- q
+- t
+- r
+- a
+- d
+- e
+-  
+- d
+- o
+- w
+- n
+- l
+- o
+- a
+- d
+- -
+- d
+- a
+- t
+- a
+- ,
+-  
+- O
+- c
+- t
+- o
+- B
+- o
+- t
+- ,
+-  
+- j
+- e
+- s
+- s
+- e
+- ,
+-  
+- h
+- u
+- m
+- m
+- i
+- n
+- g
+- b
+- o
+- t
+- )
+-  
+- p
+- r
+- o
+- d
+- u
+- c
+- e
+- d
+-  
+- Z
+- E
+- R
+- O
+-  
+- s
+- u
+- r
+- v
+- i
+- v
+- i
+- n
+- g
+-  
+- c
+- l
+- a
+- i
+- m
+- s
+- ;
+-  
+- n
+- o
+- t
+- h
+- i
+- n
+- g
+-  
+- h
+- e
+- r
+- e
+-  
+- a
+- b
+- o
+- u
+- t
+-  
+- t
+- h
+- e
+- i
+- r
+-  
+- r
+- a
+- t
+- e
+- -
+- l
+- i
+- m
+- i
+- t
+-  
+- o
+- r
+-  
+- g
+- a
+- p
+-  
+- h
+- a
+- n
+- d
+- l
+- i
+- n
+- g
+-  
+- i
+- s
+-  
+- v
+- e
+- r
+- i
+- f
+- i
+- e
+- d
+- .
+-  
+- (
+- b
+- )
+-  
+- A
+- n
+- g
+- l
+- e
+-  
+- 5
+-  
+- (
+- m
+- a
+- r
+- k
+- o
+- u
+- t
+- /
+- a
+- d
+- v
+- e
+- r
+- s
+- e
+- -
+- s
+- e
+- l
+- e
+- c
+- t
+- i
+- o
+- n
+-  
+- c
+- u
+- r
+- v
+- e
+- s
+- ,
+-  
+- r
+- e
+- a
+- l
+- i
+- z
+- e
+- d
+-  
+- v
+- s
+-  
+- q
+- u
+- o
+- t
+- e
+- d
+-  
+- s
+- p
+- r
+- e
+- a
+- d
+- ,
+-  
+- q
+- u
+- e
+- u
+- e
+- -
+- p
+- o
+- s
+- i
+- t
+- i
+- o
+- n
+-  
+- v
+- a
+- l
+- u
+- e
+- ,
+-  
+- f
+- i
+- l
+- l
+-  
+- t
+- o
+- x
+- i
+- c
+- i
+- t
+- y
+- ,
+-  
+- m
+- i
+- n
+- i
+- m
+- u
+- m
+-  
+- v
+- i
+- a
+- b
+- l
+- e
+-  
+- a
+- c
+- c
+- o
+- u
+- n
+- t
+-  
+- s
+- i
+- z
+- e
+- ,
+-  
+- s
+- p
+- o
+- o
+- f
+- i
+- n
+- g
+- /
+- l
+- a
+- y
+- e
+- r
+- i
+- n
+- g
+-  
+- s
+- i
+- g
+- n
+- a
+- t
+- u
+- r
+- e
+- s
+- ,
+-  
+- C
+- o
+- n
+- g
+-  
+- e
+- t
+-  
+- a
+- l
+- .
+-  
+- 2
+- 0
+- 2
+- 3
+-  
+- w
+- a
+- s
+- h
+-  
+- t
+- r
+- a
+- d
+- i
+- n
+- g
+- ,
+-  
+- A
+- m
+- i
+- r
+- a
+- m
+- /
+- L
+- y
+- a
+- n
+- d
+- r
+- e
+- s
+- /
+- R
+- a
+- b
+- e
+- t
+- t
+- i
+- ,
+-  
+- C
+- F
+- T
+- C
+- /
+- S
+- E
+- C
+- /
+- E
+- S
+- M
+- A
+- /
+- F
+- C
+- A
+-  
+- r
+- e
+- p
+- o
+- r
+- t
+- s
+- ,
+-  
+- s
+- t
+- o
+- p
+- -
+- h
+- u
+- n
+- t
+- /
+- l
+- i
+- q
+- u
+- i
+- d
+- a
+- t
+- i
+- o
+- n
+-  
+- c
+- a
+- s
+- c
+- a
+- d
+- e
+- s
+- )
+-  
+- p
+- r
+- o
+- d
+- u
+- c
+- e
+- d
+-  
+- Z
+- E
+- R
+- O
+-  
+- s
+- u
+- r
+- v
+- i
+- v
+- i
+- n
+- g
+-  
+- c
+- l
+- a
+- i
+- m
+- s
+-  
+- —
+-  
+- e
+- n
+- t
+- i
+- r
+- e
+- l
+- y
+-  
+- u
+- n
+- a
+- d
+- d
+- r
+- e
+- s
+- s
+- e
+- d
+- .
+-  
+- (
+- c
+- )
+-  
+- A
+- n
+- g
+- l
+- e
+-  
+- 1
+-  
+- v
+- e
+- n
+- d
+- o
+- r
+- s
+-  
+- K
+- a
+- i
+- k
+- o
+- ,
+-  
+- C
+- o
+- i
+- n
+- A
+- P
+- I
+- ,
+-  
+- C
+- r
+- y
+- p
+- t
+- o
+- D
+- a
+- t
+- a
+- D
+- o
+- w
+- n
+- l
+- o
+- a
+- d
+- ,
+-  
+- B
+- i
+- t
+- s
+- t
+- a
+- m
+- p
+- /
+- C
+- o
+- i
+- n
+- b
+- a
+- s
+- e
+-  
+- p
+- u
+- b
+- l
+- i
+- c
+-  
+- t
+- r
+- a
+- d
+- e
+-  
+- A
+- P
+- I
+- s
+-  
+- a
+- n
+- d
+-  
+- K
+- a
+- g
+- g
+- l
+- e
+-  
+- d
+- a
+- t
+- a
+- s
+- e
+- t
+- s
+-  
+- w
+- e
+- r
+- e
+-  
+- n
+- o
+- t
+-  
+- c
+- o
+- v
+- e
+- r
+- e
+- d
+-  
+- b
+- y
+-  
+- a
+- n
+- y
+-  
+- s
+- u
+- r
+- v
+- i
+- v
+- i
+- n
+- g
+-  
+- c
+- l
+- a
+- i
+- m
+- .
+-  
+- (
+- d
+- )
+-  
+- A
+- n
+- g
+- l
+- e
+-  
+- 3
+-  
+- i
+- t
+- e
+- m
+- s
+-  
+- w
+- i
+- t
+- h
+-  
+- n
+- o
+-  
+- s
+- u
+- r
+- v
+- i
+- v
+- i
+- n
+- g
+-  
+- c
+- l
+- a
+- i
+- m
+- :
+-  
+- b
+- l
+- o
+- c
+- k
+- /
+- s
+- t
+- a
+- t
+- i
+- o
+- n
+- a
+- r
+- y
+-  
+- b
+- o
+- o
+- t
+- s
+- t
+- r
+- a
+- p
+- ,
+-  
+- D
+- S
+- R
+- /
+- P
+- B
+- O
+-  
+- a
+- s
+-  
+- t
+- r
+- i
+- a
+- l
+- -
+- c
+- o
+- u
+- n
+- t
+-  
+- c
+- o
+- r
+- r
+- e
+- c
+- t
+- i
+- o
+- n
+- s
+-  
+- (
+- b
+- e
+- y
+- o
+- n
+- d
+-  
+- t
+- h
+- e
+-  
+- M
+- i
+- n
+- B
+- T
+- L
+-  
+- p
+- a
+- p
+- e
+- r
+- '
+- s
+-  
+- o
+- w
+- n
+-  
+- d
+- e
+- f
+- e
+- r
+- r
+- a
+- l
+-  
+- t
+- o
+-  
+- P
+- B
+- O
+- )
+- ,
+-  
+- M
+- o
+- n
+- t
+- e
+-  
+- C
+- a
+- r
+- l
+- o
+-  
+- s
+- y
+- n
+- t
+- h
+- e
+- t
+- i
+- c
+- -
+- p
+- a
+- t
+- h
+-  
+- f
+- a
+- i
+- l
+- u
+- r
+- e
+-  
+- m
+- o
+- d
+- e
+- s
+- ,
+-  
+- B
+- a
+- y
+- e
+- s
+- i
+- a
+- n
+-  
+- s
+- h
+- r
+- i
+- n
+- k
+- a
+- g
+- e
+- ,
+-  
+- m
+- e
+- t
+- a
+- -
+- l
+- a
+- b
+- e
+- l
+- i
+- n
+- g
+- ,
+-  
+- a
+- n
+- d
+-  
+- i
+- m
+- p
+- l
+- e
+- m
+- e
+- n
+- t
+- a
+- t
+- i
+- o
+- n
+- s
+-  
+- i
+- n
+-  
+- m
+- l
+- f
+- i
+- n
+- l
+- a
+- b
+-  
+- f
+- o
+- r
+- k
+- s
+- /
+- v
+- e
+- c
+- t
+- o
+- r
+- b
+- t
+- /
+- n
+- a
+- u
+- t
+- i
+- l
+- u
+- s
+- _
+- t
+- r
+- a
+- d
+- e
+- r
+- /
+- q
+- l
+- i
+- b
+- /
+- b
+- a
+- c
+- k
+- t
+- e
+- s
+- t
+- i
+- n
+- g
+- .
+- p
+- y
+- .
+-  
+- (
+- e
+- )
+-  
+- S
+- e
+- n
+- t
+- i
+- m
+- e
+- n
+- t
+-  
+- f
+- e
+- a
+- t
+- u
+- r
+- e
+-  
+- r
+- e
+- c
+- o
+- n
+- s
+- t
+- r
+- u
+- c
+- t
+- a
+- b
+- i
+- l
+- i
+- t
+- y
+-  
+- (
+- a
+- r
+- c
+- h
+- i
+- v
+- e
+- d
+-  
+- s
+- o
+- c
+- i
+- a
+- l
+- /
+- n
+- e
+- w
+- s
+-  
+- f
+- e
+- e
+- d
+- s
+- )
+-  
+- w
+- a
+- s
+-  
+- n
+- o
+- t
+-  
+- c
+- o
+- v
+- e
+- r
+- e
+- d
+-  
+- b
+- y
+-  
+- a
+- n
+- y
+-  
+- c
+- l
+- a
+- i
+- m
+- ;
+-  
+- i
+- t
+-  
+- i
+- s
+-  
+- l
+- i
+- s
+- t
+- e
+- d
+-  
+- a
+- s
+-  
+- n
+- o
+- n
+- -
+- r
+- e
+- c
+- o
+- v
+- e
+- r
+- a
+- b
+- l
+- e
+-  
+- o
+- n
+- l
+- y
+-  
+- b
+- y
+-  
+- o
+- m
+- i
+- s
+- s
+- i
+- o
+- n
+-  
+- o
+- f
+-  
+- a
+- n
+- y
+-  
+- f
+- o
+- u
+- n
+- d
+-  
+- s
+- o
+- u
+- r
+- c
+- e
+- .
+-  
+- S
+- o
+- u
+- r
+- c
+- e
+- -
+- w
+- e
+- a
+- k
+- n
+- e
+- s
+- s
+-  
+- n
+- o
+- t
+- e
+- s
+- :
+-  
+- t
+- h
+- e
+-  
+- t
+- w
+- o
+-  
+- K
+- r
+- a
+- k
+- e
+- n
+-  
+- R
+- E
+- S
+- T
+- /
+- d
+- o
+- c
+- s
+-  
+- c
+- l
+- a
+- i
+- m
+- s
+-  
+- s
+- p
+- l
+- i
+- t
+-  
+- 2
+- -
+- 1
+-  
+- d
+- e
+- s
+- p
+- i
+- t
+- e
+-  
+- h
+- i
+- g
+- h
+-  
+- v
+- e
+- r
+- i
+- f
+- i
+- e
+- r
+-  
+- e
+- v
+- i
+- d
+- e
+- n
+- c
+- e
+- ;
+-  
+- t
+- h
+- e
+-  
+- B
+- a
+- i
+- l
+- e
+- y
+-  
+- e
+- t
+-  
+- a
+- l
+- .
+-  
+- q
+- u
+- o
+- t
+- e
+- s
+-  
+- w
+- e
+- r
+- e
+-  
+- v
+- e
+- r
+- i
+- f
+- i
+- e
+- d
+-  
+- f
+- r
+- o
+- m
+-  
+- t
+- h
+- e
+-  
+- a
+- u
+- t
+- h
+- o
+- r
+- s
+- '
+-  
+- m
+- i
+- r
+- r
+- o
+- r
+- ,
+-  
+- n
+- o
+- t
+-  
+- t
+- h
+- e
+-  
+- A
+- M
+- S
+- -
+- h
+- o
+- s
+- t
+- e
+- d
+-  
+- P
+- D
+- F
+-  
+- (
+- b
+- l
+- o
+- c
+- k
+- e
+- d
+- )
+- ;
+-  
+- t
+- h
+- e
+-  
+- M
+- a
+-  
+- &
+-  
+- Z
+- h
+- a
+- i
+-  
+- t
+- i
+- c
+- k
+- -
+- r
+- u
+- l
+- e
+-  
+- p
+- a
+- p
+- e
+- r
+-  
+- f
+- u
+- l
+- l
+-  
+- t
+- e
+- x
+- t
+-  
+- w
+- a
+- s
+-  
+- n
+- o
+- t
+-  
+- r
+- e
+- a
+- d
+- a
+- b
+- l
+- e
+-  
+- (
+- 4
+- 0
+- 3
+- )
+-  
+- s
+- o
+-  
+- s
+- a
+- m
+- p
+- l
+- e
+-  
+- d
+- a
+- t
+- e
+- s
+-  
+- a
+- n
+- d
+-  
+- g
+- r
+- o
+- u
+- n
+- d
+- -
+- t
+- r
+- u
+- t
+- h
+-  
+- m
+- e
+- t
+- h
+- o
+- d
+-  
+- a
+- r
+- e
+-  
+- u
+- n
+- k
+- n
+- o
+- w
+- n
+- ;
+-  
+- T
+- a
+- r
+- d
+- i
+- s
+-  
+- d
+- e
+- p
+- t
+- h
+- =
+- 1
+- 0
+- 0
+- 0
+-  
+- f
+- o
+- r
+-  
+- t
+- h
+- e
+-  
+- 2
+- 0
+- 1
+- 9
+- -
+- 2
+- 0
+- 2
+- 6
+-  
+- v
+- 1
+-  
+- e
+- r
+- a
+-  
+- r
+- e
+- s
+- t
+- s
+-  
+- s
+- o
+- l
+- e
+- l
+- y
+-  
+- o
+- n
+-  
+- t
+- h
+- e
+-  
+- v
+- e
+- n
+- d
+- o
+- r
+- '
+- s
+-  
+- o
+- w
+- n
+-  
+- p
+- a
+- g
+- e
+- ;
+-  
+- t
+- h
+- e
+-  
+- C
+- o
+- n
+- c
+- r
+- e
+- t
+- u
+- m
+-  
+- s
+- u
+- r
+- v
+- i
+- v
+- o
+- r
+- s
+- h
+- i
+- p
+-  
+- n
+- o
+- t
+- e
+-  
+- i
+- s
+-  
+- p
+- r
+- a
+- c
+- t
+- i
+- t
+- i
+- o
+- n
+- e
+- r
+- -
+- g
+- r
+- a
+- d
+- e
+- .
+-  
+- I
+- n
+- t
+- e
+- r
+- n
+- a
+- l
+-  
+- c
+- o
+- n
+- t
+- r
+- a
+- d
+- i
+- c
+- t
+- i
+- o
+- n
+-  
+- t
+- o
+-  
+- c
+- a
+- r
+- r
+- y
+- :
+-  
+- d
+- o
+- c
+- s
+- .
+- k
+- r
+- a
+- k
+- e
+- n
+- .
+- c
+- o
+- m
+-  
+- s
+- a
+- y
+- s
+-  
+- '
+- n
+- o
+-  
+- b
+- u
+- l
+- k
+-  
+- h
+- i
+- s
+- t
+- o
+- r
+- i
+- c
+- a
+- l
+-  
+- d
+- a
+- t
+- a
+-  
+- d
+- u
+- m
+- p
+- '
+-  
+- w
+- h
+- i
+- l
+- e
+-  
+- s
+- u
+- p
+- p
+- o
+- r
+- t
+- .
+- k
+- r
+- a
+- k
+- e
+- n
+- .
+- c
+- o
+- m
+-  
+- s
+- e
+- r
+- v
+- e
+- s
+-  
+- o
+- n
+- e
+-  
+- (
+- t
+- i
+- c
+- k
+-  
+- +
+-  
+- O
+- H
+- L
+- C
+- V
+- T
+- )
+-  
+- —
+-  
+- t
+- r
+- u
+- e
+-  
+- o
+- n
+- l
+- y
+-  
+- a
+- t
+-  
+- t
+- i
+- c
+- k
+- -
+- v
+- s
+- -
+- b
+- o
+- o
+- k
+-  
+- g
+- r
+- a
+- n
+- u
+- l
+- a
+- r
+- i
+- t
+- y
+- .
+-  
+- T
+- i
+- m
+- e
+- -
+- s
+- e
+- n
+- s
+- i
+- t
+- i
+- v
+- i
+- t
+- y
+- :
+-  
+- T
+- a
+- r
+- d
+- i
+- s
+-  
+- p
+- r
+- i
+- c
+- e
+- s
+- ,
+-  
+- K
+- r
+- a
+- k
+- e
+- n
+-  
+- q
+- u
+- a
+- r
+- t
+- e
+- r
+- l
+- y
+- -
+- f
+- i
+- l
+- e
+-  
+- l
+- a
+- g
+- ,
+-  
+- B
+- i
+- n
+- a
+- n
+- c
+- e
+-  
+- V
+- i
+- s
+- i
+- o
+- n
+-  
+- a
+- n
+- o
+- n
+- y
+- m
+- o
+- u
+- s
+-  
+- a
+- c
+- c
+- e
+- s
+- s
+-  
+- (
+- o
+- n
+- e
+-  
+- U
+- S
+-  
+- v
+- a
+- n
+- t
+- a
+- g
+- e
+- ,
+-  
+- 2
+- 0
+- 2
+- 6
+- -
+- 0
+- 9
+- -
+- 0
+- 1
+- )
+- ,
+-  
+- a
+- n
+- d
+-  
+- t
+- h
+- e
+-  
+- 2
+- 0
+- 2
+- 6
+- -
+- 0
+- 7
+- -
+- 1
+- 0
+-  
+- K
+- r
+- a
+- k
+- e
+- n
+-  
+- W
+- S
+-  
+- v
+- 2
+- /
+- s
+- y
+- m
+- b
+- o
+- l
+-  
+- m
+- i
+- g
+- r
+- a
+- t
+- i
+- o
+- n
+-  
+- a
+- r
+- e
+-  
+- a
+- l
+- l
+-  
+- a
+- s
+- -
+- o
+- f
+-  
+- 2
+- 0
+- 2
+- 6
+- -
+- 0
+- 9
+- -
+- 0
+- 1
+- .
+-  
+- R
+- e
+- f
+- u
+- t
+- e
+- d
+-  
+- c
+- l
+- a
+- i
+- m
+- s
+-  
+- (
+- O
+- H
+- L
+- C
+-  
+- 7
+- 2
+- 0
+- -
+- c
+- a
+- n
+- d
+- l
+- e
+-  
+- p
+- a
+- g
+- i
+- n
+- a
+- t
+- i
+- o
+- n
+-  
+- 0
+- -
+- 3
+- ;
+-  
+- T
+- a
+- r
+- d
+- i
+- s
+-  
+- '
+- 7
+-  
+- y
+- e
+- a
+- r
+- s
+-  
+- s
+- a
+- t
+- i
+- s
+- f
+- i
+- e
+- s
+-  
+- 2
+- -
+- 9
+-  
+- y
+- e
+- a
+- r
+-  
+- w
+- i
+- n
+- d
+- o
+- w
+- '
+-  
+- 1
+- -
+- 2
+- ;
+-  
+- O
+- F
+- I
+-  
+- l
+- i
+- n
+- e
+- a
+- r
+- /
+- d
+- e
+- p
+- t
+- h
+- -
+- n
+- o
+- r
+- m
+- a
+- l
+- i
+- z
+- e
+- d
+-  
+- t
+- r
+- a
+- n
+- s
+- f
+- e
+- r
+-  
+- 1
+- -
+- 2
+- ;
+-  
+- t
+- h
+- r
+- e
+- e
+-  
+- t
+- r
+- a
+- d
+- e
+- -
+- t
+- a
+- p
+- e
+- -
+- p
+- r
+- o
+- x
+- y
+-  
+- c
+- l
+- a
+- i
+- m
+- s
+-  
+- 0
+- -
+- 3
+- )
+-  
+- m
+- u
+- s
+- t
+-  
+- n
+- o
+- t
+-  
+- b
+- e
+-  
+- r
+- e
+- u
+- s
+- e
+- d
+- ;
+-  
+- i
+- n
+-  
+- p
+- a
+- r
+- t
+- i
+- c
+- u
+- l
+- a
+- r
+-  
+- t
+- h
+- e
+-  
+- t
+- r
+- a
+- d
+- e
+- -
+- t
+- a
+- p
+- e
+- -
+- v
+- s
+- -
+- b
+- o
+- o
+- k
+-  
+- p
+- r
+- o
+- x
+- y
+-  
+- q
+- u
+- a
+- l
+- i
+- t
+- y
+-  
+- q
+- u
+- e
+- s
+- t
+- i
+- o
+- n
+-  
+- i
+- s
+-  
+- o
+- p
+- e
+- n
+-  
+- i
+- n
+-  
+- B
+- O
+- T
+- H
+-  
+- d
+- i
+- r
+- e
+- c
+- t
+- i
+- o
+- n
+- s
+- .
+
+## Open questions (4)
+
+- Does Kraken's tick CSV include a buy/sell side column and delisted pairs (requires downloading the 7GB+ ZIP), and how far back does /0/public/Trades actually paginate for a listed pair — to listing, or a rolling window?
+- What is the measured out-of-sample proxy quality of trade-tape imbalance (tick-rule/BVC on Kraken or Binance aggTrades) versus the bot's own depth-weighted L2 imbalance, evaluated on the bot's 50-day window where both exist — the only route to knowing whether free tape history can stand in for paid L2?
+- What do professional desks actually measure (markout at 1s/10s/60s/5min, realized vs quoted spread, fill toxicity) and what regulator/peer-reviewed evidence exists on Kraken-specific spoofing, wash trading, and liquidation cascades — the entire Angle 5 remains unscanned?
+- Which backfill CLI (ccxt, cryptofeed/cryptostore, freqtrade download-data) correctly handles Kraken's 19-digit nanosecond `last` cursor and rate limits without repeat pages, given the documented freqtrade float-truncation bug?
+
+## Sources (23)
+
+- **{"url": "https://support.kraken.com/articles/360047543791-downloadable-historical-market-data-time-and-sales-", "quality": "primary", "angle": "primary-data-sources", "claimCount": 5}**
+  - url: https://support.kraken.com/articles/360047543791-downloadable-historical-market-data-time-and-sales-
+  - quality: primary
+  - angle: primary-data-sources
+  - claimCount: 5
+- **{"url": "https://docs.kraken.com/exchange/guides/general/historical-data", "quality": "primary", "angle": "primary-data-sources", "claimCount": 5}**
+  - url: https://docs.kraken.com/exchange/guides/general/historical-data
+  - quality: primary
+  - angle: primary-data-sources
+  - claimCount: 5
+- **{"url": "https://docs.tardis.dev/historical-data-details/kraken", "quality": "primary", "angle": "primary-data-sources", "claimCount": 5}**
+  - url: https://docs.tardis.dev/historical-data-details/kraken
+  - quality: primary
+  - angle: primary-data-sources
+  - claimCount: 5
+- **{"url": "https://github.com/binance/binance-public-data", "quality": "primary", "angle": "primary-data-sources", "claimCount": 5}**
+  - url: https://github.com/binance/binance-public-data
+  - quality: primary
+  - angle: primary-data-sources
+  - claimCount: 5
+- **{"url": "https://docs.tardis.dev/faq/data", "quality": "primary", "angle": "primary-data-sources", "claimCount": 5}**
+  - url: https://docs.tardis.dev/faq/data
+  - quality: primary
+  - angle: primary-data-sources
+  - claimCount: 5
+- **{"url": "https://www.cryptodatadownload.com/data/kraken/", "quality": "secondary", "angle": "primary-data-sources", "claimCount": 5}**
+  - url: https://www.cryptodatadownload.com/data/kraken/
+  - quality: secondary
+  - angle: primary-data-sources
+  - claimCount: 5
+- **{"url": "https://arxiv.org/abs/1011.6402", "quality": "primary", "angle": "feature-reconstructability", "claimCount": 5}**
+  - url: https://arxiv.org/abs/1011.6402
+  - quality: primary
+  - angle: feature-reconstructability
+  - claimCount: 5
+- **{"url": "https://link.springer.com/article/10.1007/s42521-019-00007-w", "quality": "primary", "angle": "feature-reconstructability", "claimCount": 4}**
+  - url: https://link.springer.com/article/10.1007/s42521-019-00007-w
+  - quality: primary
+  - angle: feature-reconstructability
+  - claimCount: 4
+- **{"url": "https://journals.sagepub.com/doi/full/10.1177/21582440211014504", "quality": "primary", "angle": "feature-reconstructability", "claimCount": 4}**
+  - url: https://journals.sagepub.com/doi/full/10.1177/21582440211014504
+  - quality: primary
+  - angle: feature-reconstructability
+  - claimCount: 4
+- **{"url": "https://www.ams.org/notices/201405/rnoti-p458.pdf", "quality": "primary", "angle": "statistical-sample-efficiency", "claimCount": 5}**
+  - url: https://www.ams.org/notices/201405/rnoti-p458.pdf
+  - quality: primary
+  - angle: statistical-sample-efficiency
+  - claimCount: 5
+- **{"url": "https://skfolio.org/generated/skfolio.model_selection.CombinatorialPurgedCV.html", "quality": "primary", "angle": "statistical-sample-efficiency", "claimCount": 5}**
+  - url: https://skfolio.org/generated/skfolio.model_selection.CombinatorialPurgedCV.html
+  - quality: primary
+  - angle: statistical-sample-efficiency
+  - claimCount: 5
+- **{"url": "https://cran.r-project.org/web/packages/PracTools/vignettes/Design-effects.html", "quality": "primary", "angle": "statistical-sample-efficiency", "claimCount": 5}**
+  - url: https://cran.r-project.org/web/packages/PracTools/vignettes/Design-effects.html
+  - quality: primary
+  - angle: statistical-sample-efficiency
+  - claimCount: 5
+- **{"url": "https://www.freqtrade.io/en/stable/data-download/", "quality": "primary", "angle": "backfill-tooling", "claimCount": 5}**
+  - url: https://www.freqtrade.io/en/stable/data-download/
+  - quality: primary
+  - angle: backfill-tooling
+  - claimCount: 5
+- **{"url": "https://github.com/freqtrade/freqtrade/issues/12961", "quality": "forum", "angle": "backfill-tooling", "claimCount": 5}**
+  - url: https://github.com/freqtrade/freqtrade/issues/12961
+  - quality: forum
+  - angle: backfill-tooling
+  - claimCount: 5
+- **{"url": "https://docs.ccxt.com/en/latest/manual.html", "quality": "primary", "angle": "backfill-tooling", "claimCount": 5}**
+  - url: https://docs.ccxt.com/en/latest/manual.html
+  - quality: primary
+  - angle: backfill-tooling
+  - claimCount: 5
+- **{"url": "https://www.kraken.com/features/fee-schedule", "quality": "primary", "angle": "desk-edge-metrics", "claimCount": 5}**
+  - url: https://www.kraken.com/features/fee-schedule
+  - quality: primary
+  - angle: desk-edge-metrics
+  - claimCount: 5
+- **{"url": "https://moallemi.com/ciamac/papers/queue-value-2016.pdf", "quality": "primary", "angle": "desk-edge-metrics", "claimCount": 5}**
+  - url: https://moallemi.com/ciamac/papers/queue-value-2016.pdf
+  - quality: primary
+  - angle: desk-edge-metrics
+  - claimCount: 5
+- **{"url": "https://pubsonline.informs.org/doi/abs/10.1287/mnsc.2021.02709", "quality": "primary", "angle": "manipulation-detection-regulators", "claimCount": 5}**
+  - url: https://pubsonline.informs.org/doi/abs/10.1287/mnsc.2021.02709
+  - quality: primary
+  - angle: manipulation-detection-regulators
+  - claimCount: 5
+- **{"url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3745617", "quality": "primary", "angle": "manipulation-detection-regulators", "claimCount": 5}**
+  - url: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3745617
+  - quality: primary
+  - angle: manipulation-detection-regulators
+  - claimCount: 5
+- **{"url": "https://arxiv.org/abs/2504.15908", "quality": "primary", "angle": "manipulation-detection-regulators", "claimCount": 5}**
+  - url: https://arxiv.org/abs/2504.15908
+  - quality: primary
+  - angle: manipulation-detection-regulators
+  - claimCount: 5
+- **{"url": "https://www.sec.gov/comments/sr-nysearca-2019-01/srnysearca201901-5164833-183434.pdf", "quality": "primary", "angle": "manipulation-detection-regulators", "claimCount": 5}**
+  - url: https://www.sec.gov/comments/sr-nysearca-2019-01/srnysearca201901-5164833-183434.pdf
+  - quality: primary
+  - angle: manipulation-detection-regulators
+  - claimCount: 5
+- **{"url": "https://www.esma.europa.eu/press-news/esma-news/esma-issues-supervisory-guidelines-prevent-market-abuse-under-mica", "quality": "primary", "angle": "manipulation-detection-regulators", "claim**
+  - url: https://www.esma.europa.eu/press-news/esma-news/esma-issues-supervisory-guidelines-prevent-market-abuse-under-mica
+  - quality: primary
+  - angle: manipulation-detection-regulators
+  - claimCount: 5
+- **{"url": "https://arxiv.org/html/2607.27070", "quality": "primary", "angle": "manipulation-detection-regulators", "claimCount": 5}**
+  - url: https://arxiv.org/html/2607.27070
+  - quality: primary
+  - angle: manipulation-detection-regulators
+  - claimCount: 5
+
+## Stats
+
+```
+{
+ "angles": 6,
+ "sourcesFetched": 23,
+ "claimsExtracted": 113,
+ "claimsVerified": 25,
+ "confirmed": 19,
+ "killed": 6,
+ "unverified": 0,
+ "afterSynthesis": 9,
+ "urlDupes": 5,
+ "budgetDropped": 8,
+ "agentCalls": 106
+}
+```
+
+## Workflow log
+
+```
+Q: RESEARCH QUESTION (verify every claim against primary documentation, exact URLs,…
+Decomposed into 6 angles: primary-data-sources, feature-reconstructability, statistical-sample-efficiency, backfill-tooling, desk-edge-metrics, manipulation-detection-regulators
+manipulation-detection-regulators: 6 results
+primary-data-sources: 6 results
+statistical-sample-efficiency: 6 results
+statistical-sample-efficiency: 3 novel (3 filtered)
+feature-reconstructability: 6 results
+feature-reconstructability: 3 novel (3 filtered)
+desk-edge-metrics: 6 results
+desk-edge-metrics: 2 novel (4 filtered)
+backfill-tooling: 6 results
+backfill-tooling: 3 novel (3 filtered)
+Fetched 23 sources → 113 claims → verifying top 25
+"The Kraken CSV archive contains only trade-level f…": 3-0 ✓
+"Kraken's REST /0/public/Trades endpoint returns at…": 2-1 ✓
+"Kraken explicitly states it provides NO bulk histo…": 2-1 ✓
+"The /0/public/OHLC endpoint returns a maximum of 7…": 0-3 ✗
+"Kraken officially publishes downloadable CSV trade…": 3-0 ✓
+"Kraken offers NO historical order-book endpoint: /…": 3-0 ✓
+"Tardis.dev holds Kraken spot historical data for a…": 1-2 ✗
+"data.binance.vision provides free, anonymous bulk …": 3-0 ✓
+"For SPOT, the README documents exactly three data …": 3-0 ✓
+"Tardis.dev's Kraken archive includes full L2 order…": 3-0 ✓
+"Tardis.dev's Kraken spot coverage starts 2019-06-0…": 3-0 ✓
+"Coverage: all symbols are supported; daily files a…": 3-0 ✓
+"Over short time intervals, price changes are prima…": 3-0 ✓
+"Tardis.dev provides tick-level L2 order-book histo…": 3-0 ✓
+"The OFI-to-price-change relation is linear with a …": 1-2 ✗
+"Proxying book imbalance from trade volume alone (t…": 0-3 ✗
+"On a sample of 11.9 million Bitcoin/USD trades fro…": 3-0 ✓
+"In BitMEX XBTUSD perpetual data, trade flow imbala…": 0-3 ✗
+"Order-flow imbalance series built by signing trade…": 0-3 ✗
+"Concrete calendar numbers: with a target IS Sharpe…": 3-0 ✓
+"skfolio ships an open-source, scikit-learn-compati…": 3-0 ✓
+"MinBTL (in years) is bounded above by 2 ln[N] / E[…": 3-0 ✓
+"CPCV differs from KFold by using p>1 test folds pe…": 3-0 ✓
+"Increasing sampling frequency q (more rows per yea…": 3-0 ✓
+"The Kish cluster design effect is deff = 1 + rho*(…": 3-0 ✓
+Verify done: 25 claims → 19 confirmed, 6 refuted, 0 unverified
+```

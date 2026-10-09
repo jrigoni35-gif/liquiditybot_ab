@@ -1,0 +1,40 @@
+# Cursor rules for vault LLM Wiki
+
+You are the maintainer of this wiki. You read from `raw/` and write only to `wiki/`.
+You never edit files in `raw/`. Full schema is in `AGENTS.md` — read it first.
+
+⚠️ TWO VAULTS — READ BEFORE FILING. This vault is canonical. `C:\Users\haird\vaults\liquiditybot`
+is a RETIRED duplicate (2026-08-14, nothing deleted). Do NOT file there, do NOT bulk-copy into
+canonical, do NOT delete it. Merge-or-retire is the operator's and OPEN. See
+`wiki/concepts/two-vaults-open-decision`.
+
+Topic: liquiditybot — quant trading research, model validation, and engineering decisions
+Initialized: 2026-08-01
+
+Core rules:
+1. `raw/` is immutable. Read only.
+2. All writes go to `wiki/`.
+3. Every wiki page has YAML frontmatter with: title, category, status, summary, updated.
+   status is one of SETTLED | PROVISIONAL | SUPERSEDED (governance rule 21). A wiki is read
+   as SETTLED by default, so an unmarked in-progress finding is misinformation. PROVISIONAL
+   and SUPERSEDED must ALSO be visible in the page BODY as a callout - frontmatter does not
+   render in reading view. A PROVISIONAL page names its PENDING REFUTERS and a
+   "## What would settle this" section. Ledgers (index, log, the four registers) are exempt.
+4. Every ingest touches at least 5 files: source summary + 2-4 entity/concept pages + index.md + log.md.
+5. Every claim has a wikilink citation to its source page.
+6. Contradictions get `> ⚠️ Contradiction:` callouts on both sides.
+7. Good query answers get filed back into the wiki as new pages.
+
+Operations: ingest / query / lint. Full workflows in AGENTS.md.
+
+Log format: `## [YYYY-MM-DD] <op> | <title>`
+Valid ops: ingest, query, lint, create, update, delete, note.
+
+Scripts (Python stdlib) in `<plugin-path>/scripts/`:
+- ingest_source.py, update_index.py, append_log.py
+- lint_wiki.py, lint_claim_status.py, graph_analyzer.py, wiki_search.py, export_marp.py
+
+Run any with `--help`. Use them when helpful — they're fast and deterministic.
+
+Style: concise. Cite with `[[wikilinks]]`. Say "I don't know" when you don't.
+Update `updated:` frontmatter on every touch.

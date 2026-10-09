@@ -1,0 +1,686 @@
+{
+  "read_utc": "2026-09-07T19:33:42Z",
+  "basket": [
+    "BTC",
+    "ETH",
+    "LINK"
+  ],
+  "tape_end_utc": {
+    "BTC": "2026-09-07T19:25:00Z",
+    "ETH": "2026-09-07T19:30:00Z",
+    "LINK": "2026-09-07T19:30:00Z"
+  },
+  "trips_total": 329,
+  "trips_on_tape": 329,
+  "dropped": 0,
+  "dropped_by_era": {},
+  "dropped_mean_gross_bps": null,
+  "last_fill_utc": "2026-09-07T07:40:24Z",
+  "method": "OLS of gross trip return on the signed EW return of the basket minus the traded asset over the same window, prior-close anchors; day-block bootstrap + CR1 + exact sign-flip",
+  "groups": {
+    "ALL": {
+      "n": 329,
+      "days": 45,
+      "n_eff": 9.3,
+      "few_eff_days": true,
+      "beta": 0.8938,
+      "beta_ci": [
+        0.5796996944246118,
+        1.0828053169273613
+      ],
+      "beta_ci_cr1": [
+        0.6384832105597069,
+        1.149201930356821
+      ],
+      "r2": 0.3845,
+      "mean_gross_bps": -0.81,
+      "market_part_bps": 4.26,
+      "alpha_bps": -5.07,
+      "alpha_ci_bps": [
+        -20.28,
+        10.67
+      ],
+      "alpha_ci_cr1_bps": [
+        -19.01,
+        8.87
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.48645,
+      "signflip_method": "mc",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.76331395546124,
+        0.9576406304593701
+      ],
+      "lodo_alpha_bps": [
+        -8.49,
+        -2.57
+      ],
+      "share_of_variance_market": 0.385
+    },
+    "era:(blank)": {
+      "n": 239,
+      "days": 21,
+      "n_eff": 5.1,
+      "few_eff_days": true,
+      "beta": 0.7338,
+      "beta_ci": [
+        0.35416505986699864,
+        1.0447490777217618
+      ],
+      "beta_ci_cr1": [
+        0.36128205555835596,
+        1.1062260660007444
+      ],
+      "r2": 0.3479,
+      "mean_gross_bps": -3.27,
+      "market_part_bps": -0.37,
+      "alpha_bps": -2.9,
+      "alpha_ci_bps": [
+        -12.7,
+        8.62
+      ],
+      "alpha_ci_cr1_bps": [
+        -11.96,
+        6.17
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.5613,
+      "signflip_method": "mc",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.6024166414305185,
+        0.8484337288380527
+      ],
+      "lodo_alpha_bps": [
+        -6.38,
+        -1.39
+      ],
+      "share_of_variance_market": 0.348
+    },
+    "era:10-a5acfe2d": {
+      "n": 2,
+      "skipped": "< 10 trips"
+    },
+    "era:7-e7d5ca1a": {
+      "n": 56,
+      "days": 15,
+      "n_eff": 11.0,
+      "few_eff_days": false,
+      "beta": 0.8166,
+      "beta_ci": [
+        -0.030651691039671535,
+        1.0900646496750463
+      ],
+      "beta_ci_cr1": [
+        0.3049205625681881,
+        1.3282361848524655
+      ],
+      "r2": 0.2779,
+      "mean_gross_bps": 58.57,
+      "market_part_bps": 43.37,
+      "alpha_bps": 15.2,
+      "alpha_ci_bps": [
+        -44.75,
+        104.16
+      ],
+      "alpha_ci_cr1_bps": [
+        -63.97,
+        94.38
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.68548583984375,
+      "signflip_method": "exact",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.43389396326577306,
+        0.9407002488848405
+      ],
+      "lodo_alpha_bps": [
+        -4.51,
+        39.55
+      ],
+      "share_of_variance_market": 0.278
+    },
+    "era:8-ca55e2ba": {
+      "n": 3,
+      "skipped": "< 10 trips"
+    },
+    "era:9-16ec821e": {
+      "n": 29,
+      "days": 8,
+      "n_eff": 6.6,
+      "few_eff_days": true,
+      "beta": 1.27,
+      "beta_ci": [
+        1.0703092683638422,
+        1.5378951849504718
+      ],
+      "beta_ci_cr1": [
+        1.0206061015781587,
+        1.5193382340906716
+      ],
+      "r2": 0.7215,
+      "mean_gross_bps": -70.48,
+      "market_part_bps": -16.74,
+      "alpha_bps": -53.74,
+      "alpha_ci_bps": [
+        -82.66,
+        -22.37
+      ],
+      "alpha_ci_cr1_bps": [
+        -93.84,
+        -13.64
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.0078125,
+      "signflip_method": "exact",
+      "alpha_clear_of_zero": true,
+      "lodo_beta": [
+        1.2201161838794286,
+        1.351737345319494
+      ],
+      "lodo_alpha_bps": [
+        -66.33,
+        -42.03
+      ],
+      "share_of_variance_market": 0.721
+    },
+    "asset:ADA": {
+      "n": 30,
+      "days": 15,
+      "n_eff": 8.2,
+      "few_eff_days": true,
+      "beta": 1.0631,
+      "beta_ci": [
+        0.21728623900314986,
+        1.862364683794431
+      ],
+      "beta_ci_cr1": [
+        0.23032541187066624,
+        1.895966231231883
+      ],
+      "r2": 0.3195,
+      "mean_gross_bps": -8.64,
+      "market_part_bps": -16.88,
+      "alpha_bps": 8.24,
+      "alpha_ci_bps": [
+        -25.92,
+        57.04
+      ],
+      "alpha_ci_cr1_bps": [
+        -32.16,
+        48.64
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.69598388671875,
+      "signflip_method": "exact",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.8998030186501722,
+        1.4244558672430496
+      ],
+      "lodo_alpha_bps": [
+        -2.2,
+        13.95
+      ],
+      "share_of_variance_market": 0.32
+    },
+    "asset:ARB": {
+      "n": 13,
+      "days": 8,
+      "n_eff": 5.5,
+      "few_eff_days": true,
+      "beta": 0.486,
+      "beta_ci": [
+        -0.7046124329073964,
+        3.0583403092984285
+      ],
+      "beta_ci_cr1": [
+        -1.7670432945241017,
+        2.739101365358428
+      ],
+      "r2": 0.0531,
+      "mean_gross_bps": -81.92,
+      "market_part_bps": 5.64,
+      "alpha_bps": -87.56,
+      "alpha_ci_bps": [
+        -185.0,
+        -22.98
+      ],
+      "alpha_ci_cr1_bps": [
+        -179.56,
+        4.43
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.0078125,
+      "signflip_method": "exact",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.02018137167924645,
+        2.1993892599272415
+      ],
+      "lodo_alpha_bps": [
+        -115.77,
+        -64.23
+      ],
+      "share_of_variance_market": 0.053
+    },
+    "asset:AVAX": {
+      "n": 3,
+      "skipped": "< 10 trips"
+    },
+    "asset:BTC": {
+      "n": 38,
+      "days": 15,
+      "n_eff": 5.6,
+      "few_eff_days": true,
+      "beta": 0.9683,
+      "beta_ci": [
+        0.6772942371204784,
+        1.0177787330523083
+      ],
+      "beta_ci_cr1": [
+        0.8984405517283515,
+        1.0382399324211609
+      ],
+      "r2": 0.9554,
+      "mean_gross_bps": 14.47,
+      "market_part_bps": 19.08,
+      "alpha_bps": -4.61,
+      "alpha_ci_bps": [
+        -17.62,
+        2.05
+      ],
+      "alpha_ci_cr1_bps": [
+        -13.73,
+        4.51
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.208984375,
+      "signflip_method": "exact",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.8913254367956891,
+        0.9892664839758673
+      ],
+      "lodo_alpha_bps": [
+        -8.55,
+        -2.69
+      ],
+      "share_of_variance_market": 0.955
+    },
+    "asset:DOGE": {
+      "n": 29,
+      "days": 15,
+      "n_eff": 7.4,
+      "few_eff_days": true,
+      "beta": 0.8919,
+      "beta_ci": [
+        0.25623298606024436,
+        2.008457592506957
+      ],
+      "beta_ci_cr1": [
+        -0.14700191706180588,
+        1.9308209936455927
+      ],
+      "r2": 0.3611,
+      "mean_gross_bps": -22.5,
+      "market_part_bps": 2.4,
+      "alpha_bps": -24.9,
+      "alpha_ci_bps": [
+        -86.04,
+        9.29
+      ],
+      "alpha_ci_cr1_bps": [
+        -72.9,
+        23.1
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.20184326171875,
+      "signflip_method": "exact",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.8019379017503683,
+        1.6365182378831424
+      ],
+      "lodo_alpha_bps": [
+        -43.73,
+        -13.37
+      ],
+      "share_of_variance_market": 0.361
+    },
+    "asset:DOT": {
+      "n": 17,
+      "days": 7,
+      "n_eff": 3.7,
+      "few_eff_days": true,
+      "beta": 1.0844,
+      "beta_ci": [
+        0.42656766930349743,
+        1.4538746915765313
+      ],
+      "beta_ci_cr1": [
+        0.5329382212767512,
+        1.6359139454521645
+      ],
+      "r2": 0.8097,
+      "mean_gross_bps": -14.66,
+      "market_part_bps": -6.81,
+      "alpha_bps": -7.84,
+      "alpha_ci_bps": [
+        -41.52,
+        25.27
+      ],
+      "alpha_ci_cr1_bps": [
+        -36.7,
+        21.01
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.453125,
+      "signflip_method": "exact",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.5309316255337166,
+        1.2809688303132463
+      ],
+      "lodo_alpha_bps": [
+        -15.38,
+        2.49
+      ],
+      "share_of_variance_market": 0.81
+    },
+    "asset:ETH": {
+      "n": 58,
+      "days": 22,
+      "n_eff": 7.7,
+      "few_eff_days": true,
+      "beta": 0.9053,
+      "beta_ci": [
+        0.43423121206804,
+        1.1817939197433247
+      ],
+      "beta_ci_cr1": [
+        0.4498501755481268,
+        1.360746989614092
+      ],
+      "r2": 0.6474,
+      "mean_gross_bps": 21.59,
+      "market_part_bps": 22.61,
+      "alpha_bps": -1.03,
+      "alpha_ci_bps": [
+        -16.42,
+        22.55
+      ],
+      "alpha_ci_cr1_bps": [
+        -18.83,
+        16.78
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.9596,
+      "signflip_method": "mc",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.6238318399278879,
+        1.0718285158845775
+      ],
+      "lodo_alpha_bps": [
+        -8.38,
+        1.9
+      ],
+      "share_of_variance_market": 0.647
+    },
+    "asset:LINK": {
+      "n": 26,
+      "days": 15,
+      "n_eff": 6.1,
+      "few_eff_days": true,
+      "beta": 0.8163,
+      "beta_ci": [
+        -0.3395881092456701,
+        1.3869683092271183
+      ],
+      "beta_ci_cr1": [
+        0.22098647696303364,
+        1.4115756758426594
+      ],
+      "r2": 0.0673,
+      "mean_gross_bps": 35.06,
+      "market_part_bps": -8.24,
+      "alpha_bps": 43.3,
+      "alpha_ci_bps": [
+        -4.36,
+        181.48
+      ],
+      "alpha_ci_cr1_bps": [
+        -47.26,
+        133.85
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.2615966796875,
+      "signflip_method": "exact",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.49406999230562393,
+        0.9126872670518024
+      ],
+      "lodo_alpha_bps": [
+        7.25,
+        68.63
+      ],
+      "share_of_variance_market": 0.067
+    },
+    "asset:LTC": {
+      "n": 7,
+      "skipped": "< 10 trips"
+    },
+    "asset:MINA": {
+      "n": 5,
+      "skipped": "< 10 trips"
+    },
+    "asset:PAXG": {
+      "n": 6,
+      "skipped": "< 10 trips"
+    },
+    "asset:SOL": {
+      "n": 22,
+      "days": 11,
+      "n_eff": 5.8,
+      "few_eff_days": true,
+      "beta": 0.4084,
+      "beta_ci": [
+        -0.14869819566873754,
+        1.9386743709818954
+      ],
+      "beta_ci_cr1": [
+        -0.3172780607391324,
+        1.1340708283624625
+      ],
+      "r2": 0.1263,
+      "mean_gross_bps": 0.03,
+      "market_part_bps": 5.09,
+      "alpha_bps": -5.06,
+      "alpha_ci_bps": [
+        -60.05,
+        43.52
+      ],
+      "alpha_ci_cr1_bps": [
+        -50.22,
+        40.09
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.8427734375,
+      "signflip_method": "exact",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.2825026863802427,
+        0.8310685719875022
+      ],
+      "lodo_alpha_bps": [
+        -16.93,
+        8.84
+      ],
+      "share_of_variance_market": 0.126
+    },
+    "asset:SUI": {
+      "n": 39,
+      "days": 18,
+      "n_eff": 8.7,
+      "few_eff_days": true,
+      "beta": 1.4173,
+      "beta_ci": [
+        0.7213011611512858,
+        2.335027264231932
+      ],
+      "beta_ci_cr1": [
+        0.6493959357951627,
+        2.1851551494261563
+      ],
+      "r2": 0.3538,
+      "mean_gross_bps": -17.08,
+      "market_part_bps": -17.81,
+      "alpha_bps": 0.73,
+      "alpha_ci_bps": [
+        -35.25,
+        46.86
+      ],
+      "alpha_ci_cr1_bps": [
+        -38.99,
+        40.44
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.9702,
+      "signflip_method": "mc",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        1.2567822833367828,
+        1.696051175094435
+      ],
+      "lodo_alpha_bps": [
+        -9.72,
+        11.01
+      ],
+      "share_of_variance_market": 0.354
+    },
+    "asset:XRP": {
+      "n": 36,
+      "days": 18,
+      "n_eff": 8.2,
+      "few_eff_days": true,
+      "beta": 1.0304,
+      "beta_ci": [
+        0.6537129614681445,
+        1.3366755886380246
+      ],
+      "beta_ci_cr1": [
+        0.6799964776345724,
+        1.3808032063541038
+      ],
+      "r2": 0.7107,
+      "mean_gross_bps": -2.57,
+      "market_part_bps": 4.61,
+      "alpha_bps": -7.18,
+      "alpha_ci_bps": [
+        -24.07,
+        17.71
+      ],
+      "alpha_ci_cr1_bps": [
+        -26.84,
+        12.49
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.44695,
+      "signflip_method": "mc",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.9320508831563695,
+        1.1507760743217956
+      ],
+      "lodo_alpha_bps": [
+        -10.51,
+        -2.39
+      ],
+      "share_of_variance_market": 0.711
+    },
+    "dir:long": {
+      "n": 180,
+      "days": 38,
+      "n_eff": 7.8,
+      "few_eff_days": true,
+      "beta": 0.9172,
+      "beta_ci": [
+        0.5599253560562816,
+        1.0966070448753353
+      ],
+      "beta_ci_cr1": [
+        0.6437006647527442,
+        1.1907755760356231
+      ],
+      "r2": 0.4126,
+      "mean_gross_bps": -1.67,
+      "market_part_bps": 7.09,
+      "alpha_bps": -8.76,
+      "alpha_ci_bps": [
+        -34.02,
+        14.15
+      ],
+      "alpha_ci_cr1_bps": [
+        -29.42,
+        11.9
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.43145,
+      "signflip_method": "mc",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.7400425954453377,
+        0.9783043595554769
+      ],
+      "lodo_alpha_bps": [
+        -16.03,
+        -6.07
+      ],
+      "share_of_variance_market": 0.413
+    },
+    "dir:short": {
+      "n": 149,
+      "days": 36,
+      "n_eff": 10.5,
+      "few_eff_days": false,
+      "beta": 0.8272,
+      "beta_ci": [
+        0.49247613758846037,
+        1.161585121291011
+      ],
+      "beta_ci_cr1": [
+        0.47329048724922934,
+        1.1810581722105287
+      ],
+      "r2": 0.3098,
+      "mean_gross_bps": 0.23,
+      "market_part_bps": 0.98,
+      "alpha_bps": -0.76,
+      "alpha_ci_bps": [
+        -18.6,
+        18.13
+      ],
+      "alpha_ci_cr1_bps": [
+        -18.19,
+        16.68
+      ],
+      "cr1_t": "t_table",
+      "alpha_signflip_p": 0.92875,
+      "signflip_method": "mc",
+      "alpha_clear_of_zero": false,
+      "lodo_beta": [
+        0.7683551205627677,
+        0.9498405547835588
+      ],
+      "lodo_alpha_bps": [
+        -4.84,
+        1.85
+      ],
+      "share_of_variance_market": 0.31
+    }
+  }
+}

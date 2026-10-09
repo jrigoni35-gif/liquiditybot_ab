@@ -1,0 +1,4951 @@
+# Deep research 2026-08-31 — is the null expected? counterfactual targets; predict cost not direction
+
+_Filed 2026-09-01 from deep-research workflow output (110 agents, 6211108 tokens). Verbatim structured result; interpretation lives on the source page that cites this file._
+
+## Question
+
+```
+CONTEXT (a live, measured system — calibrate findings to THESE numbers, not generic advice): a Kraken-only crypto trading bot, paper/dry-run, retail scale. Median ticket ~$18, account equity ~$795, real Kraken Tier-3 fees 22/38 bps (round-trip ~0.6%). Training corpus 11,625 rows, 64 handcrafted features, but mean label uniqueness 0.101 → only ~1,180 EFFECTIVE observations (~18 effective obs per parameter). Labels are triple-barrier (h432 bars). Measured 2026-09-01 with a validated instrument (planted-signal dose-response: recovers +0.806 skill noiseless, fades to −0.011 at high noise; shuffled controls score ~0): the deployed model has skill score −0.006 vs an oracle-constant null (i.e. NO out-of-sample skill), ALL eight model families from logistic through boosted trees to ensemble MLP score negative, capacity is monotonically HARMFUL, and skill is negative at every feature-count from k=1 to k=64. Live record: 382 closed trades, 21.5% positive, mean −$0.178.
+
+RESEARCH QUESTION — three linked domains, please cover all three:
+
+(1) IS THIS NULL THE EXPECTED RESULT? What does peer-reviewed literature find on out-of-sample predictability of crypto/FX returns at intraday-to-multiday horizons? What Brier scores, skill scores, or AUCs do published financial direction models actually achieve OUT of sample (not in-sample)? How large is the replication-failure and alpha-decay literature for published crypto anomalies? What effective sample size and signal-to-noise ratio does the literature suggest is needed before a directional edge is detectable at all? Is ~1,180 effective observations with 64 features simply too little data by known standards (de Prado effective-n / uniqueness, deflated Sharpe, minimum track record length)?
+
+(2) COUNTERFACTUAL / REGRET-BASED LEARNING. Does the empirical literature support reframing the target from "predict the outcome" to "which available action was best" — counterfactual regret minimization, off-policy evaluation (doubly-robust / inverse-propensity estimators), and learning-to-rank / contrastive or pairwise targets? Specifically: is there evidence that RELATIVE/pairwise targets succeed where absolute outcome regression fails under low signal-to-noise, because common-mode market movement cancels? What sample sizes do these methods need? What is the documented failure mode when counterfactuals come from a SIMULATOR rather than from reality (simulator bias amplification, model-based RL compounding error)? What does the record show for reinforcement learning applied to trading — which results replicated and which did not?
+
+(3) PREDICT COST, NOT DIRECTION. Is execution cost materially more predictable than return direction? Cover markout / post-fill adverse-selection measurement standards, Glosten-Milgrom informed-trader fraction and Kyle's lambda estimation on crypto venues, maker-rebate and queue-position economics, and the predictability of spread/impact/volatility versus direction. Critically: at a ~$18 median ticket with 22/38 bps fees, is cost-side edge actually exploitable, or does the fee floor and minimum ticket size make it uncapturable at this account size? What does the literature say about minimum viable account size / capacity for market-making or cost-optimized retail strategies?
+
+DELIVERABLE: a cited, confidence-ranked report. Prioritize peer-reviewed and reproducible sources over blogs and vendor marketing. Where the literature is contested or replication has failed, SAY SO explicitly rather than reporting the optimistic side. Flag any claim that rests on in-sample or backtest-only evidence. The single most valuable output is a calibrated answer to: "given these measured numbers, is there a defensible reason to expect ANY exploitable edge, and if so, in which of the three domains?"
+```
+
+## Summary
+
+Across the verified corpus the answer to "is this null the expected result?" is YES, and unusually strongly so: a measured skill score of -0.006 after a search over 8 model families x 64 feature counts is precisely what selection-bias mathematics predicts under a true zero-edge null, and the direction of multiple-testing bias means the true skill is if anything WORSE than -0.006, not better. The peer-reviewed crypto-ML record corroborates: even "successful" published studies deliver net-of-cost results that are either negative (Bitcoin ensemble -52.79%/yr after 0.5% costs) or exist only in a 17-day, 5.2%-of-sample sliver (+1.247%/yr), on evidence bases of ~325 out-of-sample daily observations with no multiple-testing correction — i.e. the published "edge" is itself of the fragility class the deflated-Sharpe literature was written to catch. Applying MinBTL to this system's own search (N ~ 512 nominal configurations, E[max SR] ~ 3.06, MinBTL ~ 9.4 years of daily data just to avoid manufacturing an in-sample Sharpe of 1.0 from nothing) says ~1,180 effective observations is one to two orders of magnitude short of what would make a positive result interpretable — so a null here is not a finding about the market, it is the arithmetic of the sample. CRITICAL SCOPE FAILURE: of the three domains asked about, only domain (1) is actually covered by surviving evidence. Domain (2) yields one existence proof for cross-sectional relative targets (Jaquart et al. 2022) whose design structurally requires ~100 simultaneously-tradeable assets with short capacity that a Kraken-only few-pair bot cannot satisfy — and its counterfactual-regret / off-policy-evaluation / simulator-bias / RL-replication half is entirely unevidenced by this corpus. Domain (3) — markout, Kyle's lambda, Glosten-Milgrom, queue economics, minimum viable capacity — has ZERO surviving claims: that is an unrun scan, not a negative result, and it is the one place a defensible edge could still hide.
+
+## Findings (survived adversarial verify) (9)
+
+- **The measured null (-0.006 skill) is the mathematically EXPECTED result of a search of this size at this sample length, not evidence about the market. Under a true Sharpe of zero, E[max SR over N independent trials] = (1-gamma)*Z^-1(1-1/N) + gamma*Z^-1(1-1/(N*e)) is strictly positive and grows without bound in N; the minimum backtest length needed just to avoid manufacturing a skill-less in-sample Sharpe of 1.0 is MinBTL < 2*ln(N)/E[max]^2 years. Applied to this system's own reported search (8 families x 64 feature counts = 512 nominal configurations): E[max SR] ~ 3.06 and exact MinBTL ~ 9.4 years of daily observations (asymptotic bound 12.5 years). The system has ~1,180 effective observations. The sample is therefore one to two orders of magnitude short of the length at which a POSITIVE result would have been interpretable at all.**
+  - confidence: high
+  - vote: 3-0 (claims 2, 6); 2-1 (claim 7)
+  - sources: ["https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551", "https://www.ams.org/notices/201405/rnoti-p458.pdf", "https://www.davidhbailey.com/dhbpapers/backtest-pseudo.pdf"]
+  - evidence: Bailey & Lopez de Prado, 'The Deflated Sharpe Ratio', J. Portfolio Management 40(5):94-107 (2014) — formula, Exhibit 1, and shipped Python (getExpMaxSR/getDistMaxSR) verified verbatim against the primary PDF and independently reproduced by Monte Carlo (N=1000, V=1: analytic +3.2551 vs MC +3.2439). Theorem subsequently peer-reviewed as Lopez de Prado & Bailey, 'The False Strategy Theorem', American Mathematical Monthly 128(9) (2021). MinBTL from Bailey, Borwein, Lopez de Prado & Zhu, 'Pseudo-Mathematics and Financial Charlatanism', Notices of the AMS 61(5):458-471 (2014), Theorem 3.1, verbatim-verified and re-derived (N=7 -> 1.92yr, N=45 -> 5.00yr, reproducing the paper's Figure 2 to 3 s.f.). The N=512 -> 3.06 / 9.4yr figures are MY OWN arithmetic on the paper's exact Eq. 3.2, computed this session — tagged [I] inferred, not read from any paper. AMENDMENTS CARRIED: (a) sqrt(2 ln N) is an UPPER BOUND, not the value — it overstates E[max] by +36% at N=10 (a verifier caught this misstatement, and the repo's own vault/raw/quant/2026-07-29_literature_estimator_audit.md records the same +12-17% error being found and fixed locally); (b) E[max]=1.57 at N=10 is conditional on unit trial-SR variance (one year of data); (c) N must be EFFECTIVE independent trials — 8 families x 64 k are strongly correlated, so 512 is a nominal ceiling and true N is lower, which shortens MinBTL but does not close an order-of-magnitude gap; (d) MinBTL is explicitly a necessary, not sufficient, condition.
+- **Multiple-testing bias runs UPWARD, so the -0.006 cannot be read as 'maybe there is a hidden edge the search missed' — the reported best of a large search is an optimistic order statistic, meaning true skill is at or below the measured value. Relatedly, the out-of-sample split itself is not a defence: holdout and k-fold do NOT control backtest overfitting, because they evaluate the selected model as though a single trial had occurred; applied ~20 times at 95% confidence, false positives become expected rather than unlikely.**
+  - confidence: high
+  - vote: 3-0
+  - sources: ["https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551", "https://www.science.org/doi/10.1126/science.aaa9375"]
+  - evidence: Quote verified verbatim in the primary source (Bailey & Lopez de Prado 2014, JPM): 'the holdout method cannot prevent backtest overfitting... If we apply the holdout method enough times (say 20 times for a 95% confidence level), false positives are no longer unlikely: They are expected.' Independently corroborated at a higher-tier venue by Dwork, Feldman, Hardt, Pitassi, Reingold & Roth, 'The reusable holdout', Science 349(6248):636-638 (2015): false discoveries arise from adaptive reuse 'even when testing and exploration are carried out on distinct subsets of data'. K-fold extension supported empirically by Arian, Norouzi M. & Seco, 'Backtest overfitting in the machine learning era', Knowledge-Based Systems 305 (2024), doi:10.1016/j.knosys.2024.112477, which measures PBO/DSR across K-Fold, Purged K-Fold, Walk-Forward and CPCV and finds plain K-Fold materially worse. TWO PRECISION CORRECTIONS: '20 times for 95%' is an EXPECTED-COUNT heuristic (E[false positives]=1.0), not P(>=1)=95% — the actual P(>=1) is 64%; and a genuinely pre-registered holdout touched ONCE remains valid evidence, so the claim is conditional on the search having occurred (it did). DIRECTIONAL NOTE, load-bearing: this argument STRENGTHENS the null and cannot be run in reverse to argue an edge survived.
+- **A NEGATIVE (rather than merely zero) out-of-sample result is also within the predicted null envelope — but the specific 'overfitting makes you lose money' mechanism does NOT apply cleanly here and should not be cited for it. Selection on in-sample performance produces genuinely negative OOS performance ONLY when the performance series has memory (a global constraint, or AR(1) with mu=0, sigma=1, phi=0.995), with a significant negative IS-OOS Sharpe slope. Absent memory the paper predicts performance 'around zero'.**
+  - confidence: medium
+  - vote: 3-0
+  - sources: ["https://www.ams.org/notices/201405/rnoti-p458.pdf", "https://www.davidhbailey.com/dhbpapers/backtest-pseudo.pdf"]
+  - evidence: Verbatim in the primary source, Secs 6.1/6.2, with appendix proofs (Props 6.1/6.3): 'Adding a single global constraint causes the OOS performance to be negative, even though the underlying process was trendless'; AR parameters mu=0, sigma=1, phi=0.995; IS-slope p-value 0. But the paper itself insists on the antecedent — 'in the absence of memory, there is no reason to expect overfitting to induce negative performance... It will be around zero if the process has no memory'. THREE REASONS TO DOWNGRADE THIS FOR THIS SYSTEM: (a) evidence is Monte Carlo of synthetic processes, not market data, and a Monte Carlo p-value of 0 is dialable by path count; (b) TRANSFER GAP — the paper's OOS quantity is a strategy SHARPE under a simulated memory process, whereas the measured -0.006 is a CLASSIFIER skill score vs an oracle-constant null, and memory in the PERFORMANCE series is asserted, not measured, for this bot; (c) -0.006 is numerically indistinguishable from both the memoryless 'around zero' prediction and the validated instrument's own high-noise floor of -0.011. CONCLUSION FOR THE REPORT: cite this as 'a zero-edge null is not contradicted', NOT as 'overfitting explains the losses'. The live record (382 trades, 21.5% positive, mean -$0.178) is better explained by the cost stack than by an exotic negativity mechanism. Note that TWO stronger versions of this claim ('overfitting is loss-MAXIMIZING, this predicts the negative live record') were REFUTED 0-3 in verification — do not reintroduce them.
+- **The peer-reviewed crypto-ML record does not contain a net-of-cost exploitable directional edge on major coins that survives inspection. In the most-cited single-venue study, Bitcoin — the deepest and most liquid asset tested — produced -52.79% annualized after 0.5% costs for one ensemble, and the ONLY positive Bitcoin result (+1.247%/yr) came from being in the market on 17 days, 5.231% of the test period. Litecoin's most-restrictive ensemble was likewise negative net of costs (-4.984%).**
+  - confidence: high
+  - vote: 3-0
+  - sources: ["https://jfin-swufe.springeropen.com/articles/10.1186/s40854-020-00217-x"]
+  - evidence: Sebastiao & Godinho (2021), Financial Innovation 7:3, doi:10.1186/s40854-020-00217-x — peer-reviewed, open access. Numbers double-derived from two independent routes (Springer PDF and the standalone /tables/7 page), identical to the decimal: Table 7 Bitcoin, annual return net of 0.5% costs = -52.791 (E4), -23.66 (E5), 1.247 (E6); days in market 142/73/17 (43.69%/22.46%/5.231%). INSTRUMENT INCIDENT WORTH RECORDING: a first fetch of the HTML article page returned -8.23%/+3.88% — CONFABULATED values; the landing page renders only '[Full size table]' links and carries no cell data. The correct numbers came only from routes that actually contain the cells. AMENDMENTS: (a) 'post-hoc-selected subsample' is imprecise — E6 is a pre-specified unanimity rule applied out of sample; the real critique is n=17 plus multiple comparisons across 6 ensembles x 3 assets; (b) the AUTHORS' own reading is more favourable (BTC E6 gross 10.61%/yr, Sharpe 0.5495, bootstrap p=0.0426 vs buy-and-hold) — but B&H over that window was -54.86%, so 'beats B&H' is fully compatible with 'no exploitable absolute edge'; (c) test window 2018-04-13 to 2019-03-03 is a severe bear market under a long-only constraint. The bot's real round-trip cost (~0.6%) is HIGHER than the 0.5% level at which most strategies in this paper go negative.
+- **The published crypto-ML studies are themselves statistically underpowered and uncorrected for multiplicity — so they are not a benchmark that licenses optimism, they are further instances of the same fragility. Sebastiao & Godinho run 1,305 daily observations, 50 features, split 50/25/25 giving exactly 325 out-of-sample days, evaluate 18 individual models plus 9 ensemble-coin cells, and report only pairwise bootstrap p-values against buy-and-hold (e.g. 0.0426) with NO data-snooping, reality-check, SPA, Bonferroni or deflated-Sharpe adjustment anywhere in the text.**
+  - confidence: high
+  - vote: 3-0
+  - sources: ["https://jfin-swufe.springeropen.com/articles/10.1186/s40854-020-00217-x", "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC7785332/fullTextXML"]
+  - evidence: Full text verified via Europe PMC XML (Springer HTML/PDF behind an IdP redirect) plus the Semantic Scholar DOI record. Verbatim: '1,305 observations'; 'The overall input set is formed by 50 variables'; day-by-day split 648/324/325; abstract 'five out of 18 individual models have success rates of less than 50%'; Table 7 BTC/E6 bootstrap p = 0.0426. Targeted term search over the full XML found ZERO hits for 'reality check', 'Hansen', 'SPA', 'deflated', 'multiple testing', 'Bonferroni', 'Romano', 'White (2000)'. With ~27 reported model-coin cells and best-in-class selection on validation, a nominal p=0.0426 is not familywise significant. AMENDMENTS: the paper DOES use the phrase 'data snooping', but only about its chronological split design (a structural lookahead precaution), not a multiple-comparison correction — state it as 'no multiple-testing STATISTICAL adjustment'; test window is exactly 325 days, not 'roughly 326'; the abstract's start date (Aug 15 2015) contradicts the data section (Aug 07 2015) — the paper's inconsistency, not the claimant's. SCOPE LIMIT: the session's WebSearch budget was exhausted (200/200) before the contradiction sweep could run, so 'no credible source disputes it' is UNTESTED for this paper; verification rested on primary-text cross-derivation.
+- **DOMAIN (2), the half that IS evidenced: a relative / cross-sectional target is a demonstrated design, not a speculative one — Jaquart, Kopke & Weinhardt train on 'binary relative daily market movements of the 100 largest cryptocurrencies' (outperformance vs the cross-sectional median) and trade it as a dollar-neutral long-short, so common-mode market movement cancels BY CONSTRUCTION at the label level. But this is an EXISTENCE PROOF for cross-sectional targets, NOT evidence that relative rescues a failed absolute target, and its structure demands ~100 simultaneously-priced tradeable assets, daily rebalancing and short capacity — none of which a single-venue, few-pair Kraken bot has.**
+  - confidence: medium
+  - vote: 2-1
+  - sources: ["https://www.sciencedirect.com/science/article/pii/S2405918822000174", "https://doi.org/10.1016/j.jfds.2022.12.001"]
+  - evidence: Jaquart, Kopke & Weinhardt (2022), J. Finance and Data Science 8:331-352, doi:10.1016/j.jfds.2022.12.001, peer-reviewed gold OA. Abstract quote verified verbatim; label described independently as predicting whether a coin outperforms the cross-sectional median of next-day returns. Full ScienceDirect text was NOT readable (403) — verification is abstract-level plus the author's KIT dissertation full text (DOI 10.5445/ir/1000153546) whose headline numbers match exactly. THE OVERREACH THE VERIFIER CAUGHT AND I AM CARRYING AS AN AMENDMENT: the paper runs NO controlled relative-vs-absolute head-to-head. Its internal comparison is binary vs continuous target representation; the only absolute-target contrast is the same group's earlier 2021 Bitcoin study on different asset, horizon, features and period. So 'relative succeeds where absolute fails under low SNR' is SUGGESTED by a pair of papers, not established by a controlled experiment. HARDENING CAVEAT from independent peer-reviewed work: Cakici, Shahzad, Bedowska-Sojka & Zaremba, 'Machine learning and the cross-section of cryptocurrency returns', International Review of Financial Analysis (2024) finds crypto cross-sectional ML alphas 'are concentrated in hard-to-trade assets' and 'critically depend on harvesting extreme returns on small, illiquid, and volatile coins', with market-cap-weighted versions performing poorly — i.e. the documented alpha lives precisely in the illiquid tail a Kraken-majors bot cannot reach.
+- **The headline economics of that same cross-sectional paper are BACKTEST-ONLY and rest on assumptions a retail Kraken account cannot reproduce. Annualized out-of-sample Sharpe 3.23 (LSTM ensemble) / 3.12 (GRU) after costs vs 1.33 buy-and-hold, from ~53% accuracy, are a simulated paper portfolio with mid-price execution assumed, short-selling assumed and its costs explicitly excluded, a flat 15 bps half-turn (30 bps round-trip) cost with no impact function or capacity constraint, and no selection-bias correction over a swept k and 6+ model families.**
+  - confidence: high
+  - vote: 3-0
+  - sources: ["https://www.sciencedirect.com/science/article/pii/S2405918822000174", "https://doi.org/10.5445/ir/1000153546"]
+  - evidence: Full text obtained as Ch. 2.3 of Jaquart's KIT dissertation (ScienceDirect 403); headline numbers match the published abstract verbatim, so it is the same article. Section literally titled 'Backtesting': positions 'opened at the end of day t at the market closing prices and closed at the end of day t+1'. Authors' OWN disclosed limitations: 'we assume to be able to, on average, buy and sell cryptocurrencies at mid-price'; 'Additional short-selling costs are not taken into account as short-selling of cryptoassets is not possible for all considered coins'. Term search over the 207-page document: 'deflated', 'multiple testing', 'Bonferroni', 'White reality', 'data snoop' — ZERO hits, while the strategy is swept over 'different values of k' with the headline at k=5 across 6+ model families. TWO AMENDMENTS: (a) the claim's '100-asset long-short book' is wrong — 100 is the UNIVERSE, the book holds 2k=10 names at k=5; (b) 'Sharpe 3 from 53% accuracy is inherently fragile' is NOT sound reasoning on its own — the fundamental law of active management makes high Sharpe from low per-bet accuracy mechanically ordinary at ~250 rebalances x 10 names; the fragility flag is earned by the unreported k/model selection, not by the accuracy-Sharpe gap. FLAG: backtest-only evidence, pre-2022 sample; the 3.23 must never be cited as current or achievable alpha. SCOPE LIMIT: pre-publication dissertation chapter read, not the typeset version — a late revision adding cost sensitivity cannot be excluded.
+- **DOMAIN (2), the half that is NOT evidenced: this corpus contains ZERO surviving evidence on counterfactual regret minimization, off-policy evaluation (doubly-robust / IPS estimators), learning-to-rank or pairwise-contrastive targets as such, simulator-bias amplification / model-based RL compounding error, or the replication record of reinforcement learning in trading. Every one of those was asked for and none was returned. This is an UNRUN SCAN, not a negative finding, and it must not be reported as 'no support exists'.**
+  - confidence: high
+  - vote: n/a (scope observation, not a sourced claim)
+  - sources: ["(no surviving source — gap in the verified corpus)"]
+  - evidence: Inventory of the 9 confirmed claims: 6 are selection-bias / deflated-Sharpe / MinBTL mathematics (sources: Bailey-Lopez de Prado 2014 x2, Bailey-Borwein-Lopez de Prado-Zhu 2014), 2 are the Sebastiao-Godinho crypto-ML study, 2 are the Jaquart et al. cross-sectional study. NONE addresses CFR, OPE, doubly-robust estimation, sim-to-real transfer, or RL trading replication. The single point of contact with domain (2) is the Jaquart relative-target design (finding 6), and its own verifier explicitly recorded 'nothing here touches counterfactual-regret/off-policy estimation, which is the other half of domain (2)'. Per the-method rule 3, I am separating '0 findings' from 'the scan is broken': what was established here is that the SEARCH did not cover this domain — the verifiers' WebSearch budget was exhausted (200/200) mid-run, which is the likely proximate cause. Any decision to invest in a counterfactual/regret reframing would be resting on ZERO verified literature at present.
+- **DOMAIN (3) — 'predict cost, not direction' — is entirely unevidenced by the surviving corpus: no markout / post-fill adverse-selection standard, no Kyle's lambda or Glosten-Milgrom informed-trader estimation on crypto venues, no maker-rebate or queue-position economics, no spread/impact predictability-vs-direction comparison, and no minimum-viable-account-size or market-making capacity literature survived verification. Separately, the sole microstructure-adjacent claim attempted (Hou-Xue-Zhang replication: 93% of liquidity/trading-friction anomalies insignificant, including Amihud illiquidity and Corwin-Schultz) was REFUTED 0-3 and must NOT be cited.**
+  - confidence: high
+  - vote: n/a (scope observation; the related NBER claims were refuted 0-3 and 1-2)
+  - sources: ["(no surviving source — gap in the verified corpus)"]
+  - evidence: Zero of the 9 confirmed claims touch execution-cost predictability. Three Hou, Xue & Zhang 'Replicating Anomalies' (NBER w23394) claims were put forward and all failed verification (two 0-3, one 1-2), so even the replication-failure angle on microstructure signals is unavailable as cited evidence. WHAT CAN BE SAID FROM THE GIVEN NUMBERS ALONE, tagged [I] inferred arithmetic and NOT literature: at a $18 median ticket, 22/38 bps means round-trip cost = 18 * 0.006 = $0.108 (computed this session). The measured mean is -$0.178/trade. IF that figure is net of the corrected Tier-3 fees, the implied gross is about -$0.07/trade — i.e. the record is negative BEFORE the rake, and a cost-side optimization that recovered the ENTIRE $0.108 fee would still not reach break-even. That single arithmetic point is the strongest available argument that domain (3) is not where the deficit lives at this ticket size — but it is arithmetic on supplied inputs, it depends on whether -$0.178 is net or gross (UNVERIFIED — I did not read the trade ledger), and it is NOT a literature finding. The capacity/minimum-account-size question the operator actually asked remains genuinely open.
+
+## Refuted (16)
+
+- **Across ALL machine-learning families tested (LSTM, GRU, gradient-boosting, random forest, feedforward NN, ensembles), out-of-sample daily direction accuracy on the 100 largest cryptocurrencies is only 52.9%–54.1% — i.e. a 3–4 percentage-point edge over a coin flip is the CEILING published in a peer-reviewed venue for exactly this task. This is the correct benchmark against which a measured skill score of −0.006 should be read: the achievable signal is a few percent of variance at best, and any instrument that cannot resolve a ~3pp effect will read null.**
+  - vote: 0-3
+  - source: https://www.sciencedirect.com/science/article/pii/S2405918822000174
+- **Accuracy rises from ~53% to 57.5%–59.5% when restricted to the top-10%-confidence predictions per class per day — i.e. the exploitable edge exists only in a thin selective-prediction subset, not across all bars. Corollary for the measured system: skill evaluated on ALL predictions (which is what a k=1..64 sweep of average skill score measures) can be ~zero while a high-confidence decile is still weakly informative; the null result as measured does not by itself rule out a selective-abstention edge, though it does not evidence one either.**
+  - vote: 0-3
+  - source: https://www.sciencedirect.com/science/article/pii/S2405918822000174
+- **Out-of-sample predictive R-squared for weekly crypto cross-sectional returns is at best ~0.83%, and HALF the model families score NEGATIVE out-of-sample R-squared even in this 'successful' published study (LASSO/ENET -2.234%, PLS -0.097%). A negative or near-zero OOS skill score is therefore squarely within published norms, not anomalous — and the authors explicitly benchmark against Gu et al. (2020) US stocks where OOS R2 does not exceed 0.4%.**
+  - vote: 0-3
+  - source: https://www.sciencedirect.com/science/article/abs/pii/S1057521924001765
+- **The predictability that exists is RELATIVE/rank-based, not absolute: average weekly cross-sectional rank correlations between predicted and realized returns are only 0.052-0.092 (Spearman) / 0.046-0.107 (Pearson), yet every model — including those with negative OOS R2 — becomes profitable once used to SORT assets, because idiosyncratic (common-mode) variation cancels in the portfolio. This is direct peer-reviewed support for reframing the target from absolute outcome prediction to pairwise/ranking targets under low signal-to-noise.**
+  - vote: 0-3
+  - source: https://www.sciencedirect.com/science/article/abs/pii/S1057521924001765
+- **The documented alpha is a limits-to-arbitrage phenomenon that is NOT capturable by a long-only retail account on a single major venue: abnormal returns come predominantly from the SHORT leg, alphas in the hardest-to-arbitrage tercile are ~3x those in the easiest-to-trade tercile, and the strategy critically depends on shorting small, illiquid coins. The authors themselves flag this as a practical obstacle.**
+  - vote: 0-3
+  - source: https://www.sciencedirect.com/science/article/abs/pii/S1057521924001765
+- **Cost sensitivity is decisive and the profitability claim is fragile: break-even one-way trading costs are only 123-281 bps per weekly rebalance (turnover 78.6%-110.8% weekly), and under realistic spread-based variable costs (Corwin-Schultz / Abdi-Ranaldo effective spread + 10bps fee) several models collapse to zero or negative (SVM -0.92%, NN1 +0.17% t=0.53, NN2 +0.13% t=0.45, PLS +0.35% t=0.97, equal-weighted). The headline 'profitable net of costs' rests on a flat 30/40 bps assumption, not measured spreads.**
+  - vote: 0-3
+  - source: https://www.sciencedirect.com/science/article/abs/pii/S1057521924001765
+- **Backtest overfitting in the presence of MEMORY effects produces systematically NEGATIVE out-of-sample performance, not merely zero — i.e. the overfit rule is loss-maximizing OOS, and the authors assert most financial series exhibit such memory. This is the specific mechanism predicting a measured live record that is negative (mean -$0.178/trade, 21.5% positive) rather than a coin-flip null.**
+  - vote: 0-3
+  - source: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551
+- **Out-of-sample daily directional accuracy for crypto ML models is barely distinguishable from a coin flip: across linear models, random forests and SVMs on BTC/ETH/LTC the test-sample success rates span roughly 46%–60%, and several individual models fall below 50%. This calibrates the bot's measured skill score of -0.006 as within the published range rather than anomalous.**
+  - vote: 0-3
+  - source: https://jfin-swufe.springeropen.com/articles/10.1186/s40854-020-00217-x
+- **The headline positive result survives only after imposing a 0.5% proportional round-trip transaction cost, and cost sensitivity is severe: raising costs to 0.5% increases the count of strategies with negative annualized return from 1 to 5. The bot's real round-trip cost (~0.6%) is HIGHER than the threshold at which most strategies in this paper flip negative.**
+  - vote: 0-3
+  - source: https://jfin-swufe.springeropen.com/articles/10.1186/s40854-020-00217-x
+- **Backtest overfitting in financial series is not merely uninformative but actively negative out-of-sample: because most financial series exhibit memory (mean-reverting) effects, the extreme in-sample patterns a search selects must be 'undone', so the selection procedure maximizes loss rather than merely regressing to zero. This is the paper's stated explanation for systematic-fund underperformance, and it predicts exactly the measured signature of a NEGATIVE skill score (-0.006) with a losing live record (21.5% positive, mean -$0.178) rather than a zero one.**
+  - vote: 0-3
+  - source: https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf
+- **Concrete calibration of how few trials destroy significance at a sample size comparable to this system's effective n: on a DAILY sample of 5 years (T=1250 observations, i.e. the same order as ~1,180 effective observations), a selected strategy with annualized SR 2.5 fails the 95% Deflated Sharpe test; it would have passed (DSR = 0.9505) only if it had been found in N=46 independent trials, or N=88 if returns had been Normal (skew 0, kurtosis 3). A search over 8 model families x feature counts k=1..64 is far past both thresholds, so at this sample length even a strongly positive apparent result would not clear DSR.**
+  - vote: 0-3
+  - source: https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf
+- **Low signal-to-noise is the structural cause, not a local failure: competition drives the signal-to-noise ratio in financial series low enough that a systematic search is more likely to find a chance configuration than a real signal, and after a sufficient number of trials a misleadingly profitable strategy is GUARANTEED to appear. The peer-reviewed consensus the paper cites is that most claimed findings in financial economics are false (Harvey, Liu & Zhu 2013, paraphrasing Ioannidis 2005) - i.e. a null result is the expected result, and a positive one is the claim requiring extraordinary evidence.**
+  - vote: 0-3
+  - source: https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf
+- **Model complexity is a trial multiplier, not a separate axis: a model with just 7 binomial parameters spans N = 2^7 = 128 trials and an expected maximum in-sample Sharpe above 2.6 with zero true edge. The authors explicitly name non-parametric tools — neural networks and kernel estimators — as warranting extra caution on this ground, which is directly on point for a multi-family / 64-feature sweep.**
+  - vote: 0-3
+  - source: https://www.ams.org/notices/201405/rnoti-p458.pdf
+- **In the largest-to-date replication of the published anomalies literature (447 anomaly variables), 286 anomalies (64%) are statistically insignificant at the conventional 5% level once microcaps are controlled via NYSE breakpoints and value-weighted returns; imposing the multiple-testing cutoff t-value of three raises that to 380 (85%). This is a direct, quantified magnitude for the replication-failure question: the base rate for a published cross-sectional predictive 'edge' surviving honest re-testing is roughly 15-36%.**
+  - vote: 0-3
+  - source: https://www.nber.org/system/files/working_papers/w23394/w23394.pdf
+- **The liquidity / trading-frictions category is the single worst-replicating group: 95 of 102 variables (93%) are insignificant, and the named casualties are exactly the microstructure signals a retail execution/cost model would build on — short-term reversal, share turnover, dollar-volume CV, Amihud illiquidity, Acharya-Pedersen liquidity betas, idiosyncratic/total/systematic volatility, zero-volume days, and the Corwin-Schultz high-low bid-ask spread estimator.**
+  - vote: 0-3
+  - source: https://www.nber.org/system/files/working_papers/w23394/w23394.pdf
+- **The mechanism behind the failures is that the original in-sample results were concentrated in the smallest, most expensive-to-trade names, and the authors state explicitly that such apparent edges are not real net of trading costs — the same failure mode as an edge that exists gross but not after a 22/38 bps round trip.**
+  - vote: 1-2
+  - source: https://www.nber.org/system/files/working_papers/w23394/w23394.pdf
+
+## Unverified (0)
+
+
+## Caveats (4601)
+
+- C
+- A
+- L
+- I
+- B
+- R
+- A
+- T
+- E
+- D
+-  
+- A
+- N
+- S
+- W
+- E
+- R
+-  
+- T
+- O
+-  
+- T
+- H
+- E
+-  
+- H
+- E
+- A
+- D
+- L
+- I
+- N
+- E
+-  
+- Q
+- U
+- E
+- S
+- T
+- I
+- O
+- N
+- :
+-  
+- o
+- n
+-  
+- t
+- h
+- i
+- s
+-  
+- c
+- o
+- r
+- p
+- u
+- s
+-  
+- t
+- h
+- e
+- r
+- e
+-  
+- i
+- s
+-  
+- N
+- O
+-  
+- d
+- e
+- f
+- e
+- n
+- s
+- i
+- b
+- l
+- e
+-  
+- r
+- e
+- a
+- s
+- o
+- n
+-  
+- t
+- o
+-  
+- e
+- x
+- p
+- e
+- c
+- t
+-  
+- a
+- n
+-  
+- e
+- x
+- p
+- l
+- o
+- i
+- t
+- a
+- b
+- l
+- e
+-  
+- e
+- d
+- g
+- e
+-  
+- i
+- n
+-  
+- d
+- o
+- m
+- a
+- i
+- n
+-  
+- (
+- 1
+- )
+-  
+- a
+- t
+-  
+- ~
+- 1
+- ,
+- 1
+- 8
+- 0
+-  
+- e
+- f
+- f
+- e
+- c
+- t
+- i
+- v
+- e
+-  
+- o
+- b
+- s
+- e
+- r
+- v
+- a
+- t
+- i
+- o
+- n
+- s
+-  
+- —
+-  
+- t
+- h
+- e
+-  
+- M
+- i
+- n
+- B
+- T
+- L
+-  
+- a
+- r
+- i
+- t
+- h
+- m
+- e
+- t
+- i
+- c
+-  
+- s
+- a
+- y
+- s
+-  
+- t
+- h
+- e
+-  
+- s
+- a
+- m
+- p
+- l
+- e
+-  
+- i
+- s
+-  
+- ~
+- 1
+- -
+- 2
+-  
+- o
+- r
+- d
+- e
+- r
+- s
+-  
+- o
+- f
+-  
+- m
+- a
+- g
+- n
+- i
+- t
+- u
+- d
+- e
+-  
+- s
+- h
+- o
+- r
+- t
+-  
+- o
+- f
+-  
+- t
+- h
+- e
+-  
+- l
+- e
+- n
+- g
+- t
+- h
+-  
+- a
+- t
+-  
+- w
+- h
+- i
+- c
+- h
+-  
+- e
+- v
+- e
+- n
+-  
+- a
+-  
+- P
+- O
+- S
+- I
+- T
+- I
+- V
+- E
+-  
+- r
+- e
+- s
+- u
+- l
+- t
+-  
+- w
+- o
+- u
+- l
+- d
+-  
+- h
+- a
+- v
+- e
+-  
+- b
+- e
+- e
+- n
+-  
+- i
+- n
+- t
+- e
+- r
+- p
+- r
+- e
+- t
+- a
+- b
+- l
+- e
+- ,
+-  
+- s
+- o
+-  
+- t
+- h
+- e
+-  
+- -
+- 0
+- .
+- 0
+- 0
+- 6
+-  
+- i
+- s
+-  
+- t
+- h
+- e
+-  
+- n
+- u
+- l
+- l
+-  
+- t
+- h
+- e
+-  
+- m
+- a
+- t
+- h
+- e
+- m
+- a
+- t
+- i
+- c
+- s
+-  
+- p
+- r
+- e
+- d
+- i
+- c
+- t
+- s
+- ,
+-  
+- a
+- n
+- d
+-  
+- t
+- h
+- e
+-  
+- s
+- e
+- a
+- r
+- c
+- h
+- '
+- s
+-  
+- u
+- p
+- w
+- a
+- r
+- d
+-  
+- b
+- i
+- a
+- s
+-  
+- m
+- e
+- a
+- n
+- s
+-  
+- t
+- r
+- u
+- e
+-  
+- s
+- k
+- i
+- l
+- l
+-  
+- i
+- s
+-  
+- a
+- t
+-  
+- o
+- r
+-  
+- b
+- e
+- l
+- o
+- w
+-  
+- i
+- t
+- .
+-  
+- D
+- o
+- m
+- a
+- i
+- n
+-  
+- (
+- 2
+- )
+-  
+- h
+- a
+- s
+-  
+- o
+- n
+- e
+-  
+- e
+- x
+- i
+- s
+- t
+- e
+- n
+- c
+- e
+-  
+- p
+- r
+- o
+- o
+- f
+-  
+- (
+- c
+- r
+- o
+- s
+- s
+- -
+- s
+- e
+- c
+- t
+- i
+- o
+- n
+- a
+- l
+-  
+- r
+- e
+- l
+- a
+- t
+- i
+- v
+- e
+-  
+- t
+- a
+- r
+- g
+- e
+- t
+- s
+- )
+-  
+- t
+- h
+- a
+- t
+-  
+- t
+- h
+- e
+-  
+- s
+- y
+- s
+- t
+- e
+- m
+-  
+- i
+- s
+-  
+- s
+- t
+- r
+- u
+- c
+- t
+- u
+- r
+- a
+- l
+- l
+- y
+-  
+- u
+- n
+- a
+- b
+- l
+- e
+-  
+- t
+- o
+-  
+- r
+- u
+- n
+- ,
+-  
+- a
+- n
+- d
+-  
+- i
+- t
+- s
+-  
+- c
+- o
+- u
+- n
+- t
+- e
+- r
+- f
+- a
+- c
+- t
+- u
+- a
+- l
+- /
+- o
+- f
+- f
+- -
+- p
+- o
+- l
+- i
+- c
+- y
+- /
+- R
+- L
+-  
+- h
+- a
+- l
+- f
+-  
+- i
+- s
+-  
+- u
+- n
+- e
+- v
+- i
+- d
+- e
+- n
+- c
+- e
+- d
+- .
+-  
+- D
+- o
+- m
+- a
+- i
+- n
+-  
+- (
+- 3
+- )
+-  
+- i
+- s
+-  
+- u
+- n
+- s
+- c
+- a
+- n
+- n
+- e
+- d
+- ,
+-  
+- a
+- n
+- d
+-  
+- i
+- s
+-  
+- t
+- h
+- e
+-  
+- o
+- n
+- l
+- y
+-  
+- p
+- l
+- a
+- c
+- e
+-  
+- a
+-  
+- d
+- e
+- f
+- e
+- n
+- s
+- i
+- b
+- l
+- e
+-  
+- e
+- d
+- g
+- e
+-  
+- c
+- o
+- u
+- l
+- d
+-  
+- s
+- t
+- i
+- l
+- l
+-  
+- h
+- i
+- d
+- e
+-  
+- —
+-  
+- b
+- u
+- t
+-  
+- t
+- h
+- e
+-  
+- f
+- e
+- e
+-  
+- a
+- r
+- i
+- t
+- h
+- m
+- e
+- t
+- i
+- c
+-  
+- a
+- b
+- o
+- v
+- e
+-  
+- b
+- o
+- u
+- n
+- d
+- s
+-  
+- h
+- o
+- w
+-  
+- m
+- u
+- c
+- h
+-  
+- i
+- t
+-  
+- c
+- o
+- u
+- l
+- d
+-  
+- b
+- e
+-  
+- w
+- o
+- r
+- t
+- h
+-  
+- a
+- t
+-  
+- a
+-  
+- $
+- 1
+- 8
+-  
+- t
+- i
+- c
+- k
+- e
+- t
+- .
+- 
+
+- 
+
+- S
+- O
+- U
+- R
+- C
+- E
+- -
+- Q
+- U
+- A
+- L
+- I
+- T
+- Y
+-  
+- L
+- E
+- D
+- G
+- E
+- R
+- .
+-  
+- S
+- t
+- r
+- o
+- n
+- g
+- e
+- s
+- t
+- :
+-  
+- t
+- h
+- e
+-  
+- s
+- e
+- l
+- e
+- c
+- t
+- i
+- o
+- n
+- -
+- b
+- i
+- a
+- s
+-  
+- m
+- a
+- t
+- h
+- e
+- m
+- a
+- t
+- i
+- c
+- s
+-  
+- (
+- B
+- a
+- i
+- l
+- e
+- y
+- /
+- L
+- o
+- p
+- e
+- z
+-  
+- d
+- e
+-  
+- P
+- r
+- a
+- d
+- o
+- /
+- B
+- o
+- r
+- w
+- e
+- i
+- n
+- /
+- Z
+- h
+- u
+- )
+-  
+- —
+-  
+- p
+- r
+- i
+- m
+- a
+- r
+- y
+- ,
+-  
+- p
+- e
+- e
+- r
+- -
+- r
+- e
+- v
+- i
+- e
+- w
+- e
+- d
+-  
+- (
+- J
+- P
+- M
+-  
+- 2
+- 0
+- 1
+- 4
+- ;
+-  
+- N
+- o
+- t
+- i
+- c
+- e
+- s
+-  
+- o
+- f
+-  
+- t
+- h
+- e
+-  
+- A
+- M
+- S
+-  
+- 2
+- 0
+- 1
+- 4
+- ;
+-  
+- A
+- m
+- e
+- r
+- i
+- c
+- a
+- n
+-  
+- M
+- a
+- t
+- h
+- e
+- m
+- a
+- t
+- i
+- c
+- a
+- l
+-  
+- M
+- o
+- n
+- t
+- h
+- l
+- y
+-  
+- 2
+- 0
+- 2
+- 1
+- )
+- ,
+-  
+- i
+- n
+- d
+- e
+- p
+- e
+- n
+- d
+- e
+- n
+- t
+- l
+- y
+-  
+- r
+- e
+- -
+- d
+- e
+- r
+- i
+- v
+- e
+- d
+-  
+- n
+- u
+- m
+- e
+- r
+- i
+- c
+- a
+- l
+- l
+- y
+-  
+- t
+- h
+- i
+- s
+-  
+- s
+- e
+- s
+- s
+- i
+- o
+- n
+- ,
+-  
+- a
+- n
+- d
+-  
+- a
+- n
+- a
+- l
+- y
+- t
+- i
+- c
+-  
+- i
+- d
+- e
+- n
+- t
+- i
+- t
+- i
+- e
+- s
+-  
+- t
+- h
+- a
+- t
+-  
+- d
+- o
+-  
+- n
+- o
+- t
+-  
+- d
+- e
+- c
+- a
+- y
+-  
+- w
+- i
+- t
+- h
+-  
+- r
+- e
+- g
+- i
+- m
+- e
+- .
+-  
+- W
+- e
+- a
+- k
+- e
+- r
+- :
+-  
+- t
+- h
+- e
+-  
+- c
+- r
+- y
+- p
+- t
+- o
+- -
+- M
+- L
+-  
+- e
+- m
+- p
+- i
+- r
+- i
+- c
+- s
+-  
+- —
+-  
+- b
+- o
+- t
+- h
+-  
+- p
+- a
+- p
+- e
+- r
+- s
+-  
+- a
+- r
+- e
+-  
+- p
+- e
+- e
+- r
+- -
+- r
+- e
+- v
+- i
+- e
+- w
+- e
+- d
+-  
+- a
+- n
+- d
+-  
+- o
+- p
+- e
+- n
+- -
+- a
+- c
+- c
+- e
+- s
+- s
+- ,
+-  
+- b
+- u
+- t
+-  
+- B
+- O
+- T
+- H
+-  
+- a
+- r
+- e
+-  
+- b
+- a
+- c
+- k
+- t
+- e
+- s
+- t
+- -
+- o
+- n
+- l
+- y
+- ,
+-  
+- B
+- O
+- T
+- H
+-  
+- p
+- r
+- e
+- -
+- d
+- a
+- t
+- e
+-  
+- 2
+- 0
+- 2
+- 2
+- ,
+-  
+- a
+- n
+- d
+-  
+- N
+- E
+- I
+- T
+- H
+- E
+- R
+-  
+- a
+- p
+- p
+- l
+- i
+- e
+- s
+-  
+- a
+-  
+- m
+- u
+- l
+- t
+- i
+- p
+- l
+- e
+- -
+- t
+- e
+- s
+- t
+- i
+- n
+- g
+-  
+- c
+- o
+- r
+- r
+- e
+- c
+- t
+- i
+- o
+- n
+- ,
+-  
+- s
+- o
+-  
+- t
+- h
+- e
+- y
+-  
+- e
+- s
+- t
+- a
+- b
+- l
+- i
+- s
+- h
+-  
+- '
+- p
+- u
+- b
+- l
+- i
+- s
+- h
+- e
+- d
+-  
+- e
+- d
+- g
+- e
+- s
+-  
+- a
+- r
+- e
+-  
+- t
+- h
+- i
+- n
+-  
+- a
+- n
+- d
+-  
+- u
+- n
+- c
+- o
+- r
+- r
+- e
+- c
+- t
+- e
+- d
+- '
+- ,
+-  
+- n
+- o
+- t
+-  
+- '
+- t
+- h
+- e
+-  
+- c
+- e
+- i
+- l
+- i
+- n
+- g
+-  
+- o
+- f
+-  
+- a
+- c
+- h
+- i
+- e
+- v
+- a
+- b
+- l
+- e
+-  
+- s
+- k
+- i
+- l
+- l
+- '
+- .
+- 
+
+- 
+
+- T
+- W
+- O
+-  
+- P
+- A
+- P
+- E
+- R
+- S
+-  
+- W
+- E
+- R
+- E
+-  
+- R
+- E
+- A
+- D
+-  
+- T
+- H
+- R
+- O
+- U
+- G
+- H
+-  
+- S
+- U
+- B
+- S
+- T
+- I
+- T
+- U
+- T
+- E
+-  
+- R
+- O
+- U
+- T
+- E
+- S
+- .
+-  
+- S
+- c
+- i
+- e
+- n
+- c
+- e
+- D
+- i
+- r
+- e
+- c
+- t
+-  
+- a
+- n
+- d
+-  
+- A
+- M
+- S
+-  
+- r
+- e
+- t
+- u
+- r
+- n
+- e
+- d
+-  
+- 4
+- 0
+- 3
+- /
+- 4
+- 2
+- 9
+- ;
+-  
+- v
+- e
+- r
+- i
+- f
+- i
+- c
+- a
+- t
+- i
+- o
+- n
+-  
+- u
+- s
+- e
+- d
+-  
+- t
+- h
+- e
+-  
+- a
+- u
+- t
+- h
+- o
+- r
+- s
+- '
+-  
+- o
+- w
+- n
+-  
+- h
+- o
+- s
+- t
+- e
+- d
+-  
+- P
+- D
+- F
+- s
+-  
+- (
+- d
+- a
+- v
+- i
+- d
+- h
+- b
+- a
+- i
+- l
+- e
+- y
+- .
+- c
+- o
+- m
+- )
+-  
+- a
+- n
+- d
+-  
+- t
+- h
+- e
+-  
+- K
+- I
+- T
+-  
+- i
+- n
+- s
+- t
+- i
+- t
+- u
+- t
+- i
+- o
+- n
+- a
+- l
+-  
+- r
+- e
+- p
+- o
+- s
+- i
+- t
+- o
+- r
+- y
+- .
+-  
+- A
+- b
+- s
+- t
+- r
+- a
+- c
+- t
+-  
+- a
+- n
+- d
+-  
+- c
+- o
+- n
+- c
+- l
+- u
+- s
+- i
+- o
+- n
+-  
+- f
+- i
+- g
+- u
+- r
+- e
+- s
+-  
+- m
+- a
+- t
+- c
+- h
+-  
+- e
+- x
+- a
+- c
+- t
+- l
+- y
+-  
+- i
+- n
+-  
+- e
+- a
+- c
+- h
+-  
+- c
+- a
+- s
+- e
+- ,
+-  
+- b
+- u
+- t
+-  
+- a
+-  
+- l
+- a
+- t
+- e
+-  
+- t
+- y
+- p
+- e
+- s
+- e
+- t
+-  
+- r
+- e
+- v
+- i
+- s
+- i
+- o
+- n
+-  
+- c
+- a
+- n
+- n
+- o
+- t
+-  
+- b
+- e
+-  
+- e
+- x
+- c
+- l
+- u
+- d
+- e
+- d
+-  
+- f
+- r
+- o
+- m
+-  
+- t
+- h
+- o
+- s
+- e
+-  
+- r
+- o
+- u
+- t
+- e
+- s
+-  
+- a
+- l
+- o
+- n
+- e
+- .
+- 
+
+- 
+
+- T
+- H
+- E
+-  
+- C
+- O
+- N
+- T
+- R
+- A
+- D
+- I
+- C
+- T
+- I
+- O
+- N
+-  
+- S
+- W
+- E
+- E
+- P
+-  
+- W
+- A
+- S
+-  
+- N
+- O
+- T
+-  
+- R
+- U
+- N
+- .
+-  
+- V
+- e
+- r
+- i
+- f
+- i
+- e
+- r
+- s
+-  
+- r
+- e
+- p
+- e
+- a
+- t
+- e
+- d
+- l
+- y
+-  
+- r
+- e
+- c
+- o
+- r
+- d
+- e
+- d
+-  
+- t
+- h
+- a
+- t
+-  
+- t
+- h
+- e
+-  
+- s
+- e
+- s
+- s
+- i
+- o
+- n
+- '
+- s
+-  
+- W
+- e
+- b
+- S
+- e
+- a
+- r
+- c
+- h
+-  
+- b
+- u
+- d
+- g
+- e
+- t
+-  
+- w
+- a
+- s
+-  
+- e
+- x
+- h
+- a
+- u
+- s
+- t
+- e
+- d
+-  
+- (
+- 2
+- 0
+- 0
+- /
+- 2
+- 0
+- 0
+- )
+-  
+- b
+- e
+- f
+- o
+- r
+- e
+-  
+- a
+- d
+- v
+- e
+- r
+- s
+- a
+- r
+- i
+- a
+- l
+-  
+- s
+- e
+- a
+- r
+- c
+- h
+- e
+- s
+-  
+- c
+- o
+- u
+- l
+- d
+-  
+- e
+- x
+- e
+- c
+- u
+- t
+- e
+- .
+-  
+- F
+- o
+- r
+-  
+- a
+- t
+-  
+- l
+- e
+- a
+- s
+- t
+-  
+- f
+- o
+- u
+- r
+-  
+- o
+- f
+-  
+- t
+- h
+- e
+-  
+- n
+- i
+- n
+- e
+-  
+- c
+- l
+- a
+- i
+- m
+- s
+- ,
+-  
+- '
+- n
+- o
+-  
+- c
+- r
+- e
+- d
+- i
+- b
+- l
+- e
+-  
+- s
+- o
+- u
+- r
+- c
+- e
+-  
+- d
+- i
+- s
+- p
+- u
+- t
+- e
+- s
+-  
+- t
+- h
+- i
+- s
+- '
+-  
+- i
+- s
+-  
+- U
+- N
+- T
+- E
+- S
+- T
+- E
+- D
+-  
+- —
+-  
+- r
+- e
+- f
+- u
+- t
+- a
+- t
+- i
+- o
+- n
+-  
+- w
+- a
+- s
+-  
+- a
+- t
+- t
+- e
+- m
+- p
+- t
+- e
+- d
+-  
+- o
+- n
+- l
+- y
+-  
+- b
+- y
+-  
+- p
+- r
+- i
+- m
+- a
+- r
+- y
+- -
+- t
+- e
+- x
+- t
+-  
+- c
+- r
+- o
+- s
+- s
+- -
+- d
+- e
+- r
+- i
+- v
+- a
+- t
+- i
+- o
+- n
+- .
+-  
+- K
+- n
+- o
+- w
+- n
+-  
+- l
+- i
+- v
+- e
+-  
+- d
+- i
+- s
+- p
+- u
+- t
+- e
+- s
+-  
+- i
+- n
+-  
+- t
+- h
+- i
+- s
+-  
+- l
+- i
+- t
+- e
+- r
+- a
+- t
+- u
+- r
+- e
+-  
+- t
+- h
+- a
+- t
+-  
+- w
+- e
+- n
+- t
+-  
+- u
+- n
+- s
+- a
+- m
+- p
+- l
+- e
+- d
+- :
+-  
+- t
+- h
+- e
+-  
+- c
+- o
+- n
+- t
+- e
+- s
+- t
+- e
+- d
+-  
+- e
+- s
+- t
+- i
+- m
+- a
+- t
+- i
+- o
+- n
+-  
+- o
+- f
+-  
+- E
+- F
+- F
+- E
+- C
+- T
+- I
+- V
+- E
+-  
+- i
+- n
+- d
+- e
+- p
+- e
+- n
+- d
+- e
+- n
+- t
+-  
+- t
+- r
+- i
+- a
+- l
+- s
+-  
+- N
+-  
+- (
+- w
+- h
+- i
+- c
+- h
+-  
+- i
+- s
+-  
+- w
+- h
+- a
+- t
+-  
+- m
+- a
+- k
+- e
+- s
+-  
+- D
+- S
+- R
+- /
+- P
+- B
+- O
+-  
+- o
+- p
+- e
+- r
+- a
+- t
+- i
+- o
+- n
+- a
+- l
+-  
+- a
+- n
+- d
+-  
+- i
+- s
+-  
+- u
+- n
+- o
+- b
+- s
+- e
+- r
+- v
+- a
+- b
+- l
+- e
+-  
+- i
+- n
+-  
+- p
+- r
+- a
+- c
+- t
+- i
+- c
+- e
+- )
+- ,
+-  
+- a
+- n
+- d
+-  
+- H
+- a
+- r
+- v
+- e
+- y
+- -
+- L
+- i
+- u
+- -
+- Z
+- h
+- u
+- '
+- s
+-  
+- c
+- o
+- m
+- p
+- e
+- t
+- i
+- n
+- g
+-  
+- S
+- h
+- a
+- r
+- p
+- e
+- -
+- h
+- a
+- i
+- r
+- c
+- u
+- t
+-  
+- f
+- r
+- a
+- m
+- e
+- w
+- o
+- r
+- k
+- .
+-  
+- T
+- h
+- e
+-  
+- m
+- a
+- x
+- -
+- o
+- f
+- -
+- N
+-  
+- i
+- d
+- e
+- n
+- t
+- i
+- t
+- y
+-  
+- i
+- t
+- s
+- e
+- l
+- f
+-  
+- i
+- s
+-  
+- n
+- o
+- t
+-  
+- d
+- i
+- s
+- p
+- u
+- t
+- e
+- d
+- ;
+-  
+- t
+- h
+- e
+-  
+- e
+- s
+- t
+- i
+- m
+- a
+- t
+- o
+- r
+- s
+-  
+- b
+- u
+- i
+- l
+- t
+-  
+- o
+- n
+-  
+- i
+- t
+-  
+- a
+- r
+- e
+- .
+- 
+
+- 
+
+- M
+- Y
+-  
+- N
+- =
+- 5
+- 1
+- 2
+-  
+- /
+-  
+- 9
+- .
+- 4
+- -
+- Y
+- E
+- A
+- R
+-  
+- F
+- I
+- G
+- U
+- R
+- E
+-  
+- I
+- S
+-  
+- I
+- N
+- F
+- E
+- R
+- R
+- E
+- D
+- ,
+-  
+- N
+- O
+- T
+-  
+- C
+- I
+- T
+- E
+- D
+- .
+-  
+- I
+-  
+- c
+- o
+- m
+- p
+- u
+- t
+- e
+- d
+-  
+- E
+- [
+- m
+- a
+- x
+-  
+- S
+- R
+- ]
+- =
+- 3
+- .
+- 0
+- 5
+- 9
+- 7
+-  
+- a
+- n
+- d
+-  
+- M
+- i
+- n
+- B
+- T
+- L
+- =
+- 9
+- .
+- 3
+- 6
+-  
+- y
+- e
+- a
+- r
+- s
+-  
+- f
+- r
+- o
+- m
+-  
+- t
+- h
+- e
+-  
+- p
+- a
+- p
+- e
+- r
+- '
+- s
+-  
+- e
+- x
+- a
+- c
+- t
+-  
+- E
+- q
+- .
+-  
+- 3
+- .
+- 2
+-  
+- t
+- h
+- i
+- s
+-  
+- s
+- e
+- s
+- s
+- i
+- o
+- n
+- .
+-  
+- I
+- t
+-  
+- a
+- s
+- s
+- u
+- m
+- e
+- s
+-  
+- 8
+- x
+- 6
+- 4
+-  
+- c
+- o
+- n
+- f
+- i
+- g
+- u
+- r
+- a
+- t
+- i
+- o
+- n
+- s
+-  
+- a
+- r
+- e
+-  
+- I
+- N
+- D
+- E
+- P
+- E
+- N
+- D
+- E
+- N
+- T
+-  
+- t
+- r
+- i
+- a
+- l
+- s
+- ,
+-  
+- w
+- h
+- i
+- c
+- h
+-  
+- t
+- h
+- e
+- y
+-  
+- e
+- m
+- p
+- h
+- a
+- t
+- i
+- c
+- a
+- l
+- l
+- y
+-  
+- a
+- r
+- e
+-  
+- n
+- o
+- t
+-  
+- (
+- f
+- e
+- a
+- t
+- u
+- r
+- e
+- -
+- c
+- o
+- u
+- n
+- t
+-  
+- s
+- w
+- e
+- e
+- p
+- s
+-  
+- a
+- r
+- e
+-  
+- h
+- e
+- a
+- v
+- i
+- l
+- y
+-  
+- c
+- o
+- r
+- r
+- e
+- l
+- a
+- t
+- e
+- d
+- )
+- ,
+-  
+- s
+- o
+-  
+- t
+- r
+- e
+- a
+- t
+-  
+- 5
+- 1
+- 2
+-  
+- a
+- s
+-  
+- a
+-  
+- n
+- o
+- m
+- i
+- n
+- a
+- l
+-  
+- c
+- e
+- i
+- l
+- i
+- n
+- g
+-  
+- a
+- n
+- d
+-  
+- 9
+- .
+- 4
+-  
+- y
+- e
+- a
+- r
+- s
+-  
+- a
+- s
+-  
+- a
+- n
+-  
+- u
+- p
+- p
+- e
+- r
+-  
+- b
+- o
+- u
+- n
+- d
+-  
+- o
+- n
+-  
+- t
+- h
+- e
+-  
+- r
+- e
+- q
+- u
+- i
+- r
+- e
+- d
+-  
+- s
+- a
+- m
+- p
+- l
+- e
+- .
+-  
+- T
+- h
+- e
+-  
+- p
+- a
+- p
+- e
+- r
+-  
+- i
+- t
+- s
+- e
+- l
+- f
+-  
+- c
+- a
+- l
+- l
+- s
+-  
+- t
+- h
+- e
+-  
+- i
+- n
+- d
+- e
+- p
+- e
+- n
+- d
+- e
+- n
+- c
+- e
+-  
+- a
+- s
+- s
+- u
+- m
+- p
+- t
+- i
+- o
+- n
+-  
+- '
+- q
+- u
+- i
+- t
+- e
+-  
+- c
+- o
+- n
+- s
+- e
+- r
+- v
+- a
+- t
+- i
+- v
+- e
+- '
+-  
+- a
+- n
+- d
+-  
+- p
+- o
+- i
+- n
+- t
+- s
+-  
+- a
+- t
+-  
+- P
+- C
+- A
+-  
+- f
+- o
+- r
+-  
+- e
+- f
+- f
+- e
+- c
+- t
+- i
+- v
+- e
+-  
+- N
+- .
+-  
+- T
+- h
+- e
+-  
+- c
+- o
+- n
+- c
+- l
+- u
+- s
+- i
+- o
+- n
+-  
+- s
+- u
+- r
+- v
+- i
+- v
+- e
+- s
+-  
+- a
+-  
+- l
+- a
+- r
+- g
+- e
+-  
+- r
+- e
+- d
+- u
+- c
+- t
+- i
+- o
+- n
+-  
+- i
+- n
+-  
+- N
+- :
+-  
+- e
+- v
+- e
+- n
+-  
+- N
+- =
+- 8
+-  
+- (
+- f
+- a
+- m
+- i
+- l
+- i
+- e
+- s
+-  
+- o
+- n
+- l
+- y
+- ,
+-  
+- i
+- g
+- n
+- o
+- r
+- i
+- n
+- g
+-  
+- t
+- h
+- e
+-  
+- k
+- -
+- s
+- w
+- e
+- e
+- p
+- )
+-  
+- g
+- i
+- v
+- e
+- s
+-  
+- M
+- i
+- n
+- B
+- T
+- L
+-  
+- ~
+- 2
+- .
+- 1
+-  
+- y
+- e
+- a
+- r
+- s
+-  
+- o
+- f
+-  
+- D
+- A
+- I
+- L
+- Y
+-  
+- d
+- a
+- t
+- a
+- ,
+-  
+- w
+- h
+- i
+- c
+- h
+-  
+- ~
+- 1
+- ,
+- 1
+- 8
+- 0
+-  
+- e
+- f
+- f
+- e
+- c
+- t
+- i
+- v
+- e
+-  
+- o
+- b
+- s
+- e
+- r
+- v
+- a
+- t
+- i
+- o
+- n
+- s
+-  
+- a
+- t
+-  
+- h
+- 4
+- 3
+- 2
+- -
+- b
+- a
+- r
+-  
+- l
+- a
+- b
+- e
+- l
+- s
+-  
+- m
+- a
+- y
+-  
+- o
+- r
+-  
+- m
+- a
+- y
+-  
+- n
+- o
+- t
+-  
+- c
+- l
+- e
+- a
+- r
+-  
+- —
+-  
+- t
+- h
+- a
+- t
+-  
+- c
+- o
+- m
+- p
+- a
+- r
+- i
+- s
+- o
+- n
+-  
+- r
+- e
+- q
+- u
+- i
+- r
+- e
+- s
+-  
+- t
+- h
+- e
+-  
+- c
+- o
+- r
+- p
+- u
+- s
+- '
+- s
+-  
+- c
+- a
+- l
+- e
+- n
+- d
+- a
+- r
+-  
+- s
+- p
+- a
+- n
+- ,
+-  
+- w
+- h
+- i
+- c
+- h
+-  
+- I
+-  
+- d
+- o
+-  
+- N
+- O
+- T
+-  
+- h
+- a
+- v
+- e
+- .
+- 
+
+- 
+
+- A
+-  
+- U
+- N
+- I
+- T
+-  
+- M
+- I
+- S
+- M
+- A
+- T
+- C
+- H
+-  
+- T
+- H
+- E
+-  
+- R
+- E
+- P
+- O
+- R
+- T
+-  
+- M
+- U
+- S
+- T
+-  
+- N
+- O
+- T
+-  
+- P
+- A
+- P
+- E
+- R
+-  
+- O
+- V
+- E
+- R
+- .
+-  
+- M
+- i
+- n
+- B
+- T
+- L
+-  
+- a
+- n
+- d
+-  
+- E
+- [
+- m
+- a
+- x
+-  
+- S
+- R
+- ]
+-  
+- a
+- r
+- e
+-  
+- s
+- t
+- a
+- t
+- e
+- d
+-  
+- i
+- n
+-  
+- S
+- H
+- A
+- R
+- P
+- E
+-  
+- u
+- n
+- i
+- t
+- s
+-  
+- o
+- v
+- e
+- r
+-  
+- a
+- n
+- n
+- u
+- a
+- l
+- i
+- z
+- e
+- d
+-  
+- r
+- e
+- t
+- u
+- r
+- n
+-  
+- s
+- e
+- r
+- i
+- e
+- s
+- ;
+-  
+- t
+- h
+- e
+-  
+- m
+- e
+- a
+- s
+- u
+- r
+- e
+- d
+-  
+- -
+- 0
+- .
+- 0
+- 0
+- 6
+-  
+- i
+- s
+-  
+- a
+-  
+- C
+- L
+- A
+- S
+- S
+- I
+- F
+- I
+- E
+- R
+-  
+- S
+- K
+- I
+- L
+- L
+-  
+- S
+- C
+- O
+- R
+- E
+-  
+- a
+- g
+- a
+- i
+- n
+- s
+- t
+-  
+- a
+- n
+-  
+- o
+- r
+- a
+- c
+- l
+- e
+- -
+- c
+- o
+- n
+- s
+- t
+- a
+- n
+- t
+-  
+- n
+- u
+- l
+- l
+- .
+-  
+- T
+- h
+- e
+-  
+- s
+- e
+- l
+- e
+- c
+- t
+- i
+- o
+- n
+- -
+- b
+- i
+- a
+- s
+-  
+- l
+- o
+- g
+- i
+- c
+-  
+- t
+- r
+- a
+- n
+- s
+- f
+- e
+- r
+- s
+-  
+- c
+- l
+- e
+- a
+- n
+- l
+- y
+-  
+- (
+- a
+- n
+- y
+-  
+- s
+- e
+- a
+- r
+- c
+- h
+-  
+- o
+- v
+- e
+- r
+-  
+- a
+- n
+- y
+-  
+- s
+- e
+- l
+- e
+- c
+- t
+- i
+- o
+- n
+-  
+- s
+- t
+- a
+- t
+- i
+- s
+- t
+- i
+- c
+-  
+- i
+- n
+- f
+- l
+- a
+- t
+- e
+- s
+-  
+- t
+- h
+- e
+-  
+- m
+- a
+- x
+- i
+- m
+- u
+- m
+- )
+- ;
+-  
+- t
+- h
+- e
+-  
+- s
+- p
+- e
+- c
+- i
+- f
+- i
+- c
+-  
+- y
+- e
+- a
+- r
+- -
+- c
+- o
+- u
+- n
+- t
+- s
+-  
+- d
+- o
+-  
+- n
+- o
+- t
+-  
+- t
+- r
+- a
+- n
+- s
+- f
+- e
+- r
+-  
+- w
+- i
+- t
+- h
+- o
+- u
+- t
+-  
+- a
+- n
+-  
+- e
+- x
+- p
+- l
+- i
+- c
+- i
+- t
+-  
+- m
+- a
+- p
+- p
+- i
+- n
+- g
+-  
+- f
+- r
+- o
+- m
+-  
+- l
+- a
+- b
+- e
+- l
+- -
+- h
+- o
+- r
+- i
+- z
+- o
+- n
+-  
+- o
+- b
+- s
+- e
+- r
+- v
+- a
+- t
+- i
+- o
+- n
+- s
+-  
+- t
+- o
+-  
+- e
+- f
+- f
+- e
+- c
+- t
+- i
+- v
+- e
+-  
+- a
+- n
+- n
+- u
+- a
+- l
+-  
+- r
+- e
+- t
+- u
+- r
+- n
+-  
+- o
+- b
+- s
+- e
+- r
+- v
+- a
+- t
+- i
+- o
+- n
+- s
+- ,
+-  
+- w
+- h
+- i
+- c
+- h
+-  
+- n
+- o
+- b
+- o
+- d
+- y
+-  
+- h
+- a
+- s
+-  
+- d
+- o
+- n
+- e
+-  
+- h
+- e
+- r
+- e
+- .
+- 
+
+- 
+
+- D
+- O
+-  
+- N
+- O
+- T
+-  
+- R
+- E
+- U
+- S
+- E
+-  
+- T
+- H
+- E
+-  
+- 1
+- 6
+-  
+- R
+- E
+- F
+- U
+- T
+- E
+- D
+-  
+- C
+- L
+- A
+- I
+- M
+- S
+- .
+-  
+- S
+- e
+- v
+- e
+- r
+- a
+- l
+-  
+- w
+- e
+- r
+- e
+-  
+- t
+- h
+- e
+-  
+- m
+- o
+- s
+- t
+-  
+- q
+- u
+- o
+- t
+- a
+- b
+- l
+- e
+-  
+- a
+- n
+- d
+-  
+- m
+- o
+- s
+- t
+-  
+- o
+- p
+- t
+- i
+- m
+- i
+- s
+- t
+- i
+- c
+- -
+- s
+- o
+- u
+- n
+- d
+- i
+- n
+- g
+-  
+- l
+- i
+- n
+- e
+- s
+-  
+- i
+- n
+-  
+- t
+- h
+- e
+-  
+- w
+- h
+- o
+- l
+- e
+-  
+- r
+- u
+- n
+-  
+- —
+-  
+- t
+- h
+- e
+-  
+- '
+- 5
+- 2
+- .
+- 9
+- -
+- 5
+- 4
+- .
+- 1
+- %
+-  
+- i
+- s
+-  
+- t
+- h
+- e
+-  
+- p
+- u
+- b
+- l
+- i
+- s
+- h
+- e
+- d
+-  
+- c
+- e
+- i
+- l
+- i
+- n
+- g
+- '
+-  
+- b
+- e
+- n
+- c
+- h
+- m
+- a
+- r
+- k
+- ,
+-  
+- t
+- h
+- e
+-  
+- '
+- t
+- o
+- p
+- -
+- d
+- e
+- c
+- i
+- l
+- e
+-  
+- c
+- o
+- n
+- f
+- i
+- d
+- e
+- n
+- c
+- e
+-  
+- s
+- t
+- i
+- l
+- l
+-  
+- w
+- o
+- r
+- k
+- s
+- '
+-  
+- s
+- e
+- l
+- e
+- c
+- t
+- i
+- v
+- e
+- -
+- a
+- b
+- s
+- t
+- e
+- n
+- t
+- i
+- o
+- n
+-  
+- a
+- r
+- g
+- u
+- m
+- e
+- n
+- t
+- ,
+-  
+- t
+- h
+- e
+-  
+- '
+- r
+- a
+- n
+- k
+-  
+- c
+- o
+- r
+- r
+- e
+- l
+- a
+- t
+- i
+- o
+- n
+- s
+-  
+- 0
+- .
+- 0
+- 5
+- -
+- 0
+- .
+- 1
+- 1
+-  
+- s
+- t
+- i
+- l
+- l
+-  
+- m
+- a
+- k
+- e
+-  
+- m
+- o
+- n
+- e
+- y
+-  
+- w
+- h
+- e
+- n
+-  
+- u
+- s
+- e
+- d
+-  
+- t
+- o
+-  
+- S
+- O
+- R
+- T
+- '
+-  
+- p
+- a
+- i
+- r
+- w
+- i
+- s
+- e
+- -
+- t
+- a
+- r
+- g
+- e
+- t
+-  
+- s
+- u
+- p
+- p
+- o
+- r
+- t
+- ,
+-  
+- t
+- h
+- e
+-  
+- '
+- O
+- O
+- S
+-  
+- R
+- 2
+-  
+- a
+- t
+-  
+- b
+- e
+- s
+- t
+-  
+- 0
+- .
+- 8
+- 3
+- %
+- '
+-  
+- c
+- a
+- l
+- i
+- b
+- r
+- a
+- t
+- i
+- o
+- n
+- ,
+-  
+- a
+- n
+- d
+-  
+- t
+- h
+- e
+-  
+- '
+- o
+- v
+- e
+- r
+- f
+- i
+- t
+- t
+- i
+- n
+- g
+-  
+- i
+- s
+-  
+- l
+- o
+- s
+- s
+- -
+- m
+- a
+- x
+- i
+- m
+- i
+- z
+- i
+- n
+- g
+- ,
+-  
+- w
+- h
+- i
+- c
+- h
+-  
+- e
+- x
+- p
+- l
+- a
+- i
+- n
+- s
+-  
+- t
+- h
+- e
+-  
+- n
+- e
+- g
+- a
+- t
+- i
+- v
+- e
+-  
+- l
+- i
+- v
+- e
+-  
+- r
+- e
+- c
+- o
+- r
+- d
+- '
+-  
+- m
+- e
+- c
+- h
+- a
+- n
+- i
+- s
+- m
+- .
+-  
+- A
+- l
+- l
+-  
+- f
+- a
+- i
+- l
+- e
+- d
+-  
+- v
+- e
+- r
+- i
+- f
+- i
+- c
+- a
+- t
+- i
+- o
+- n
+-  
+- 0
+- -
+- 3
+- .
+-  
+- T
+- h
+- e
+- i
+- r
+-  
+- a
+- b
+- s
+- e
+- n
+- c
+- e
+-  
+- i
+- s
+-  
+- w
+- h
+- y
+-  
+- f
+- i
+- n
+- d
+- i
+- n
+- g
+-  
+- 3
+-  
+- i
+- s
+-  
+- d
+- o
+- w
+- n
+- g
+- r
+- a
+- d
+- e
+- d
+-  
+- a
+- n
+- d
+-  
+- w
+- h
+- y
+-  
+- d
+- o
+- m
+- a
+- i
+- n
+-  
+- (
+- 2
+- )
+-  
+- r
+- e
+- a
+- d
+- s
+-  
+- a
+- s
+-  
+- t
+- h
+- i
+- n
+- :
+-  
+- t
+- h
+- e
+-  
+- e
+- v
+- i
+- d
+- e
+- n
+- c
+- e
+-  
+- t
+- h
+- a
+- t
+-  
+- W
+- O
+- U
+- L
+- D
+-  
+- h
+- a
+- v
+- e
+-  
+- s
+- u
+- p
+- p
+- o
+- r
+- t
+- e
+- d
+-  
+- a
+-  
+- r
+- e
+- l
+- a
+- t
+- i
+- v
+- e
+- /
+- r
+- a
+- n
+- k
+- i
+- n
+- g
+-  
+- r
+- e
+- f
+- r
+- a
+- m
+- i
+- n
+- g
+-  
+- i
+- s
+-  
+- e
+- x
+- a
+- c
+- t
+- l
+- y
+-  
+- t
+- h
+- e
+-  
+- e
+- v
+- i
+- d
+- e
+- n
+- c
+- e
+-  
+- t
+- h
+- a
+- t
+-  
+- d
+- i
+- d
+-  
+- n
+- o
+- t
+-  
+- s
+- u
+- r
+- v
+- i
+- v
+- e
+- .
+- 
+
+- 
+
+- T
+- I
+- M
+- E
+-  
+- S
+- E
+- N
+- S
+- I
+- T
+- I
+- V
+- I
+- T
+- Y
+- .
+-  
+- T
+- h
+- e
+-  
+- m
+- a
+- t
+- h
+- e
+- m
+- a
+- t
+- i
+- c
+- s
+-  
+- (
+- 2
+- 0
+- 1
+- 4
+- /
+- 2
+- 0
+- 2
+- 1
+- )
+-  
+- d
+- o
+- e
+- s
+-  
+- n
+- o
+- t
+-  
+- d
+- e
+- c
+- a
+- y
+- .
+-  
+- T
+- h
+- e
+-  
+- e
+- m
+- p
+- i
+- r
+- i
+- c
+- s
+-  
+- d
+- o
+- :
+-  
+- S
+- e
+- b
+- a
+- s
+- t
+- i
+- a
+- o
+-  
+- &
+-  
+- G
+- o
+- d
+- i
+- n
+- h
+- o
+- '
+- s
+-  
+- d
+- a
+- t
+- a
+-  
+- e
+- n
+- d
+- s
+-  
+- 2
+- 0
+- 1
+- 9
+- -
+- 0
+- 3
+- -
+- 0
+- 3
+-  
+- i
+- n
+-  
+- a
+-  
+- b
+- e
+- a
+- r
+-  
+- r
+- e
+- g
+- i
+- m
+- e
+-  
+- w
+- i
+- t
+- h
+-  
+- a
+-  
+- l
+- o
+- n
+- g
+- -
+- o
+- n
+- l
+- y
+-  
+- c
+- o
+- n
+- s
+- t
+- r
+- a
+- i
+- n
+- t
+- ;
+-  
+- J
+- a
+- q
+- u
+- a
+- r
+- t
+-  
+- e
+- t
+-  
+- a
+- l
+- .
+- '
+- s
+-  
+- s
+- a
+- m
+- p
+- l
+- e
+-  
+- p
+- r
+- e
+- -
+- d
+- a
+- t
+- e
+- s
+-  
+- 2
+- 0
+- 2
+- 2
+- .
+-  
+- N
+- e
+- i
+- t
+- h
+- e
+- r
+-  
+- s
+- a
+- y
+- s
+-  
+- a
+- n
+- y
+- t
+- h
+- i
+- n
+- g
+-  
+- a
+- b
+- o
+- u
+- t
+-  
+- 2
+- 0
+- 2
+- 6
+-  
+- c
+- r
+- y
+- p
+- t
+- o
+-  
+- m
+- i
+- c
+- r
+- o
+- s
+- t
+- r
+- u
+- c
+- t
+- u
+- r
+- e
+- ,
+-  
+- a
+- n
+- d
+-  
+- n
+- e
+- i
+- t
+- h
+- e
+- r
+-  
+- s
+- h
+- o
+- u
+- l
+- d
+-  
+- b
+- e
+-  
+- c
+- i
+- t
+- e
+- d
+-  
+- a
+- s
+-  
+- a
+-  
+- c
+- u
+- r
+- r
+- e
+- n
+- t
+-  
+- a
+- l
+- p
+- h
+- a
+-  
+- e
+- s
+- t
+- i
+- m
+- a
+- t
+- e
+- .
+
+## Open questions (5)
+
+- DOMAIN (3) IS THE ONLY UNEXPLORED LANE AND SHOULD BE THE NEXT SEARCH: is execution cost materially more predictable than direction, and at what account size does that become capturable? Nothing on markout/adverse-selection standards, Kyle's lambda or Glosten-Milgrom estimation on crypto venues, queue-position and maker-rebate economics, or minimum viable capacity for cost-optimized retail strategies survived verification. Re-run that search with a fresh WebSearch budget before concluding anything about domain (3) — the current silence is an unrun scan, not a null.
+- IS THE -$0.178 MEAN NET OR GROSS OF THE CORRECTED TIER-3 FEES? The entire cost-side argument pivots on this and I did not read the trade ledger. If net, implied gross is ~-$0.07/trade and recovering 100% of the $0.108 fee still does not reach break-even, which would retire domain (3) at this ticket size on arithmetic alone. If gross, the fee is the whole deficit and domain (3) becomes the highest-value lane. This is a one-query check against the closed-trade records and should be run before any further literature spend.
+- WHAT IS THE CALENDAR SPAN OF THE 11,625-ROW CORPUS, AND WHAT IS THE EFFECTIVE-N-TO-ANNUAL-OBSERVATION MAPPING? Without it, MinBTL cannot be compared to this system's actual sample in the units the theorem uses, and the 'one to two orders of magnitude short' statement rests on a plausible but unverified translation from h432-bar labels to annualized return observations.
+- WHAT IS THE EFFECTIVE NUMBER OF INDEPENDENT TRIALS IN THE 8x64 SWEEP? 512 is a nominal ceiling; the feature-count dimension is strongly correlated and the families partially so. Lopez de Prado's own remedy (PCA / ONC clustering on the trial-return correlation matrix) is computable from the artifacts this sweep already produced, and it is the difference between a MinBTL of ~2 years and ~9 years — i.e. between 'the sample might be adequate' and 'the sample is hopeless'. This is the single cheapest measurement that would sharpen the whole report.
+- DOES A CONTROLLED RELATIVE-VS-ABSOLUTE HEAD-TO-HEAD EXIST ANYWHERE IN THE PEER-REVIEWED CRYPTO/FX LITERATURE? Jaquart et al. is an existence proof for cross-sectional targets, not a comparison; the verifier flagged this explicitly. If no controlled comparison exists, the domain-(2) reframing is a research bet with no published head-to-head behind it, and that fact should be stated plainly to the operator rather than implied.
+
+## Sources (27)
+
+- **{"url": "https://www.sciencedirect.com/science/article/pii/S2405918822000174", "quality": "primary", "angle": "academic baseline \u2014 OOS direction-model performance", "claimCount": 5}**
+  - url: https://www.sciencedirect.com/science/article/pii/S2405918822000174
+  - quality: primary
+  - angle: academic baseline — OOS direction-model performance
+  - claimCount: 5
+- **{"url": "https://www.sciencedirect.com/science/article/abs/pii/S1057521924001765", "quality": "primary", "angle": "academic baseline \u2014 OOS direction-model performance", "claimCount": 5}**
+  - url: https://www.sciencedirect.com/science/article/abs/pii/S1057521924001765
+  - quality: primary
+  - angle: academic baseline — OOS direction-model performance
+  - claimCount: 5
+- **{"url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551", "quality": "primary", "angle": "academic baseline \u2014 OOS direction-model performance", "claimCount": 5}**
+  - url: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551
+  - quality: primary
+  - angle: academic baseline — OOS direction-model performance
+  - claimCount: 5
+- **{"url": "https://jfin-swufe.springeropen.com/articles/10.1186/s40854-020-00217-x", "quality": "primary", "angle": "academic baseline \u2014 OOS direction-model performance", "claimCount": 5}**
+  - url: https://jfin-swufe.springeropen.com/articles/10.1186/s40854-020-00217-x
+  - quality: primary
+  - angle: academic baseline — OOS direction-model performance
+  - claimCount: 5
+- **{"url": "https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf", "quality": "primary", "angle": "statistical floor \u2014 effective n, uniqueness, deflated Sharpe", "claimCount": 5}**
+  - url: https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf
+  - quality: primary
+  - angle: statistical floor — effective n, uniqueness, deflated Sharpe
+  - claimCount: 5
+- **{"url": "https://www.ams.org/notices/201405/rnoti-p458.pdf", "quality": "primary", "angle": "statistical floor \u2014 effective n, uniqueness, deflated Sharpe", "claimCount": 5}**
+  - url: https://www.ams.org/notices/201405/rnoti-p458.pdf
+  - quality: primary
+  - angle: statistical floor — effective n, uniqueness, deflated Sharpe
+  - claimCount: 5
+- **{"url": "https://arxiv.org/pdf/2103.00366", "quality": "secondary", "angle": "statistical floor \u2014 effective n, uniqueness, deflated Sharpe", "claimCount": 5}**
+  - url: https://arxiv.org/pdf/2103.00366
+  - quality: secondary
+  - angle: statistical floor — effective n, uniqueness, deflated Sharpe
+  - claimCount: 5
+- **{"url": "https://www.degruyterbrill.com/document/doi/10.1515/9780691218717/html?lang=en", "quality": "secondary", "angle": "statistical floor \u2014 effective n, uniqueness, deflated Sharpe", "claimCo**
+  - url: https://www.degruyterbrill.com/document/doi/10.1515/9780691218717/html?lang=en
+  - quality: secondary
+  - angle: statistical floor — effective n, uniqueness, deflated Sharpe
+  - claimCount: 4
+- **{"url": "https://www.nber.org/system/files/working_papers/w23394/w23394.pdf", "quality": "primary", "angle": "replication failure & alpha decay", "claimCount": 5}**
+  - url: https://www.nber.org/system/files/working_papers/w23394/w23394.pdf
+  - quality: primary
+  - angle: replication failure & alpha decay
+  - claimCount: 5
+- **{"url": "https://onlinelibrary.wiley.com/doi/abs/10.1111/jofi.12365", "quality": "primary", "angle": "replication failure & alpha decay", "claimCount": 5}**
+  - url: https://onlinelibrary.wiley.com/doi/abs/10.1111/jofi.12365
+  - quality: primary
+  - angle: replication failure & alpha decay
+  - claimCount: 5
+- **{"url": "https://www.sciencedirect.com/science/article/abs/pii/S1057521924000383", "quality": "primary", "angle": "replication failure & alpha decay", "claimCount": 5}**
+  - url: https://www.sciencedirect.com/science/article/abs/pii/S1057521924000383
+  - quality: primary
+  - angle: replication failure & alpha decay
+  - claimCount: 5
+- **{"url": "https://people.duke.edu/~charvey/Research/Published_Papers/P118_and_the_cross.PDF", "quality": "primary", "angle": "replication failure & alpha decay", "claimCount": 5}**
+  - url: https://people.duke.edu/~charvey/Research/Published_Papers/P118_and_the_cross.PDF
+  - quality: primary
+  - angle: replication failure & alpha decay
+  - claimCount: 5
+- **{"url": "https://www.sciencedirect.com/science/article/abs/pii/S1057521924001509", "quality": "primary", "angle": "replication failure & alpha decay", "claimCount": 5}**
+  - url: https://www.sciencedirect.com/science/article/abs/pii/S1057521924001509
+  - quality: primary
+  - angle: replication failure & alpha decay
+  - claimCount: 5
+- **{"url": "https://www.nber.org/system/files/working_papers/w28432/w28432.pdf", "quality": "primary", "angle": "replication failure & alpha decay", "claimCount": 5}**
+  - url: https://www.nber.org/system/files/working_papers/w28432/w28432.pdf
+  - quality: primary
+  - angle: replication failure & alpha decay
+  - claimCount: 5
+- **{"url": "https://arxiv.org/pdf/2012.07149", "quality": "primary", "angle": "counterfactual / relative-target methods \u2014 the promise", "claimCount": 5}**
+  - url: https://arxiv.org/pdf/2012.07149
+  - quality: primary
+  - angle: counterfactual / relative-target methods — the promise
+  - claimCount: 5
+- **{"url": "https://arxiv.org/pdf/2405.10024", "quality": "primary", "angle": "counterfactual / relative-target methods \u2014 the promise", "claimCount": 5}**
+  - url: https://arxiv.org/pdf/2405.10024
+  - quality: primary
+  - angle: counterfactual / relative-target methods — the promise
+  - claimCount: 5
+- **{"url": "https://arxiv.org/html/2307.07694", "quality": "primary", "angle": "counterfactual / relative-target methods \u2014 the promise", "claimCount": 5}**
+  - url: https://arxiv.org/html/2307.07694
+  - quality: primary
+  - angle: counterfactual / relative-target methods — the promise
+  - claimCount: 5
+- **{"url": "https://arxiv.org/html/2509.00333v1", "quality": "primary", "angle": "counterfactual / relative-target methods \u2014 the promise", "claimCount": 5}**
+  - url: https://arxiv.org/html/2509.00333v1
+  - quality: primary
+  - angle: counterfactual / relative-target methods — the promise
+  - claimCount: 5
+- **{"url": "https://www.academia.edu/73454148/Enhancing_Cross_Sectional_Currency_Strategies_by_Ranking_Refinement_with_Transformer-based_Architectures", "quality": "primary", "angle": "counterfactual / r**
+  - url: https://www.academia.edu/73454148/Enhancing_Cross_Sectional_Currency_Strategies_by_Ranking_Refinement_with_Transformer-based_Architectures
+  - quality: primary
+  - angle: counterfactual / relative-target methods — the promise
+  - claimCount: 5
+- **{"url": "https://arxiv.org/html/2605.00501v1", "quality": "primary", "angle": "counterfactual / relative-target methods \u2014 the promise", "claimCount": 5}**
+  - url: https://arxiv.org/html/2605.00501v1
+  - quality: primary
+  - angle: counterfactual / relative-target methods — the promise
+  - claimCount: 5
+- **{"url": "https://arxiv.org/abs/2409.12721", "quality": "primary", "angle": "simulator bias & RL-in-trading replication record", "claimCount": 5}**
+  - url: https://arxiv.org/abs/2409.12721
+  - quality: primary
+  - angle: simulator bias & RL-in-trading replication record
+  - claimCount: 5
+- **{"url": "https://www.sciencedirect.com/science/article/pii/S2405918826000309", "quality": "primary", "angle": "simulator bias & RL-in-trading replication record", "claimCount": 5}**
+  - url: https://www.sciencedirect.com/science/article/pii/S2405918826000309
+  - quality: primary
+  - angle: simulator bias & RL-in-trading replication record
+  - claimCount: 5
+- **{"url": "https://arxiv.org/pdf/1906.12010", "quality": "primary", "angle": "simulator bias & RL-in-trading replication record", "claimCount": 5}**
+  - url: https://arxiv.org/pdf/1906.12010
+  - quality: primary
+  - angle: simulator bias & RL-in-trading replication record
+  - claimCount: 5
+- **{"url": "https://arxiv.org/abs/2407.16527", "quality": "primary", "angle": "simulator bias & RL-in-trading replication record", "claimCount": 5}**
+  - url: https://arxiv.org/abs/2407.16527
+  - quality: primary
+  - angle: simulator bias & RL-in-trading replication record
+  - claimCount: 5
+- **{"url": "https://www.sciencedirect.com/science/article/pii/S1042443126000181", "quality": "primary", "angle": "cost-side predictability vs the retail fee floor", "claimCount": 5}**
+  - url: https://www.sciencedirect.com/science/article/pii/S1042443126000181
+  - quality: primary
+  - angle: cost-side predictability vs the retail fee floor
+  - claimCount: 5
+- **{"url": "https://nottingham-repository.worktribe.com/OutputFile/40584797", "quality": "primary", "angle": "cost-side predictability vs the retail fee floor", "claimCount": 5}**
+  - url: https://nottingham-repository.worktribe.com/OutputFile/40584797
+  - quality: primary
+  - angle: cost-side predictability vs the retail fee floor
+  - claimCount: 5
+- **{"url": "https://www.sciencedirect.com/science/article/pii/S154461232401537X", "quality": "primary", "angle": "cost-side predictability vs the retail fee floor", "claimCount": 5}**
+  - url: https://www.sciencedirect.com/science/article/pii/S154461232401537X
+  - quality: primary
+  - angle: cost-side predictability vs the retail fee floor
+  - claimCount: 5
+
+## Stats
+
+```
+{
+ "angles": 6,
+ "sourcesFetched": 27,
+ "claimsExtracted": 134,
+ "claimsVerified": 25,
+ "confirmed": 9,
+ "killed": 16,
+ "unverified": 0,
+ "afterSynthesis": 9,
+ "urlDupes": 1,
+ "budgetDropped": 8,
+ "agentCalls": 110
+}
+```
+
+## Workflow log
+
+```
+Q: CONTEXT (a live, measured system — calibrate findings to THESE numbers, not gene…
+Decomposed into 6 angles: academic baseline — OOS direction-model performance, statistical floor — effective n, uniqueness, deflated Sharpe, replication failure & alpha decay, counterfactual / relative-target methods — the promise, simulator bias & RL-in-trading replication record, cost-side predictability vs the retail fee floor
+counterfactual / relative-target methods — the promise: 6 results
+replication failure & alpha decay: 6 results
+academic baseline — OOS direction-model performance: 6 results
+academic baseline — OOS direction-model performance: 4 novel (2 filtered)
+statistical floor — effective n, uniqueness, deflated Sharpe: 6 results
+statistical floor — effective n, uniqueness, deflated Sharpe: 4 novel (2 filtered)
+simulator bias & RL-in-trading replication record: 6 results
+simulator bias & RL-in-trading replication record: 4 novel (2 filtered)
+cost-side predictability vs the retail fee floor: 6 results
+cost-side predictability vs the retail fee floor: 3 novel (3 filtered)
+Fetched 27 sources → 134 claims → verifying top 25
+"Across ALL machine-learning families tested (LSTM,…": 0-3 ✗
+"Accuracy rises from ~53% to 57.5%–59.5% when restr…": 0-3 ✗
+"The paper's edge is a RELATIVE / cross-sectional t…": 2-1 ✓
+"The reported headline economics — annualized out-o…": 3-0 ✓
+"Out-of-sample predictive R-squared for weekly cryp…": 0-3 ✗
+"The documented alpha is a limits-to-arbitrage phen…": 0-3 ✗
+"The predictability that exists is RELATIVE/rank-ba…": 0-3 ✗
+"Cost sensitivity is decisive and the profitability…": 0-3 ✗
+"Backtest overfitting in the presence of MEMORY eff…": 0-3 ✗
+"Holdout and k-fold cross-validation do NOT control…": 3-0 ✓
+"Out-of-sample daily directional accuracy for crypt…": 0-3 ✗
+"The headline positive result survives only after i…": 0-3 ✗
+"Bitcoin — the deepest and most liquid of the three…": 3-0 ✓
+"Under a TRUE Sharpe ratio of zero, the expected MA…": 3-0 ✓
+"Backtest overfitting in financial series is not me…": 0-3 ✗
+"The effective evidence base is small and the winni…": 3-0 ✓
+"Concrete calibration of how few trials destroy sig…": 0-3 ✗
+"Low signal-to-noise is the structural cause, not a…": 0-3 ✗
+"The number of independent strategy configurations …": 3-0 ✓
+"The expected maximum Sharpe ratio over N skill-les…": 2-1 ✓
+"Model complexity is a trial multiplier, not a sepa…": 0-3 ✗
+"In the largest-to-date replication of the publishe…": 0-3 ✗
+"When the performance series has memory — a global …": 3-0 ✓
+"The liquidity / trading-frictions category is the …": 0-3 ✗
+"The mechanism behind the failures is that the orig…": 1-2 ✗
+Verify done: 25 claims → 9 confirmed, 16 refuted, 0 unverified
+```

@@ -1,0 +1,99 @@
+C:\Users\haird\AppData\Local\Temp\claude\C--Users-haird-Documents-liquiditybot-liquiditybot-ab--claude-worktrees-vscode-bridge-5548d1\6481630c-b603-4efc-9324-85749175b20e\scratchpad\s6_run.py:141: RuntimeWarning: invalid value encountered in scalar divide
+  v = np.asarray(vals); neff = len(v) * (v.var(ddof=1) / len(v)) / m.var(ddof=1)
+BTC/USD XBTUSD: trades=2163748 first=2026-09-08T00:00:00.142774+00:00 last=2026-09-27T19:33:39.847740+00:00 grid_n=342405 empty_5m_bars=0
+ETH/USD ETHUSD: trades=1086986 first=2026-09-08T00:00:00.160434+00:00 last=2026-09-27T19:51:47.680915+00:00 grid_n=342623 empty_5m_bars=0
+LINK/USD LINKUSD: trades=222273 first=2026-09-08T00:00:00.312288+00:00 last=2026-09-27T19:55:11.879830+00:00 grid_n=342664 empty_5m_bars=5
+PAXG/USD PAXGUSD: trades=71542 first=2026-09-08T00:02:24.057482+00:00 last=2026-09-27T19:56:36.340379+00:00 grid_n=342681 empty_5m_bars=305
+=== population ===
+trips replayable 74 primary (exit<=2026-09-27T16:30:00Z) 73
+entry ts bounds [2026-09-09T22:00:47Z, 2026-09-27T15:01:04Z]
+cost src Counter({'pt/4 (floor-binding)': 72, 'pt/4 (ASSUMED floor-binding, no sh row)': 2}) MED_COST 49.95450522022557
+decision src Counter({'ML-070': 73, 'first entry fill': 1})
+
+=== instrument checks ===
+sigma replay/logged ratio n=72 mean=0.999 med=1.000 p10=0.999 p90=1.000 min=0.988 max=1.003
+MFE 5s-path minus trade_paths (bps) n=74 mean=10.5 med=1.9 p10=-0.0 p90=40.2 min=-5.8 max=88.2
+MAE 5s-path minus trade_paths (bps) n=74 mean=-18.3 med=-4.1 p10=-56.5 p90=0.0 min=-158.8 max=4.7
+MFE 30s+MAD-clip path minus trade_paths (bps) n=74 mean=2.7 med=0.0 p10=-1.9 p90=7.3 min=-7.0 max=55.6
+MAE 30s+MAD-clip path minus trade_paths (bps) n=74 mean=-2.7 med=-0.0 p10=-13.7 p90=0.9 min=-27.1 max=30.3
+replay peak minus LOGGED high_water at trail exit (bps) n=33 mean=0.2 med=-0.0 p10=-1.4 p90=1.9 min=-4.7 max=8.1
+s_exec (trail: logged trigger mark -> realized fill, bps, + worse) n=33 mean=1.0 med=0.0 p10=-1.6 p90=4.1 min=-4.5 max=11.2 -> S_EXEC=0.98
+tb_time: grid mark one cycle before fill minus realized (bps) n=9 mean=-0.2 med=0.0 p10=-0.1 p90=0.4 min=-7.2 max=4.5
+tb_time: real first exit fill minus (decision_ts + 36h), s [4.2, 1.0, 4.7, 4.9, 4.3, 1.1, 5.8, 2.3, 3.2]
+stop rebuilt from nudge(0.75*pt) vs traded stop |diff| bps n=72 mean=0.00 med=0.00 p10=0.00 p90=0.00 min=0.00 max=0.01
+
+=== CONTROL: V0 vs reality (per trip) ===
+reason agreement 74/74 {('tb_sl', 'tb_sl'): 28, ('tb_pt', 'tb_pt'): 4, ('tier trail', 'tier trail'): 33, ('tb_time', 'tb_time'): 9}
+gross error sim-real (bps) n=74 mean=-0.5 med=-1.0 p10=-5.9 p90=7.3 min=-27.5 max=17.5
+|gross error| bps n=74 mean=3.9 med=1.9 p10=0.6 p90=9.2 min=0.0 max=27.5
+  by real reason tb_sl n=28 mean=-1.0 med=-1.0 p10=-7.7 p90=8.1 min=-27.5 max=17.5
+  by real reason tb_pt n=4 mean=1.7 med=0.2 p10=-9.2 p90=15.7 min=-9.2 max=15.7
+  by real reason tier trail n=33 mean=-0.2 med=-0.7 p10=-4.1 p90=3.1 min=-5.9 max=9.0
+  by real reason tb_time n=9 mean=-1.5 med=-1.0 p10=-1.1 p90=-0.6 min=-8.2 max=0.9
+exit time error sim-real (min) n=74 mean=-1.5 med=-0.1 p10=-0.3 p90=-0.0 min=-88.3 max=0.4
+share |err|<=10bps: 0.95  <=25bps: 0.99
+real mean gross -21.7  sim mean gross -22.2 (same trips)
+worst 10 (|err|, pid, sym, real, sim, real_gross, sim_gross, dt_min):
+   (27.49837077347638, 'ce434ce9', 'ETH/USD', 'tb_sl', 'tb_sl', -188.0, -215.5, -0.2)
+   (17.469930378331014, '17f9141e', 'LINK/USD', 'tb_sl', 'tb_sl', -186.4, -169.0, -0.1)
+   (15.69086224763862, 'f9ab306d', 'LINK/USD', 'tb_pt', 'tb_pt', 202.2, 217.9, -0.9)
+   (10.363200499908146, '6b8bc8f2', 'PAXG/USD', 'tb_sl', 'tb_sl', -189.9, -200.3, -0.1)
+   (9.274806688404311, '58da200e', 'LINK/USD', 'tb_sl', 'tb_sl', -185.8, -176.5, -0.1)
+   (9.248247294565203, '9f26307d', 'LINK/USD', 'tb_pt', 'tb_pt', 225.1, 234.4, -0.1)
+   (9.18268015949792, '6bab41cc', 'BTC/USD', 'tb_pt', 'tb_pt', 201.0, 191.8, -8.2)
+   (9.16123813781573, '37e6d8ca', 'ETH/USD', 'tb_sl', 'tb_sl', -150.4, -159.6, -0.1)
+   (9.131498448313863, 'c585ce36', 'BTC/USD', 'tb_sl', 'tb_sl', -191.5, -182.4, -0.1)
+   (8.960520403540173, 'e6382cb1', 'ETH/USD', 'tier trail', 'tier trail', 56.9, 65.8, -0.1)
+UNMUTATED control     : agree 74/74  median|err| 1.9 bps
+M1 direction flipped  : agree 23/72  median|err| 205.5 bps
+M2 clock +1h          : agree 72/74  median|err| 2.5 bps
+M2 clock +24h          : agree 33/70  median|err| 85.5 bps
+trips where 2*sigma arm ever exceeded the cost-floor arm during the hold: 0/74
+effective arm (cost floor) pct: n=74 mean=0.890 med=0.833 p10=0.795 p90=1.030 min=0.774 max=1.443
+M3 = V0n (arm floor removed): agree 63/74  median|err| 4.9 bps
+M4 barriers x1.5      : agree 59/74  median|err| 5.2 bps
+
+=== VARIANTS on PRIMARY 73 (exit<=16:30Z), each variant on its own uncensored trips ===
+variant                           n cens      p   a_eff    b_eff       C      p*  mean net [95% day-block]   days n_eff  exit mix
+V0  live rule (control)          73    0  0.521    85.2   -141.3    45.0   0.822   -68.4 [ -95.4,  -44.8]     18  95.7  tb_pt:0.05 tb_sl:0.38 tb_time:0.12 trail:0.44
+V0s static arm 0.6 (belief)      73    0  0.521    85.2   -141.3    45.0   0.822   -68.4 [ -95.4,  -44.8]     18  95.7  tb_pt:0.05 tb_sl:0.38 tb_time:0.12 trail:0.44
+V0n arm 0.6, NO cost floor       73    0  0.630    57.1   -141.0    45.0   0.939   -61.1 [ -82.1,  -41.2]     18 110.2  tb_pt:0.03 tb_sl:0.30 tb_time:0.08 trail:0.59
+V1  barriers x1, no trail        72    1  0.306   159.1   -136.6    45.0   0.614   -91.2 [-120.8,  -63.3]     18 106.0  tb_pt:0.18 tb_sl:0.53 tb_time:0.29
+V1L literal 180/135, no trail    72    1  0.347   147.5   -120.2    45.0   0.617   -72.2 [ -96.0,  -49.6]     18 134.2  tb_pt:0.25 tb_sl:0.53 tb_time:0.22
+V2  arm 1.5 lock .6              72    1  0.347   125.8   -135.1    45.0   0.690   -89.5 [-113.4,  -67.6]     18 139.8  tb_pt:0.10 tb_sl:0.50 tb_time:0.24 trail:0.17
+V3  x1.5, no trail, 54h          69    4  0.478   189.9   -212.4    45.0   0.640   -65.0 [-120.3,  -10.2]     17  66.7  tb_pt:0.22 tb_sl:0.42 tb_time:0.36
+V3L literal 270/203 54h          70    3  0.429   186.2   -192.5    45.0   0.627   -75.2 [-114.7,  -42.2]     17 121.6  tb_pt:0.24 tb_sl:0.50 tb_time:0.26
+V4  x2, no trail, 72h            65    8  0.462   267.4   -271.8    45.0   0.587   -67.9 [-156.6,  +20.4]     16  47.1  tb_pt:0.25 tb_sl:0.37 tb_time:0.38
+V4L literal 360/270 72h          66    7  0.485   239.1   -235.4    45.0   0.591   -50.3 [-116.6,  +16.0]     17  58.4  tb_pt:0.27 tb_sl:0.38 tb_time:0.35
+V5  V1 + PT maker 15             72    1  0.306   159.1   -136.6    42.3   0.605   -88.5 [-119.1,  -59.6]     18 104.3  tb_pt:0.18 tb_sl:0.53 tb_time:0.29
+
+=== VARIANTS on COMMON SAMPLE (65 of 73 uncensored under ALL variants) ===
+variant                           n cens      p   a_eff    b_eff       C      p*  mean net [95% day-block]   days n_eff  exit mix
+V0  live rule (control)          65    0  0.508    87.8   -148.7    45.0   0.819   -73.6 [-102.9,  -47.5]     16  87.5  tb_pt:0.06 tb_sl:0.42 tb_time:0.09 trail:0.43
+V0s static arm 0.6 (belief)      65    0  0.508    87.8   -148.7    45.0   0.819   -73.6 [-102.9,  -47.5]     16  87.5  tb_pt:0.06 tb_sl:0.42 tb_time:0.09 trail:0.43
+V0n arm 0.6, NO cost floor       65    0  0.631    60.3   -150.8    45.0   0.927   -62.6 [ -87.1,  -40.7]     16  92.9  tb_pt:0.03 tb_sl:0.32 tb_time:0.06 trail:0.58
+V1  barriers x1, no trail        65    0  0.323   163.8   -144.3    45.0   0.614   -89.8 [-123.5,  -59.0]     16  93.0  tb_pt:0.20 tb_sl:0.55 tb_time:0.25
+V1L literal 180/135, no trail    65    0  0.338   148.5   -124.4    45.0   0.621   -77.0 [-101.8,  -53.6]     16 129.4  tb_pt:0.25 tb_sl:0.55 tb_time:0.20
+V2  arm 1.5 lock .6              65    0  0.338   129.6   -142.9    45.0   0.690   -95.7 [-120.4,  -72.9]     16 140.4  tb_pt:0.11 tb_sl:0.54 tb_time:0.20 trail:0.15
+V3  x1.5, no trail, 54h          65    0  0.477   199.6   -220.1    45.0   0.632   -65.0 [-125.6,   -9.0]     16  64.0  tb_pt:0.23 tb_sl:0.45 tb_time:0.32
+V3L literal 270/203 54h          65    0  0.431   196.7   -195.7    45.0   0.613   -71.7 [-112.8,  -38.5]     16 118.2  tb_pt:0.26 tb_sl:0.51 tb_time:0.23
+V4  x2, no trail, 72h            65    0  0.462   267.4   -271.8    45.0   0.587   -67.9 [-156.6,  +20.4]     16  47.1  tb_pt:0.25 tb_sl:0.37 tb_time:0.38
+V4L literal 360/270 72h          65    0  0.492   239.1   -234.3    45.0   0.590   -46.2 [-113.4,  +20.6]     16  58.0  tb_pt:0.28 tb_sl:0.37 tb_time:0.35
+V5  V1 + PT maker 15             65    0  0.323   163.8   -144.3    42.0   0.605   -86.8 [-121.7,  -54.6]     16  91.9  tb_pt:0.20 tb_sl:0.55 tb_time:0.25
+
+=== PAIRED net difference vs V0 (common sample, day-block by entry day, 4000 reps seed 7) ===
+V0  live rule (control)        mean diff   +0.0 bps [  +0.0,   +0.0]  n=65 days=16
+V0s static arm 0.6 (belief)    mean diff   +0.0 bps [  +0.0,   +0.0]  n=65 days=16
+V0n arm 0.6, NO cost floor     mean diff  +11.0 bps [  -7.1,  +35.9]  n=65 days=16
+V1  barriers x1, no trail      mean diff  -16.1 bps [ -41.8,   +9.3]  n=65 days=16
+V1L literal 180/135, no trail  mean diff   -3.4 bps [ -26.1,  +19.2]  n=65 days=16
+V2  arm 1.5 lock .6            mean diff  -22.0 bps [ -40.1,   -5.3]  n=65 days=16
+V3  x1.5, no trail, 54h        mean diff   +8.7 bps [ -48.3,  +67.3]  n=65 days=16
+V3L literal 270/203 54h        mean diff   +2.0 bps [ -36.2,  +39.6]  n=65 days=16
+V4  x2, no trail, 72h          mean diff   +5.7 bps [ -77.3,  +95.4]  n=65 days=16
+V4L literal 360/270 72h        mean diff  +27.4 bps [ -43.4, +102.0]  n=65 days=16
+V5  V1 + PT maker 15           mean diff  -13.1 bps [ -40.0,  +13.5]  n=65 days=16
+
+REAL ledger gross, fee spec 15+30: mean net -67.9 [-95.0, -44.8] days=18 n_eff=96.4
+REAL ledger net as booked: mean -70.1 [-97.0, -46.7]
+censored trips per variant (all 74): {'V0  live rule (control)': [], 'V0s static arm 0.6 (belief)': [], 'V0n arm 0.6, NO cost floor': [], 'V1  barriers x1, no trail': ['e6382cb1', 'bd194f0a'], 'V1L literal 180/135, no trail': ['e6382cb1', 'bd194f0a'], 'V2  arm 1.5 lock .6': ['e6382cb1', 'bd194f0a'], 'V3  x1.5, no trail, 54h': ['76facd35', '3ccdc9da', '42289bda', 'e6382cb1', 'bd194f0a'], 'V3L literal 270/203 54h': ['3ccdc9da', '42289bda', 'e6382cb1', 'bd194f0a'], 'V4  x2, no trail, 72h': ['f787803e', '7cea38af', '2f97725d', '435d6aaa', '76facd35', '3ccdc9da', '42289bda', 'e6382cb1', 'bd194f0a'], 'V4L literal 360/270 72h': ['f787803e', '7cea38af', '2f97725d', '435d6aaa', '3ccdc9da', '42289bda', 'e6382cb1', 'bd194f0a'], 'V5  V1 + PT maker 15': ['e6382cb1', 'bd194f0a']}

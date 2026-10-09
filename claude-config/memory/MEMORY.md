@@ -1,0 +1,11 @@
+- [Cost is NOT the binding constraint — payoff asymmetry is](cost-is-the-binding-constraint.md) — title kept for links; corrected 3x. 2026-08-10 model freeze is HISTORY: LIFTED 2026-09-29 by operator ruling (repo CLAUDE.md); guardrails (overfit battery, cohort fork, CS-1) stay. Read this first.
+- [QA harnesses wrote production outputs — FIXED](fills-duplicate-on-restart.md) — the 7x-recurring bug class behind the 27x P&L error; what's still uncleaned.
+- [432-bar migration: hold, do not retune](432-migration-hold.md) — in-flight experiment at 6/50; several of my supporting claims for it were corrected by research.
+- [Meta-labeling is unvalidated](meta-labeling-unvalidated.md) — ruled out on theory *and* evidence; do not re-propose abstention filters as a fix.
+- [Grafana boards are generated](grafana-boards-are-generated.md) — never hand-edit the JSON; token, BOM and PowerShell 5.1 gotchas.
+- [Wiki is the source of truth](wiki-is-the-source-of-truth.md) — operator directive: file every confirmed finding into the vault via /llm-wiki, same session; wiki ≠ training corpus.
+- [Local-compute directive](local-compute-directive.md) — standing order: seek out and implement parallel/distributed local wins (pytest-xdist class); 5600X 6C/12T, -n 8 sweet spot BUT only with -m "not timing" + a serial -m timing pass (test_windows.bat); GPU useless here.
+- [VS Code update-loop fix](vscode-update-loop-fix.md) — the parked-installer loop that kills sessions; diagnostic map, update.mode=manual, Desktop updater script; resumes need byte-identical args.
+- [Institutional-data verdicts](institutional-data-verdicts.md) — 2026-08-08 adjudication: adopt basis/funding-extremes, CPI/NFP calendar, ETF flows, OFR FSI, EDGAR 8-K; skip list is evidence-closed — never re-propose COT-as-signal, put/call direction, opt_* transmission.
+- [Python write_text rewrites EOLs to CRLF](python-write-text-crlf.md) — scripted edits of repo/vault files: use newline="\n" or bytes I/O; the Edit tool preserves endings.
+- [Insight blocks confirmed](insight-blocks-confirmed.md) — operator 2026-10-04: the ✶ Insight blocks help; keep 2-3 session-specific points even in terse register, skip generic ones.

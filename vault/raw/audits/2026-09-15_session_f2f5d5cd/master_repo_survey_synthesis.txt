@@ -1,0 +1,318 @@
+=== WHAT IS NOT (items 4+) ===
+- The cohort tool's homogeneity verdict has no config axis: EXEC_ERA is a code constant (core/fill_ledger.py:133),
+    config is read once at boot (runner.py:1924), and the supervisor relaunches from the working tree on any
+    stale heartbeat with no dirty-tree guard (pc_supervisor.py:803-807). This already fired inside era-9: three
+    config fingerprints under one era (d3a2bfd0 at the cut boot, matching NO committed revision; ebbd0a85 ran
+    ~24 h before its commit; 7aab700b = the watch_lane commit, applied ~24 h later by an unrelated deploy
+    restart). The last two flips are verified benign (watch_lane keys only); the first is unrecoverable.
+- A position was closed twice: 0526a410 (PAXG) has two full-size exit legs 3.3 s apart (fills.csv rows 1268-1269,
+    two PT-061 audit closes at 1789023536.366 / 1789023540.633) - a phantom leg with its own fee and PnL. The
+    untracked docs/quant/2026-09-15_duplicate_runner_double_exit.md suggests a duplicate runner; the record is
+    contaminated by one trip either way.
+- The watch lane (switched on to gather learning data) discards every unlabeled candidate on every restart - its
+    pending pool is never persisted (core/watch_lane.py has no to_dict/restore call; core/persistence.py has
+    zero watch-lane hooks). 12 rows total, all barrier hits, zero time-outs; a corpus selected on outcome
+    magnitude. On an active commit day boot life was 0.5-3 h against a 36 h horizon; even quiet-day uptimes of
+    43-64 h fully resolve only 16-44% of registrations. Its own cap (400) is below the 432 in-flight slots a 36
+    h horizon needs.
+- The config guard's 296 FATAL emission sites never stop the bot in paper (core/config_guard.py:4025-4043 raises
+    only when not dry_run; mutation-confirmed both arms), five of them demote to WARN in dry-run, the 'alert' is
+    a second log line (alerts.enabled=false, webhook ''), and config FATALs never reach the hash-chained audit -
+    only events.jsonl, which rotates every ~4 days.
+- The overfit battery's null-floor line prints 'LOSES TO THE NULL: negative skill' with no margin of error and
+    against a benchmark handed the test rows' own base rate (scripts/overfit_check.py:1465-1467). The point
+    estimate moved 30% on a 0.1% corpus change. Report-only, gates nothing - but it is the sentence a reader
+    would quote.
+- Entry-side: 6 of 32 era-9 entries filled at taker (the join/improve tactic lost the maker rung), and the share
+    of entries priced by the Avellaneda-Stoikov fallback at a 26 bps half-spread (inherited from the struck
+    16/26 fee row, config.json:337) is unmeasurable because the entry plan name is never written to the audit (0
+    hits for as_quote/join/improve/taker in 30.5 MB). 7 of 25 post-only entries filled with |slip| > 20 bps.
+
+=== DORMANT CAPABILITY ===
+- maker_first_profit_exits = true (config.json:208): switched on, reachable only for profit-target takes
+    (main.py:2552); fired on 2 of 27 era-9 exit orders, filled 0 of 2 inside order_manager.order_timeout_sec =
+    25 (config.json:373). Delivered $0.00 of the theoretical $0.19 it could reach this era.
+- Avellaneda-Stoikov quoter (execution/market_maker.py, wired main.py:796/1509/4850): built and live, but ONE-
+    SIDED (prices directional entries only) with min_half_spread_bps = 26 overriding the QT-010 floor of 16;
+    used only when the tactic urgency is below join_at_urgency = 0.4 or the book is missing. Two-sided quoting
+    does not exist and should not be built (touch spread 0.01-5 bps vs 30 bps maker round trip).
+- watch_lane.enabled = true (config.json watch_lane; commit 56531eeb 2026-09-13): running, 12 rows written,
+    structurally losing most of what it registers because its pending pool is not persisted; max_open_candidates
+    = 400 < 432 slots needed; ml.multi_horizon.enabled = true makes it retain decided candidates for the full 36
+    h with shadow_store = None (useless retention).
+- alerts.enabled = false, alerts.webhook_url = '' (config.json:1198-1203): the config_fatal alert channel exists
+    and fires, into the same log file. No Grafana alert rule on CRITICAL 'config:' lines.
+- core/config_guard.enforce() raise path: 296 fatal() sites, dead in paper by design (dry_run gate) AND dead on
+    this box even with config dry_run:false because outputs/force_dry.on rewrites system.dry_run = True at
+    runner.py:1932 before the engine is built.
+- hedger OFF, skimmer OFF, universe = 4 majors, probe ticket $60, heat cap 0.35 (cut #11/#12 configuration):
+    deliberately dormant; STOP at the readout does NOT revert to the hedged 12-asset book (the measured loss
+    channel).
+- ml.exploration.p_win = 0.85 with bypass_pretrade_ev = true: the exploration lane is what trades; the model-gated
+    conviction lane (min_conviction 0.55) has placed zero entries in era-9 because model_p never exceeded 0.51.
+- long_book.enabled (BTC/ETH accumulation, 12% thesis stops): holds 2 of 5 slots, 4 of 27 era-9 entry positions
+    (LB-000), includes era-12's largest 'winner' (e602d04f, +$2.70, a straddler). On no cut's untouched list; an
+    operator docket item, not surveyed by this pass.
+- IBKR / DMA / prime / FIX adapters: hard-off stubs. OKX / Binance.US / ccxt / moomoo: read-only data. Kraken v2
+    websocket book: LIVE and the first book source for fills; Binance.US depth OFF.
+
+=== INSTRUMENTS YOU CAN TRUST ===
+- outputs/fills.csv WITHIN a single exec_era segment: per-leg fees, sizes, prices, post_only flag, attempt number.
+    Two independent reconstructions agree to the cent. Never read it pooled (1,030 of 1,322 legs carry a blank
+    era and $377 of the $403 lifetime fees from an earlier capital regime).
+- scripts/cohort_eval.py's per-era COUNT block and its 'CURRENT-ERA ACCRUAL: 22/50' line (and the Grafana board's
+    22): the honest era-9 denominator, double-derived. Trust the count; do not trust the verdict word printed
+    above it.
+- outputs/audit.jsonl CG-000 records: every boot's config_sha256 and dry_run flag, hash-chained. 482/482 sessions
+    dry. Segment by starting_capital first (only 98-103 of 476-482 sessions are the live $800 bot; the rest are
+    QA fixtures at 5000/10000).
+- The live model governor's readout in status.json (monitor.level, use_model, champion_brier) - it scores against
+    a prior base rate, the honest comparator; zero governor events since the era-9 boundary.
+- status.json regimes spread readings and skimmer.scores: real computed spreads, corroborated by a venue Ticker
+    read. status.json money identity (realized_total - entry_fees_total = realized_net_all_in) reconciles; the
+    values are correct as a POOLED ledger only.
+- outputs/events.jsonl + events.jsonl.1 inside their ~4-day retained window: proven live by 39 WARN config
+    captures on the same logger/dispatch, and by the two post_only=True exit submits it found where exactly two
+    existed. Outside the window, the record is gone.
+- The vault's resolution-vs-direction decomposition (concepts/resolution-vs-direction-decomposition), the
+    2026-09-01 capacity ladder, the signal-existence gate in HANDOFF, and the deployed meta_model.json's own
+    wf_importance: four honest, held-out instruments that all say no directional skill. This survey added a
+    fifth by a different method.
+- Kraken fee tier read from the operator's app + core/venue_fees.binding_row (reproduces next-tier distances to
+    the cent): 15/30 bps at Tier 5 as of 2026-09-08. Re-read at every readout with scripts/fee_drift_report.py;
+    the tier ROLLS with real trading.
+
+=== INSTRUMENTS THAT LIE ===
+- THE POOLED GROSS: 'gross +$4.45, fees 5.4x it' from status.json realized_total / fees_total / entry_fees_total.
+    It sums six configurations and five fee rows. It is the headline this whole survey was launched on and it
+    must not be quoted again.
+- scripts/cohort_eval.py's headline 'accrual: 131/50' and its 'COST-BOUND: a gross edge exists on honest fills and
+    fees eat it' paragraph (:952-955): computed on the SPENT era-4 population pooling six eras (56 of the 131
+    are era-7); the label is carried by a positive MEDIAN while the mean is -0.06% (rule at :389-392 needs BOTH
+    <= 0 to say no-edge); no CI, no n=100 tier, %/trip not the registered $/trip; the median it consults
+    (g[n//2]) is the upper-middle value at even n, and both registered read points (50, 100) are even. Under the
+    era-9 registration both words route to STOP anyway.
+- cohort_eval's homogeneity verdict ('era-9 is homogeneous'): it segments by a CODE constant that does not move
+    when config changes; three config fingerprints have already run under this one era stamp. The tool cannot
+    see a mid-cohort config change.
+- '27 closed round trips' (carried into this survey): pids with any era-9 exit leg. Includes 5 straddlers that
+    opened under earlier fee rows (which the registered stamp-purity rule excludes) and one double-written exit
+    (0526a410). Honest era-9 n = 22.
+- The overfit battery's null-floor INFO line ('LOSES TO THE NULL: negative skill'): a point estimate with no
+    margin (day-block CI spans zero), benchmarked against a constant given the test rows' own base rate (16-25%
+    of the printed deficit is that hindsight). And the battery's exit code generally: 'passed 3, failed 0' reads
+    identically whether seven gates fired or three fired and four were dark - read the ARMED count and the
+    corpus line, never the exit code.
+- status.json markout.by_asset spread_capture_bps: negative on three of four assets - but
+    execution/markout.py:39-45 documents that the paper fill rule produces negative spread capture with provably
+    zero alpha. It measures the dry-run fill simulator, not adverse selection from real counterparties, and it
+    is pooled across eras.
+- fills.csv's 15-bps maker booking on ENTRIES: the simulator fills a crossed post-only order at our price and
+    books it maker (order_manager.py:1205-1232; 4 of 25 era-9 maker entries show positive slip). Real Kraken
+    rejects a post-only that would cross. The entry leg's cheap fee is the optimistic booking, not the exit
+    leg's 30.
+- status.json order_manager.maker_fills / taker_fills = 0/0 and code_stats counters: in-memory, reset every boot
+    (13 boots since 09-08). code_stats.entry_codes SZ-000=1 while the audit shows 0 SZ-000 since the boundary -
+    unreconciled.
+- outputs/watch_history.csv as a picture of the watch lane: every row is a candidate that hit a barrier within one
+    uptime; time-outs are structurally absent. Its composition measurement (the lane's own phase-2 gate) is
+    invalid until the pool persists.
+- Any claim of 'era-9 gross is negative' or 'era-7 had an edge' stated as a sign: era-9 gross/trip CI
+    [-$0.52,+$0.29] at n=22-26, era-7 CI [-$0.01,+$0.29], era-7 vs era-12 z=1.49. These are point estimates
+    inside noise; the effective n after overlap deflation is ~6.
+- A config FATAL log line: it means 'the bot started anyway and told a logfile', not 'the bot refused to start'.
+    And after one 5 MB log rotation (~4 days) there is no record it happened.
+
+=== DO THIS NEXT ===
+[1] (WAIT, none - and the discipline not to act) WAIT. Change nothing on the order path until the registered read points: n=50 lean (about 2026-09-20 at ~4.9
+    closes/day from 22/50 as of 04:27Z) and n=100 verdict (about 2026-10-01). Do not edit config.json at all -
+    even a harmless-looking save takes effect at the next unplanned restart. Do not read the accruing numbers as
+    a trend.
+    WHY: Every number that looked like a verdict in this survey (negative gross, COST-BOUND, loses-to-the-null) is inside
+    noise at the current sample. Touching anything restarts the count from zero and throws away 6 days and 22
+    trips of the only evidence this experiment produces. The expected outcome under 'no edge' is about -$1/day
+    of paper, which is the price already agreed for a readable sign.
+[2] (SAFE, half a day: script + two-arm test; touches no decision path) Build the readout the law actually registered, before n=50: a report-only sibling script (not cohort_eval.py,
+    which the law calls 'untouched') computing on the era-9 stamp-pure trips (a) net $/trip and gross %/trip,
+    (b) a 95% day-block bootstrap CI keyed on the UTC day of the closing fill, 4,000 reps, seed 7, (c) the n=50
+    rule (CI excludes zero?) and the n=100 rule (net>0 AND CI excludes -fee?), plus overlap-deflated effective
+    n. Pin it with a test that plants a known-edge and a known-null synthetic ledger and watches both arms fire.
+    A ~40-line prototype was run in a reviewer's scratchpad and works on the 22 trips.
+    WHY: The decision you are waiting for is defined in your own record as a statistical test with an interval. No tool
+    in the repo performs that test; the one you run by hand tests point-estimate signs on a pooled population
+    and prints CONTINUE on any positive point - which biases toward extending a losing experiment. Without this,
+    the n=50 date arrives and the question is still unanswerable.
+[3] (OPERATOR_DECISION, one short adjudication note; no code) Settle, on the record and before n=50, which trips count: stamp-purity (22 today; registered 2026-09-05 for
+    era-6 per docs/quant/2026-09-05_era6_membership_registration.md) vs closing-leg attribution (27, including 5
+    straddlers and the long-book straddler e602d04f that is era-12's biggest winner). Confirm that the 09-05
+    registration transfers to era-9, and confirm whether long-book positions (LB-000) belong in the 5-minute-
+    book cohort at all. Also confirm the three readout arms transfer (HANDOFF names this an OPEN authority gap).
+    WHY: The answer to 'does this strategy make money' moves by about $3 and one whole winning trade depending on a
+    membership rule. A rule chosen after the number is on screen is not a pre-registration; it has to be written
+    down while the sample is still too small to know which rule flatters you.
+[4] (SAFE, small: one audit scan joined to fills; a report line and a test) Add a config-fingerprint axis to the cohort readout (report-only): read each boot's CG-000 config_sha256 from
+    outputs/audit.jsonl, attribute every era-9 trip to the fingerprint it ran under, and print purity alongside
+    exec_era purity. Also write the one-line rule into HANDOFF: a working-tree config edit is executed by the
+    next stale-heartbeat relaunch, which nobody triggers on purpose.
+    WHY: Your cohort has already run under three different config files in one era without anyone deciding that. Two of
+    the three switches are verified harmless; the first cannot be checked because the file it booted from was
+    never committed. Right now the tool that certifies the cohort as 'one experiment' cannot see this at all.
+[5] (OPERATOR_DECISION, investigation first (the untracked doc exists); fix likely small) Resolve the double-close of position 0526a410 (two full-size exits 3.3 s apart, two PT-061 audit records) and
+    the duplicate-runner hypothesis in the untracked docs/quant/2026-09-15_duplicate_runner_double_exit.md. If a
+    second runner instance placed the phantom exit, the single-instance lock failed; the fix is a lock/lifecycle
+    bug fix. Flag the phantom leg in the record (do not delete rows; segment) and decide whether the readout
+    counts that trip once.
+    WHY: One trade was sold twice on paper. That is a record defect worth more than several of the findings above,
+    because the readout is the only product of this era, and a second copy of the bot placing orders is also a
+    safety question. Whether the fix counts as 'changing which orders are placed' is the operator's call - a
+    duplicate process is a defect, not a design.
+[6] (SAFE, small-medium: serialize/restore wrapper + test; no order path) Persist the watch lane's pending pool in a LANE-PRIVATE file written from the runner's telemetry block, using
+    CandidateLabeler.to_dict/restore that already exist (ml/history.py:2912/2921) - never through
+    core/persistence.py, which would hand the engine a reference the design forbids. Raise max_open_candidates
+    above 432 or accept the ~7% tail loss knowingly. Then re-read accrual rate and barrier mix after a week
+    before any composition study.
+    WHY: The lane you switched on to gather more learning data loses almost everything it gathers every time the bot
+    restarts, and it restarts on every deploy. What survives is a distorted sample. Nothing feeds this to the
+    model today (and model work is frozen), so the only thing at stake is that the lane's own 'is this corpus
+    worth anything' measurement is currently meaningless.
+[7] (SAFE, minutes for the Grafana rule; a verified restart for the webhook) Turn the config-guard log line into a ping: either enable alerts (alerts.enabled=true + a webhook) or add a
+    Grafana alert rule on CRITICAL 'config:' lines (severityNumber >= 21 already shipped to Loki). Note:
+    enabling alerts needs a restart because the sink is built at engine init - do it only after verifying the
+    working-tree config.json is byte-identical to the committed one, so the restart applies nothing else.
+    WHY: In paper the 296 safety checks on your settings file never stop anything; they write a line to a log that
+    rotates in four days. A bad edit would trade into your cohort and the evidence would expire. A ping costs
+    nothing and changes no trading behavior.
+[8] (SAFE, small; prose + one additive return value + tests stay satisfiable) Report hygiene, three edits: (a) cohort_eval's COST_BOUND paragraph gets the same resolution-floor sentence the
+    NO_GROSS_EDGE branch got on 2026-09-02, plus '(POOLED across eras - era-9 is N/50, ACCRUING)' inside the
+    paragraph so a quoted excerpt cannot shed its qualifier; (b) overfit_check's null-floor line gets a fold-sd
+    / day-block CI and an honest per-fold train-side base rate (train_test_gap returns per-fold bases - additive
+    keys), and its verdict text becomes 'no evidence the model beats the base rate'; (c) vault concepts/null-
+    model-floor.md still says 'not yet shipped' - correct it. Do NOT re-anchor B4_TS/CAPITAL_EPOCH_TS or gate
+    the verdict word on the era-9 count in code.
+    WHY: These three sentences are the ones a person would copy into a decision. Each currently overstates a sign the
+    data cannot resolve. None of them gates a trade; fixing the wording changes no behavior, and the printed
+    series will break at the change - say so when it does.
+[9] (SAFE, small: one audit field + a report; the retune is a separate, later item) Log the entry plan name (as_quote / join / improve / taker) into the audit on every entry placement, and mark
+    out AS-fallback fills vs touch-joins. This is the measurement that feeds a later operator adjudication of
+    min_half_spread_bps = 26 (config.json:337, docketed) and of why 6 of 32 entries lost the maker rung.
+    WHY: The bot sometimes prices its entry 26 basis points below fair on a book that is 0-5 basis points wide; such an
+    order only fills when the price falls through it. How often that happens is unknowable today because the
+    plan name is never written down. Measure first; the retune is cohort-resetting and waits for the boundary.
+[10] (DOC_ONLY, minutes) Strike the pooled paragraph ('+$4.45 gross, fees 5.4x it, COST_BOUND shape') from any prompt, note, or doc that
+    carries it, and replace it with the per-era table (era-7 +$8.48 / era-9 +$0.91 / eras 10-11 -$0.91 / era-12
+    about -$3, all with CIs spanning zero). File this survey in the vault (raw/ + source page + index + log)
+    before session end, per rule 2.
+    WHY: A confident number with no era on it will be quoted again by the next session and the next agent, and it points
+    the whole effort at fees. The record already held the honest version since 2026-09-06; the survey prompt
+    regressed it.
+[11] (COHORT_RESETTING, each is a config change plus tests; each is a full new accrual (2-3 weeks to n=50)) AT THE BOUNDARY ONLY (after the n=100 verdict, with adjudication): the levers that survived scrutiny, in order
+    of measured size - (a) the pre-named take-profit width (label PT 180 bps vs the majors' 132-178 bps median
+    36 h move) - but note a direction problem cannot be fixed by barrier geometry; (b) the maker-rest TTL for
+    profit-target exits (25 s; ceiling $0.19/era today); (c) entry-side taker fills (6/32 legs, ~$0.11/day); (d)
+    min_half_spread_bps 26 after item 9 measures it. NOT on the list: re-widening to the 12-asset hedged book
+    (the measured loss channel), two-sided market making (arithmetic loses 25-30 bps/trip), any model-side work
+    (frozen), resting stop-losses post-only (inverts the escape ladder).
+    WHY: Every one of these changes what orders get placed or how they fill, so each one restarts the count. Even all of
+    them together recover at most a fraction of the ~45 bps cost, and the cost is not the binding problem - the
+    missing signal is. They are listed so nobody re-derives them mid-era.
+
+=== THE HONEST BOTTOM LINE ===
+In its current form this strategy has no measured mechanism for making money, and the evidence leans toward
+    there being none to find at this horizon with these features. The cost per trade is certain (~45-50 bps,
+    $0.30 on a $60 ticket, about $1.2-1.6/day of paper). The gross - the thing that would have to pay that cost
+    - is indistinguishable from zero in the era you are trading (mean -$0.11/trip, CI [-$0.52,+$0.29], effective
+    n about 6) and was only marginal in the one retired configuration that looked good (era-7, CI touching
+    zero). Five independent instruments find no directional information in the entry stream (direction AUC
+    0.495-0.515 with CIs spanning 0.5, flat learning curve, deployed model's own walk-forward importance
+    dropping 'direction'), and the model is not even choosing the trades - 23 of 23 era-9 entries were
+    exploration probes admitted by a budget roll and sized at a forced 85% win probability. So this is not 'a
+    real but tiny edge eaten by fees' - even at zero fees the expected net is about zero - and the fee levers,
+    which are all cohort-resetting anyway, recover at most a few cents per trade. The registered n=100 verdict
+    should be expected to land on STOP by either branch (no-gross-edge or cost-bound both route to STOP under
+    the era-9 registration), and STOP does not mean going back to the hedged 12-asset book, which is the
+    measured loss channel. For this to be wrong, ONE of these would have to come back: (1) the registered era-9
+    readout at n=100, on stamp-pure trips, showing net $/trip > 0 with a 95% day-block bootstrap CI (4,000 reps,
+    seed 7, UTC closing day) that excludes -$0.27/trip - the instrument to compute that does not exist yet and
+    must be built before the date arrives; or (2) a DIRECTION-channel AUC, held out and stratified within day x
+    side, with a day-block CI that excludes 0.5 - no feature set tried to date has produced one, and model-side
+    work is frozen by your own adjudication. Real dollars at risk today: zero - this is a paper account behind
+    four locks. What is being spent is calendar time and the meaning of the one experiment running; protect
+    that, do not spend it on fee work. If the readout comes back CONTINUE, suspect the instrument before the
+    market: that is what the record keeps vindicating.
+
+=== REFUTED BUT WORTH NAMING ===
+- REFUTED (1/2 lenses, majority-refute killed it): 'the COST_BOUND label that drove the fee programme was carried
+    by the median alone.' At the only readout that ever fired (era-4, n=54, 2026-08-26) gross mean was +0.52%
+    and median +0.75% - both positive; the mean went negative only between the 100th and 131st POOLED close,
+    dragged by era-9 (cut #9). The AND-rule was documented and signed as 'trap 1' on 2026-08-16 before the gate
+    fired. Fee cuts #9/#10/#12 were corrections of a mis-booked constant, not COST_BOUND-driven levers. The rule
+    IS a live risk for the n=50 lean (era-12 shows mean<0 with median>0 today) but it is pre-registered and both
+    words route to STOP.
+- 'Every version since the September fee correction lost money before fees, -$2.96 across 66 trips': false. Era-9
+    (cut #9) is +$0.91 gross; the -$2.96 across 66 is a four-era pool that coincidentally equals era-12's -$2.96
+    alone; only era-12 (n=22-26) post-dates cut #12.
+- 'Exits pay the full taker rate, not the 45 bps your configuration assumes': the configuration already books
+    every exit at taker (config.json:653 - 0.45 = maker 15 + taker 30; pretrade.py:352; main.py:5786). The 3.6-5
+    bps excess over design comes from 6 taker ENTRIES, not exits. The '$2.65 / $3.22 of avoidable fees' assumes
+    stop-losses fill as resting orders; the reachable ceiling is $0.19 (two profit-target exits) and realized
+    $0.
+- 'Cohort_eval fails to compute a 95% day-block bootstrap CI, 4,000 reps, seed 7 - but that registration belongs
+    to the feature-skill tools, not the cohort gate': the correction was wrong and the prior panel was right.
+    That phrase is verbatim the cohort gate's own cut-#11 primary metric
+    (docs/quant/2026-09-07_cut11_commit_adjudication.md:88). Also flagged: that registration's power paragraph
+    tests z against zero while its rule tests against -fee - internally inconsistent; for the operator to
+    settle.
+- 'Twenty files carry every decision that touches money, ~24,000 lines': the twenty sum to 26,684 and omit at
+    least 16 money-path modules (~5,300 lines: the model itself, stop placement, inventory caps, capital
+    manager, hedging, long book, three regime engines, the signal source) and config.json, which by law holds
+    every threshold. Orientation only; and 'tests exceed shipped code' is not reassurance.
+- 'The watch lane's surviving rows teach the model volatility it already knows': the surviving rows are all
+    barrier-resolved, so they are a pure-direction corpus selected on outcome magnitude - a different and worse
+    bias (P(direction | a big move already happened)). Label balance is not skewed (42% vs 41%); direction AUC
+    on it is unmeasured.
+- 'The bot restarts every two to three hours': that was one deploy-heavy day (three battery-verified updates and
+    one supervisor relaunch on 09-14). Preceding uptimes were 43 h and 64.5 h. The lane is deploy-fragile, not
+    structurally incapable - though even 64 h resolves under half of a 36 h horizon's registrations.
+- 'Do not build market making': there is nothing to refuse - an Avellaneda-Stoikov quoter already prices entries
+    one-sided (execution/market_maker.py). The arithmetic against two-sided quoting stands (0.01-5 bps of spread
+    vs 30 bps fees); the markout 'adverse selection' corroboration must be dropped because it measures the paper
+    fill simulator.
+- 'The terminal COST-BOUND readout is the registered era-9 trigger and the terminal disagrees with the Grafana
+    board': the pooled readout is the SPENT era-4 gate; the terminal prints 'CURRENT-ERA ACCRUAL: 22/50' on the
+    same screen; screen and terminal agree on 22. The residual defect is the verdict paragraph carrying no era
+    qualifier in its own text.
+- 'The config guard stops nothing in paper': for the committed/deployed path five tests pin shipped config.json to
+    zero FATALs and auto_update refuses a red battery. The advisory hole is exactly one door - an uncommitted
+    local edit followed by a stale-heartbeat relaunch - which is the F1 mechanism restated.
+- 'The null-floor line is one of the inputs to turning the model off': it is report-only, test-pinned to gate
+    nothing, not exported to Grafana, cited by no doc or vault page; model trust is decided by the live governor
+    on realized outcomes, and switching the model off is cohort-resetting and frozen regardless. Dollars at
+    stake structurally zero because no era-9 trade was sized on the model's p(win).
+
+=== COULD NOT SEE ===
+READ-ONLY, NO BATTERY: nothing on the order path was mutated or replayed; the maker fill rate (0/2), the 15-bps
+    maker booking on crossed post-only entries, and every slip figure are claims about the DRY-RUN FILL
+    SIMULATOR (order_manager.py:1204+), not about Kraken - a live venue has never filled any of these 1,322
+    legs, so every cost number here is a model of a cost. SAMPLE: the only citable cohort is 22 stamp-pure trips
+    (effective n ~6 after overlap deflation); every gross sign in this report is unresolved by construction, and
+    the direction-AUC instruments (26-28 day-blocks) cannot separate 0.50 from ~0.55 - 'no detectable edge' is a
+    power-limited null, not a proof of zero. NOT RE-RUN: the stratified AUC ladder (F0-F5) was re-derived by one
+    lens under a second model family and taken as stated by the other; the per-era gross table was double-
+    derived but on one file (fills.csv) whose 1,030 blank-era legs and one double-written exit are known
+    contamination - a third route through audit.jsonl PT-061 closes was not built. UNRECOVERABLE: the config
+    that booted the cut-#12 era (sha d3a2bfd0) matches no committed revision; whether it differed from the
+    committed one in a decision key cannot be re-derived. UNINVESTIGATED: 40 'runner stale/absent ->
+    relaunching' lines since 09-08 vs 13 live engine boots (a 09-09/10 crash loop plus one 09-10 spawn with no
+    matching CG-000); the status.json SZ-000=1 vs audit 0 discrepancy; the duplicate-runner double-exit
+    (untracked doc exists, not read); the long book (2 of 5 slots, 4 era-9 positions, the era's largest winner)
+    was surveyed by no lane; the watch corpus's direction AUC; the deployed model's fear_greed 'day-label'
+    feature (median 1 distinct value per day) was noted, not attacked. NOT READ THIS SESSION: the live Kraken
+    fee tier (scripts/fee_drift_report.py not run; 15/30 is the 2026-09-08 reading and the tier rolls with real
+    trading); the vault's raw pages behind HANDOFF:1055 and the money-path thesis were cited by lenses, not
+    walked by this synthesis. LIVE FILES MOVED DURING THE SURVEY: fills.csv went from 1,321 to 1,322 legs (a new
+    era-9 entry at 04:25:46Z), status.json fees_total from 24.12 to 24.15, and the event log rotated once during
+    the lanes' work; every count above is as-of its stamped read time, never 'current'. FINDINGS THAT SURVIVED
+    BUT WERE DEMOTED BY BOTH LENSES: all of them - not one carried finding kept its original class or its
+    'decisive' confidence; the survey's carried-in CONTEXT paragraph was the single most-refuted artifact, which
+    is itself the recurrence the-method predicts (a confident number from the least-governed instrument, nothing
+    flagging it).
