@@ -491,3 +491,10 @@ def test_battery_downgrades_the_outputs_guard_so_it_cannot_veto_a_deploy(
         "warn mode - a test-hygiene failure must never block a deploy")
     # intent 2, unchanged: it is the real pytest battery, not a stubbed gate
     assert "tests/" in pytest_calls[0]
+    # intent 3 (2026-10-05): a private basetemp inside the throwaway
+    # worktree, so the battery never leaves a pytest-current link in the
+    # shared temp root that interactive sessions cannot read or remove
+    from pathlib import Path
+    argv = seen["argvs"][idx]
+    bt = [a for a in argv if str(a).startswith("--basetemp=")]
+    assert bt and Path(bt[0].split("=", 1)[1]).parent == tmp_path, argv
