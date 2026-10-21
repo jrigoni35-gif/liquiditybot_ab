@@ -55,6 +55,10 @@ from core.runtime import SingleInstanceLock, read_json  # noqa: E402
 OUT = ROOT / "outputs"
 CHECK_SEC = 30.0
 STALE_SEC = 120.0          # a heartbeat older than this = process is gone
+# A stale status.json whose runner.lock holder pid is still ALIVE is a slow
+# runner, not a dead one, and is waited out up to this ceiling before the
+# normal relaunch. Ops knob only (no decision path); env-overridable.
+RUNNER_WEDGE_SEC = float(os.environ.get("LB_RUNNER_WEDGE_SEC", "600"))
 # test-gated self-update cadence: how often to check origin/main for new code.
 # Default 15 min — the check is a bare `git fetch` + rev compare (auto_update
 # only runs the heavy battery when main actually MOVED, and its single-updater
@@ -832,12 +836,84 @@ def _maybe_launch_opend() -> str:
     return "launched"
 
 
+def _pid_alive(pid: int) -> bool:
+    """True if `pid` names a running process. NEVER os.kill(pid, 0) on
+    Windows: there it calls TerminateProcess and KILLS the target. Uses
+    OpenProcess + GetExitCodeProcess (STILL_ACTIVE) instead; an access-
+    denied open still proves the process exists."""
+    if pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)                  # POSIX: signal 0 = probe only
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    k32.GetExitCodeProcess.argtypes = (wintypes.HANDLE,
+                                       ctypes.POINTER(wintypes.DWORD))
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFO
+    if not h:
+        return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: exists
+    try:
+        code = wintypes.DWORD()
+        return bool(k32.GetExitCodeProcess(h, ctypes.byref(code))) \
+            and code.value == 259            # STILL_ACTIVE
+    finally:
+        k32.CloseHandle(h)
+
+
+def _slow_runner_pid() -> int | None:
+    """The runner.lock holder's pid when the runner is SLOW, not dead: its
+    pid is alive and status.json is younger than RUNNER_WEDGE_SEC. Else
+    None (dead, absent, unreadable, or wedged past the ceiling) and the
+    normal relaunch applies.
+
+    2026-10-20: on a saturated C: disk the live runner wrote status.json
+    late, the 120s check read it as dead, and every ~3 min a duplicate
+    booted (heavy reads -> slower disk), contended the lock, and exited.
+    Two writers also forked the audit chain at 16:58:52. A duplicate cannot
+    help a live runner - the lock makes it exit - so spawning one is pure
+    load. PID reuse after a real death costs at most RUNNER_WEDGE_SEC of
+    delay before the relaunch, which the ceiling bounds."""
+    lock = read_json(OUT / "runner.lock")
+    pid = str(lock.get("pid", "")) if isinstance(lock, dict) else ""
+    if not pid.isdigit() or not _pid_alive(int(pid)):
+        return None
+    st = read_json(OUT / "status.json")
+    try:
+        age = time.time() - float(st.get("written_at", 0.0))  # type: ignore[union-attr]
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return int(pid) if 0 <= age < RUNNER_WEDGE_SEC else None
+
+
+_SLOW_LOG_SEC = 300.0
+_slow_logged_at = 0.0
+
+
 def tick() -> None:
+    global _slow_logged_at
     # 1) runner — the bot itself (boot-grace gated: one spawn per window,
-    # however long the stale heartbeat lingers while the child boots)
-    if not _fresh(OUT / "status.json", key="written_at") and \
-            _spawn_gated("runner", [PY, "runner.py"]):
-        log("runner stale/absent -> relaunching")
+    # however long the stale heartbeat lingers while the child boots).
+    # A live-but-slow lock holder is waited out instead (_slow_runner_pid).
+    if not _fresh(OUT / "status.json", key="written_at"):
+        slow = _slow_runner_pid()
+        if slow is not None:
+            if time.time() - _slow_logged_at >= _SLOW_LOG_SEC:
+                _slow_logged_at = time.time()
+                log(f"runner status stale but lock holder pid {slow} is "
+                    f"alive -> slow, not dead; not spawning a duplicate "
+                    f"(relaunch after {RUNNER_WEDGE_SEC:.0f}s stale)")
+        elif _spawn_gated("runner", [PY, "runner.py"]):
+            log("runner stale/absent -> relaunching")
     # 2) telemetry pushers (optional; only if a token is configured)
     if _telemetry_ready():
         if not _fresh(OUT / "gc_pusher.log") and \

@@ -22,6 +22,8 @@ dropped every Start request. This suite pins the full contract:
   * a booting child is spawned at most once per boot-grace window.
 """
 import json
+import os
+import sys
 import threading
 import time
 
@@ -189,6 +191,77 @@ def test_tick_respawns_stale_runner_at_most_once_per_window(monkeypatch,
     sup.tick()
     sup.tick()                                     # 30s later, still booting
     assert spawned.count("runner.py") == 1         # gated, not doubled
+
+
+def _stale_runner_tick(monkeypatch, tmp_path, holder_pid, status_age):
+    """One tick with status.json `status_age` seconds old and runner.lock
+    held by `holder_pid`; returns the children spawned."""
+    _wire(monkeypatch, tmp_path)
+    monkeypatch.setattr(sup, "_fresh", lambda *a, **k: False)
+    monkeypatch.setattr(sup, "_source_changed", lambda: False)
+    monkeypatch.setattr(sup, "_last_spawn", {})
+    monkeypatch.setattr(sup, "_slow_logged_at", 0.0)
+    (tmp_path / "status.json").write_text(json.dumps(
+        {"written_at": time.time() - status_age}), encoding="utf-8")
+    (tmp_path / "runner.lock").write_text(json.dumps(
+        {"pid": holder_pid, "heartbeat": time.time() - status_age}),
+        encoding="utf-8")
+    spawned = []
+    monkeypatch.setattr(sup, "_spawn", lambda argv, own_log=True:
+                        spawned.append(argv[1]))
+    sup.tick()
+    return spawned
+
+
+def _dead_pid():
+    import subprocess
+    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    p.wait()
+    return p.pid
+
+
+def test_pid_alive_probe_is_truthful_and_never_kills():
+    # os.kill(pid, 0) on Windows TERMINATES the target; the probe must not
+    # (this test process surviving its own probe is the pin)
+    assert sup._pid_alive(os.getpid()) is True
+    assert sup._pid_alive(_dead_pid()) is False
+    assert sup._pid_alive(0) is False
+
+
+def test_tick_waits_out_a_slow_but_live_runner(monkeypatch, tmp_path):
+    # 2026-10-20: saturated disk, live runner wrote status.json late, and a
+    # duplicate booted every ~3 min (lock contention + audit-chain fork)
+    assert _stale_runner_tick(monkeypatch, tmp_path, os.getpid(),
+                              status_age=200.0) == []
+
+
+def test_tick_relaunches_past_the_wedge_ceiling(monkeypatch, tmp_path):
+    # alive pid but stale beyond RUNNER_WEDGE_SEC (wedged, or a reused pid)
+    assert _stale_runner_tick(
+        monkeypatch, tmp_path, os.getpid(),
+        status_age=sup.RUNNER_WEDGE_SEC + 60.0) == ["runner.py"]
+
+
+def test_tick_relaunches_when_lock_holder_is_dead(monkeypatch, tmp_path):
+    assert _stale_runner_tick(monkeypatch, tmp_path, _dead_pid(),
+                              status_age=200.0) == ["runner.py"]
+
+
+def test_tick_relaunches_on_sentinel_lock(monkeypatch, tmp_path):
+    # core/runtime.py's {"pid": "initializing"} carries no real pid
+    assert _stale_runner_tick(monkeypatch, tmp_path, "initializing",
+                              status_age=200.0) == ["runner.py"]
+
+
+def test_tick_relaunches_with_no_lock_file(monkeypatch, tmp_path):
+    _stale_runner_tick(monkeypatch, tmp_path, os.getpid(), status_age=200.0)
+    (tmp_path / "runner.lock").unlink()
+    monkeypatch.setattr(sup, "_last_spawn", {})
+    spawned = []
+    monkeypatch.setattr(sup, "_spawn", lambda argv, own_log=True:
+                        spawned.append(argv[1]))
+    sup.tick()
+    assert spawned == ["runner.py"]
 
 
 def test_lock_stale_window_exceeds_tick_cadence():
