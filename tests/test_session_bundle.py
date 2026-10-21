@@ -59,9 +59,127 @@ def test_export_manifests_files_and_excludes_live_ledger(tmp_path):
     assert m["history"]["rows"] == 2
     assert m["history"]["by_source"] == {"live": 2}
     assert "signal_history.csv" in m["files"]
-    assert "audit.jsonl" in m["files"]
+    assert "audit.jsonl.gz" in m["files"]
     assert not (dst / "state.json").exists()
     assert "state.json" not in m["files"]
+
+
+def test_export_gzips_audit_with_raw_digest(tmp_path):
+    """audit.jsonl ships as audit.jsonl.gz (GitHub's 100 MB per-file limit
+    refused every backup push from 2026-10-05). The manifest's sha256 covers
+    the .gz as shipped; raw_sha256/raw_bytes cover the decompressed log. No
+    plain copy may ride along, including a stale one in a re-used --dest."""
+    out = _seed_outputs(tmp_path)
+    dst = tmp_path / "bundle"
+    dst.mkdir()
+    (dst / "audit.jsonl").write_text("stale plain copy\n", encoding="utf-8")
+    m = sx.export(str(out), str(dst), "qa")
+    meta = m["files"]["audit.jsonl.gz"]
+    assert "audit.jsonl" not in m["files"]
+    assert not (dst / "audit.jsonl").exists()
+    assert meta["sha256"] == sx._sha256(dst / "audit.jsonl.gz")
+    raw = (out / "audit.jsonl").read_bytes()
+    assert meta["raw_bytes"] == len(raw)
+    assert meta["raw_sha256"] == sx._sha256(out / "audit.jsonl")
+    # byte-stable: identical input -> identical .gz (mtime=0 header)
+    m2 = sx.export(str(out), str(tmp_path / "bundle2"), "qa")
+    assert m2["files"]["audit.jsonl.gz"]["sha256"] == meta["sha256"]
+
+
+def test_import_restores_gzipped_audit_byte_exact(tmp_path):
+    out = _seed_outputs(tmp_path)
+    dst = tmp_path / "bundle"
+    sx.export(str(out), str(dst), "qa")
+    home = tmp_path / "home" / "outputs"
+    home.mkdir(parents=True)
+    v = si.verify_bundle(dst)
+    assert v["rc"] == 0 and v["chain"]["ok"]
+    assert si.run(str(dst), str(home), apply=True) == 0
+    rec = home / "imported_sessions" / "qa"
+    assert (rec / "audit.jsonl").read_bytes() == \
+        (out / "audit.jsonl").read_bytes()
+    assert not (rec / "audit.jsonl.gz").exists()
+
+
+def _rewrite_manifest(dst, mutate):
+    mf = json.loads((dst / "manifest.json").read_text(encoding="utf-8"))
+    mutate(mf["files"])
+    (dst / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
+
+
+def test_import_refuses_gz_whose_payload_disagrees_with_manifest(tmp_path):
+    out = _seed_outputs(tmp_path)
+    dst = tmp_path / "bundle"
+    sx.export(str(out), str(dst), "qa")
+    _rewrite_manifest(dst, lambda f: f["audit.jsonl.gz"].update(
+        raw_sha256="0" * 64))
+    home = tmp_path / "home" / "outputs"
+    home.mkdir(parents=True)
+    assert si.run(str(dst), str(home), apply=True) == 2
+    assert not (home / "imported_sessions").exists()
+
+
+def test_import_caps_decompression_at_declared_raw_bytes(tmp_path):
+    """The manifest is attacker-authored: a .gz that inflates past its own
+    raw_bytes is refused mid-stream, never fully written."""
+    out = _seed_outputs(tmp_path)
+    dst = tmp_path / "bundle"
+    sx.export(str(out), str(dst), "qa")
+    _rewrite_manifest(dst, lambda f: f["audit.jsonl.gz"].update(raw_bytes=8))
+    home = tmp_path / "home" / "outputs"
+    home.mkdir(parents=True)
+    assert si.run(str(dst), str(home), apply=False) == 2
+    for bad in (None, -1, True, "123", si._MAX_AUDIT_RAW + 1):
+        _rewrite_manifest(
+            dst, lambda f, b=bad: f["audit.jsonl.gz"].update(raw_bytes=b))
+        assert si.run(str(dst), str(home), apply=False) == 2, bad
+
+
+def test_gunzip_aborts_mid_stream_past_limit(tmp_path):
+    """The cap must stop the stream, not just reject afterwards: a bomb
+    that is only measured after full inflation has already filled the disk.
+    Nothing past `limit` may reach the output file."""
+    import gzip
+    bomb = tmp_path / "bomb.gz"
+    bomb.write_bytes(gzip.compress(b"\0" * (8 << 20)))
+    out = tmp_path / "out"
+    try:
+        si._gunzip_capped(bomb, out, 1 << 20)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("cap did not fire")
+    assert out.stat().st_size <= 1 << 20
+
+
+def test_import_refuses_both_plain_and_gz_audit(tmp_path):
+    out = _seed_outputs(tmp_path)
+    dst = tmp_path / "bundle"
+    sx.export(str(out), str(dst), "qa")
+    (dst / "audit.jsonl").write_bytes((out / "audit.jsonl").read_bytes())
+    _rewrite_manifest(dst, lambda f: f.update({"audit.jsonl": {
+        "sha256": sx._sha256(dst / "audit.jsonl")}}))
+    home = tmp_path / "home" / "outputs"
+    home.mkdir(parents=True)
+    assert si.run(str(dst), str(home), apply=False) == 4
+
+
+def test_import_still_accepts_legacy_plain_audit_bundle(tmp_path):
+    """Bundles already on the telemetry branch carry a plain audit.jsonl;
+    they must keep importing (restore reads the tip, whatever wrote it)."""
+    out = _seed_outputs(tmp_path)
+    dst = tmp_path / "bundle"
+    sx.export(str(out), str(dst), "qa")
+    (dst / "audit.jsonl.gz").unlink()
+    (dst / "audit.jsonl").write_bytes((out / "audit.jsonl").read_bytes())
+    _rewrite_manifest(dst, lambda f: (f.pop("audit.jsonl.gz"), f.update(
+        {"audit.jsonl": {"sha256": sx._sha256(dst / "audit.jsonl")}})))
+    home = tmp_path / "home" / "outputs"
+    home.mkdir(parents=True)
+    v = si.verify_bundle(dst)
+    assert v["rc"] == 0 and v["chain"]["ok"]
+    assert si.run(str(dst), str(home), apply=True) == 0
+    assert (home / "imported_sessions" / "qa" / "audit.jsonl").exists()
 
 
 def test_export_carries_fills_and_retrain_ledgers(tmp_path):

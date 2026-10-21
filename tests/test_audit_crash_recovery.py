@@ -268,18 +268,16 @@ def _seed_outputs(root, pids, audit_records=4):
 
 
 def _bundle_with_broken_audit(tmp_path, breaker):
-    """Build a valid bundle, break its audit chain via breaker(lines)->lines,
-    then re-stamp the manifest sha256 so the FILE-integrity gate passes and
-    the run actually reaches the chain check."""
+    """Break the SOURCE audit chain via breaker(lines)->lines, then export:
+    the bundle's manifest (sha256 of the .gz, raw_sha256 of the log) is
+    honest, so the FILE-integrity gates pass and the run actually reaches
+    the chain check - through the gzip restore path the real export ships."""
     out = _seed_outputs(tmp_path, ("p1", "p2"))
-    dst = tmp_path / "bundle"
-    sx.export(str(out), str(dst), "qa")
-    audit = dst / "audit.jsonl"
+    audit = out / "audit.jsonl"
     lines = audit.read_text(encoding="utf-8").splitlines()
     audit.write_text("\n".join(breaker(lines)) + "\n", encoding="utf-8")
-    mf = json.loads((dst / "manifest.json").read_text(encoding="utf-8"))
-    mf["files"]["audit.jsonl"]["sha256"] = sx._sha256(audit)
-    (dst / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
+    dst = tmp_path / "bundle"
+    sx.export(str(out), str(dst), "qa")
     return dst
 
 

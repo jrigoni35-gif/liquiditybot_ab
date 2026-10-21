@@ -29,11 +29,13 @@ Usage:
 """
 
 import argparse
+import gzip
 import hashlib
 import json
 import re
 import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -93,6 +95,50 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+# Compressed audit trail (session_export.COMPRESSED, 2026-10-20). Restored to
+# the plain name before verify_chain or filing, so every downstream reader of
+# imported_sessions/<label>/audit.jsonl is unchanged. A plain-audit bundle
+# (older exporters) still imports exactly as before.
+_AUDIT_GZ = "audit.jsonl.gz"
+# Decompression-bomb ceiling. The manifest's raw_bytes is attacker-authored,
+# so it bounds the stream only BELOW this hard cap (the live log measured
+# 123,343,301 bytes on 2026-10-20; 4 GiB is ~35x that).
+_MAX_AUDIT_RAW = 4 << 30
+
+
+def _gunzip_capped(src: Path, dst: Path, limit: int) -> tuple[int, str]:
+    """Decompress `src` into `dst`, refusing (ValueError) past `limit` raw
+    bytes. Returns (raw bytes, raw sha256) of what was written."""
+    n, h = 0, hashlib.sha256()
+    with gzip.open(src, "rb") as fin, open(dst, "wb") as fout:
+        for chunk in iter(lambda: fin.read(1 << 20), b""):
+            n += len(chunk)
+            if n > limit:
+                raise ValueError(f"decompresses past {limit} bytes")
+            h.update(chunk)
+            fout.write(chunk)
+    return n, h.hexdigest()
+
+
+def _restore_audit(src: Path, meta, dst: Path) -> str | None:
+    """Decompress the bundle's audit.jsonl.gz to `dst` and check it against
+    the manifest's raw_bytes/raw_sha256. None when it matches, else the
+    one-line reason (an integrity failure: the .gz sha256 already matched,
+    so a mismatch here means the manifest lies about its own payload)."""
+    meta = meta if isinstance(meta, dict) else {}
+    raw_bytes = meta.get("raw_bytes")
+    if (not isinstance(raw_bytes, int) or isinstance(raw_bytes, bool)
+            or not 0 <= raw_bytes <= _MAX_AUDIT_RAW):
+        return f"{_AUDIT_GZ}: raw_bytes missing or out of range"
+    try:
+        n, sha = _gunzip_capped(src / _AUDIT_GZ, dst, raw_bytes)
+    except (OSError, EOFError, ValueError) as e:     # gzip errors are OSError
+        return f"{_AUDIT_GZ}: {str(e)[:120]}"
+    if n != raw_bytes or sha != meta.get("raw_sha256"):
+        return f"{_AUDIT_GZ}: decompressed bytes != manifest raw_sha256"
+    return None
 
 
 def _read_rows(path: Path):
@@ -167,13 +213,25 @@ def verify_bundle(src: Path, strict_audit: bool = False) -> dict:
     # a benign restart seam). So: a TORN TAIL (crashed final append) is benign;
     # a MID-CHAIN break quarantines the audit trail but still imports the rows;
     # only --strict-audit restores the old hard refusal.
+    if _AUDIT_GZ in files and "audit.jsonl" in files:
+        print(f"REFUSED: manifest lists both audit.jsonl and {_AUDIT_GZ} - "
+              f"ambiguous audit trail")
+        return {"rc": 4}
     audit = src / "audit.jsonl"
     chain = None
-    if audit.exists():
-        # verify_chain is READ-ONLY (constructing an AuditTrail would heal a
-        # torn tail by truncating the bundle copy on disk — a side effect that
-        # also defeats --strict-audit's inspection).
-        chain = verify_chain(str(audit))
+    with tempfile.TemporaryDirectory(prefix="lb_import_audit_") as td:
+        if _AUDIT_GZ in files:
+            audit = Path(td) / "audit.jsonl"
+            bad = _restore_audit(src, files[_AUDIT_GZ], audit)
+            if bad:
+                print(f"INTEGRITY FAIL: {bad}")
+                return {"rc": 2}
+        if audit.exists():
+            # verify_chain is READ-ONLY (constructing an AuditTrail would heal
+            # a torn tail by truncating the bundle copy on disk — a side
+            # effect that also defeats --strict-audit's inspection).
+            chain = verify_chain(str(audit))
+    if chain is not None:
         if not chain.get("ok"):
             fb = chain.get("first_break")
             # --strict-audit refuses ANY anomaly (torn, seam, or tamper),
@@ -214,8 +272,9 @@ def run(src: str, outputs: str, apply: bool,
     # audit.jsonl actually being a MANIFEST file (the copy loop only files
     # those) so the "QUARANTINED as ..." message can't fire when nothing is
     # filed (an on-disk-but-unlisted audit.jsonl).
-    audit_quarantined = bool(chain and chain.get("tamper")
-                             and "audit.jsonl" in manifest.get("files", {}))
+    audit_quarantined = bool(
+        chain and chain.get("tamper")
+        and {"audit.jsonl", _AUDIT_GZ} & set(manifest.get("files", {})))
 
     expected = HistoryStore(str(out / "signal_history.csv"))._header
     hist_src = srcp / "signal_history.csv"
@@ -389,6 +448,16 @@ def run(src: str, outputs: str, apply: bool,
     record.mkdir(parents=True, exist_ok=True)
     for name in manifest.get("files", {}):
         if name == "signal_history.csv" or not (srcp / name).exists():
+            continue
+        if name == _AUDIT_GZ:
+            # filed DECOMPRESSED under the plain name (or its quarantine
+            # name), so record readers never see the transport encoding.
+            # verify_bundle already proved it matches raw_sha256.
+            meta = manifest["files"][name]
+            _gunzip_capped(srcp / name,
+                           record / ("audit.jsonl.QUARANTINED"
+                                     if audit_quarantined else "audit.jsonl"),
+                           meta["raw_bytes"])
             continue
         # a mid-chain-broken audit trail is filed under a .QUARANTINED name so
         # nothing downstream (a future verify, a digest) mistakes it for a

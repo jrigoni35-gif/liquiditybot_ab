@@ -10,7 +10,7 @@ scripts/session_import.py verifies and merges a bundle ON THE OPERATOR'S
 MACHINE, after human review ("proof-read"), never automatically.
 
 What travels: signal_history.csv (labeled training rows), audit.jsonl
-(hash-chained provenance), equity.csv, session digest, check-in log,
+(hash-chained provenance; shipped as audit.jsonl.gz, see COMPRESSED), equity.csv, session digest, check-in log,
 postmortem summary, overfit report. What NEVER travels: state.json /
 status.json (a live ledger belongs to exactly one runner - importing
 positions elsewhere would fork the book), locks, console logs.
@@ -21,6 +21,7 @@ Usage:
 """
 
 import argparse
+import gzip
 import hashlib
 import json
 import shutil
@@ -62,6 +63,16 @@ PORTABLE = [
     "target_book/paper/target_book_paper.json",
     "reports/forward/forward_reads.json",
 ]
+# Shipped GZIP-COMPRESSED as `<name>.gz` (2026-10-20). The bundle travels as
+# git blobs and GitHub rejects any file over 100 MB: audit.jsonl crossed that
+# on 2026-10-05 and every telemetry_backup push was refused from then until
+# this fix, while pc_status pushes kept succeeding, so nothing looked wrong.
+# The audit log is hash-chained JSON (measured 17x smaller under gzip).
+# The manifest's sha256/bytes describe the .gz as shipped (transport check,
+# unchanged contract); raw_sha256/raw_bytes describe the decompressed log,
+# which session_import restores to the plain name before anything reads it.
+# mtime=0 keeps the stream byte-stable for identical input.
+COMPRESSED = {"audit.jsonl"}
 NEVER = {"state.json", "state.json.bak", "status.json", "runner.lock",
          "runner.pid"}
 # Quarantined snapshots (core/persistence._quarantine writes
@@ -83,6 +94,22 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _gzip_to(src: Path, dst: Path) -> tuple[int, str]:
+    """Stream-compress `src` to `dst` (mtime=0: byte-stable header).
+    Returns (raw bytes, raw sha256) of the bytes ACTUALLY compressed, from
+    the same single read: the live log keeps growing, so a second read to
+    hash it could describe a longer file than the one shipped."""
+    n, h = 0, hashlib.sha256()
+    with open(src, "rb") as fin, open(dst, "wb") as raw_out, \
+            gzip.GzipFile(filename="", mode="wb", fileobj=raw_out,
+                          mtime=0) as gz:
+        for chunk in iter(lambda: fin.read(1 << 20), b""):
+            gz.write(chunk)
+            h.update(chunk)
+            n += len(chunk)
+    return n, h.hexdigest()
 
 
 def _git_sha(repo: Path) -> str:
@@ -141,7 +168,19 @@ def export(outputs: str, dest: str, label: str,
         assert travels(Path(rel).name), f"{rel} may never leave this box"
         if not srcf.exists():
             continue
-        target = dst / Path(rel).name
+        name = Path(rel).name
+        if name in COMPRESSED:
+            # a re-used --dest may hold a stale plain copy from an older
+            # export; leaving it would let an importer read it as the trail
+            (dst / name).unlink(missing_ok=True)
+            target = dst / f"{name}.gz"
+            raw_bytes, raw_sha = _gzip_to(srcf, target)
+            files[target.name] = {"sha256": _sha256(target),
+                                  "bytes": target.stat().st_size,
+                                  "raw_sha256": raw_sha,
+                                  "raw_bytes": raw_bytes}
+            continue
+        target = dst / name
         shutil.copy2(srcf, target)
         files[target.name] = {"sha256": _sha256(target),
                               "bytes": target.stat().st_size}
