@@ -2,13 +2,13 @@
 
 **Verdict: SD-007 audit chain broken**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-10-22 21:30 UTC (2509.62h, ~1162 cycles)
+- Window: 2026-07-10 07:53 UTC -> 2026-10-22 22:30 UTC (2510.62h, ~1162 cycles)
 - Equity (current capital epoch): $800.00 -> $737.95 (range $69.16) | 5 epochs lifetime, range $99,262.28 | realized PnL (post-close-fee) $-41.64 | fees (all legs) $51.82
 - Activity: 2 open | 559 live labeled trades | 38111 candidates | 476 postmortems
 - Model: level 1 | use_model=True | brier n/a | history_rows 559 | cold=False
 - Audit: 95113 main-chain records (2308 off-chain fork rows excluded from counts) (38415 non-routine) | dominant SZ-047 (58% of non-routine) | chain=TAMPER(first_break=97362) | retrain_requests 286
 - Liquidity: spoofy 0% of non-liquid cycles | feed errors 275
-- Recent (48h lens): 4 audit records | dominant CG-000 (50% of non-routine) | retrain_requests 0 | spoofy 0% (non-liquid)
+- Recent (48h lens): 0 audit records | dominant None (0% of non-routine) | retrain_requests 0 | spoofy 0% (non-liquid)
 - Eras: current 12-10d4d0c2 | signal_history exec_era: unavailable (signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)) | fills per exec_era: {'prestamp': 1030, '12-10d4d0c2': 299, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4} (1561 rows) | pooling_hazard=True (source fills.exec_era)
 - RAW signal-file span (signal_ts, all 38670 rows on disk): 2026-07-13T12:35:47Z -> 2026-10-09T19:54:13Z (88.3d) - NOT the TRAINED corpus span: era exclusion + the label_era filter drop rows, so the span the champion is SCORED on is shorter. For that one (the MinBTL / Sharpe-SE denominator) run scripts/champion_skill_report.py --json -> corpus_span_days
 
