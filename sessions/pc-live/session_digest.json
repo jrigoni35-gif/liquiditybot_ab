@@ -1,10 +1,10 @@
 {
-  "generated_at": 1792827125.7698529,
+  "generated_at": 1792830727.3378649,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1792827119.0,
-    "duration_h": 2543.64
+    "end": 1792830720.0,
+    "duration_h": 2544.64
   },
   "recent": {
     "hours": 48.0,
@@ -19,12 +19,11 @@
       "kill_switch_events": 0
     },
     "events": {
-      "records": 1000,
+      "records": 1002,
       "by_level": {
-        "INFO": 961,
+        "INFO": 964,
         "WARNING": 34,
-        "CRITICAL": 4,
-        "ERROR": 1
+        "CRITICAL": 4
       },
       "top_warnings": [
         [
@@ -32,24 +31,8 @@
           12
         ],
         [
-          "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Read timed out. (read ",
-          1
-        ],
-        [
-          "ws disconnect ([Errno 11001] getaddrinfo failed); reconnecting in 4.1s (attempt 3)",
-          1
-        ],
-        [
-          "ws disconnect ([Errno 11001] getaddrinfo failed); reconnecting in 9.0s (attempt 4)",
-          1
-        ],
-        [
-          "ws disconnect ([Errno 11001] getaddrinfo failed); reconnecting in 16.9s (attempt 5)",
-          1
-        ],
-        [
-          "ws disconnect ([Errno 11001] getaddrinfo failed); reconnecting in 32.6s (attempt 6)",
-          1
+          "ws disconnect ([Errno 11001] getaddrinfo failed); reconnecting in 16.2s (attempt 5)",
+          2
         ],
         [
           "ws disconnect (timed out during opening handshake); reconnecting in 4.3s (attempt 3)",
@@ -66,6 +49,22 @@
         [
           "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
           1
+        ],
+        [
+          "config: ml.era_exclusion.min_new_era_rows (150) is BELOW scripts/overfit_check.py's synthetic-substitution floor (680 = 68 features x 10 row",
+          1
+        ],
+        [
+          "config: ml.exploration.admission.budget.burst_hours (24.0) != the labeler's own horizon (label_max_bars 432 x 5m = 36.0h) - capacity should ",
+          1
+        ],
+        [
+          "config: order_manager.sim_fill.queue_aware=true: verify passive fills are not starved at your live sigma/poll-cadence before trusting the la",
+          1
+        ],
+        [
+          "loop advanced again - resuming the lock heartbeat",
+          1
         ]
       ],
       "liquidity_tally": {
@@ -74,7 +73,7 @@
       "spoofy_frac": 0.0,
       "liq_lens": "non_liquid_cycles_only",
       "cycles_estimate": 52,
-      "feed_error_events": 1
+      "feed_error_events": 0
     }
   },
   "pnl": {
@@ -85,7 +84,7 @@
     "equity_max": 806.91,
     "equity_range": 69.16,
     "capital_epochs": 5,
-    "epoch_samples": 342362,
+    "epoch_samples": 342602,
     "lifetime_equity_start": 25000.0,
     "lifetime_equity_min": 737.75,
     "lifetime_equity_max": 100000.03,
@@ -93,7 +92,7 @@
     "realized_pnl_total": -41.64,
     "fees_paid_total": 51.8243,
     "open_positions": 2,
-    "samples": 510153
+    "samples": 510393
   },
   "activity": {
     "signal_rows_total": 38670,
@@ -311,11 +310,11 @@
     ]
   },
   "events": {
-    "records": 21976,
+    "records": 22004,
     "by_level": {
-      "INFO": 21477,
+      "INFO": 21500,
       "ERROR": 248,
-      "WARNING": 232,
+      "WARNING": 237,
       "CRITICAL": 19
     },
     "top_warnings": [
@@ -333,7 +332,7 @@
       ],
       [
         "control: pause {'reason': 'checkin[4h]: session_digest verdict: SD-007 audit chain broken; audit hash chain broken at 97362'} -> ok (runner=",
-        20
+        21
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/OHLC: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded w",
@@ -361,7 +360,7 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 2061,
+      "thin": 2063,
       "spoofy": 7
     },
     "spoofy_frac": 0.003,
