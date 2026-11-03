@@ -2,7 +2,7 @@
 
 **Verdict: SD-007 audit chain broken**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-11-03 10:26 UTC (2786.55h, ~1189 cycles)
+- Window: 2026-07-10 07:53 UTC -> 2026-11-03 11:26 UTC (2787.55h, ~1189 cycles)
 - Equity (current capital epoch): $800.00 -> $734.47 (range $72.71) | 5 epochs lifetime, range $99,265.83 | realized PnL (post-close-fee) $-41.64 | fees (all legs) $51.90
 - Activity: 3 open | 559 live labeled trades | 38159 candidates | 476 postmortems
 - Model: level 1 | use_model=True | brier n/a | history_rows 559 | cold=False
