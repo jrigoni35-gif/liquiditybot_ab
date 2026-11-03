@@ -2,11 +2,11 @@
 
 **Verdict: SD-007 audit chain broken**
 
-- Window: 2026-07-10 07:53 UTC -> 2026-11-03 09:26 UTC (2785.55h, ~1182 cycles)
-- Equity (current capital epoch): $800.00 -> $734.43 (range $72.71) | 5 epochs lifetime, range $99,265.83 | realized PnL (post-close-fee) $-41.64 | fees (all legs) $51.90
+- Window: 2026-07-10 07:53 UTC -> 2026-11-03 10:26 UTC (2786.55h, ~1189 cycles)
+- Equity (current capital epoch): $800.00 -> $734.47 (range $72.71) | 5 epochs lifetime, range $99,265.83 | realized PnL (post-close-fee) $-41.64 | fees (all legs) $51.90
 - Activity: 3 open | 559 live labeled trades | 38159 candidates | 476 postmortems
 - Model: level 1 | use_model=True | brier n/a | history_rows 559 | cold=False
-- Audit: 95113 main-chain records (2363 off-chain fork rows excluded from counts) (38415 non-routine) | dominant SZ-047 (58% of non-routine) | chain=TAMPER(first_break=97362) | retrain_requests 286
+- Audit: 95113 main-chain records (2367 off-chain fork rows excluded from counts) (38415 non-routine) | dominant SZ-047 (58% of non-routine) | chain=TAMPER(first_break=97362) | retrain_requests 286
 - Liquidity: spoofy 0% of non-liquid cycles | feed errors 295
 - Recent (48h lens): 0 audit records | dominant None (0% of non-routine) | retrain_requests 0 | spoofy 0% (non-liquid)
 - Eras: current 12-10d4d0c2 | signal_history exec_era: unavailable (signal_history.csv has no exec_era column (100 columns; label_era present=True, a label-definition axis, not the execution era)) | fills per exec_era: {'prestamp': 1030, '12-10d4d0c2': 301, '7-e7d5ca1a': 133, '9-16ec821e': 68, '8-ca55e2ba': 10, '10-a5acfe2d': 9, '11-6e584923': 8, '4-aeeaae36': 4} (1563 rows) | pooling_hazard=True (source fills.exec_era)
