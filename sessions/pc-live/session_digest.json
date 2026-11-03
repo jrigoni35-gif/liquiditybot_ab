@@ -1,10 +1,10 @@
 {
-  "generated_at": 1793694409.8090003,
+  "generated_at": 1793698011.189893,
   "outputs_dir": "outputs",
   "window": {
     "start": 1783670016.0,
-    "end": 1793694394.0,
-    "duration_h": 2784.55
+    "end": 1793698001.0,
+    "duration_h": 2785.55
   },
   "recent": {
     "hours": 48.0,
@@ -19,16 +19,25 @@
       "kill_switch_events": 0
     },
     "events": {
-      "records": 499,
+      "records": 797,
       "by_level": {
-        "INFO": 432,
-        "WARNING": 60,
+        "INFO": 709,
+        "WARNING": 62,
+        "ERROR": 19,
         "CRITICAL": 7
       },
       "top_warnings": [
         [
+          "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
+          9
+        ],
+        [
           "outputs\\force_dry.on present: config is already dry_run - sentinel is a no-op this boot",
           8
+        ],
+        [
+          "Kraken request failed for https://api.kraken.com/0/public/Depth: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded ",
+          6
         ],
         [
           "darkpool poll failed (mirror stale: newest period_end 2026-04-24 is 193d old (> 35d)) - snapshot degraded",
@@ -57,42 +66,34 @@
         [
           "loop has not advanced in >300s - WITHHOLDING the lock heartbeat so a healthy runner can take this outputs/ dir over. This process is alive b",
           2
-        ],
-        [
-          "watch_lane: restore: pool age 71.0h outside [-1.0, 36.0]h - dropped 399 candidate(s)",
-          2
-        ],
-        [
-          "loop advanced again - resuming the lock heartbeat",
-          2
         ]
       ],
       "liquidity_tally": {
-        "thin": 32
+        "thin": 56
       },
       "spoofy_frac": 0.0,
       "liq_lens": "non_liquid_cycles_only",
-      "cycles_estimate": 9,
-      "feed_error_events": 0
+      "cycles_estimate": 20,
+      "feed_error_events": 20
     }
   },
   "pnl": {
     "starting_capital": 800.0,
     "equity_start": 800.0,
-    "equity_end": 734.36,
-    "equity_min": 734.34,
+    "equity_end": 734.43,
+    "equity_min": 734.2,
     "equity_max": 806.91,
-    "equity_range": 72.57,
+    "equity_range": 72.71,
     "capital_epochs": 5,
-    "epoch_samples": 383118,
+    "epoch_samples": 383355,
     "lifetime_equity_start": 25000.0,
-    "lifetime_equity_min": 734.34,
+    "lifetime_equity_min": 734.2,
     "lifetime_equity_max": 100000.03,
-    "lifetime_equity_range": 99265.69,
+    "lifetime_equity_range": 99265.83,
     "realized_pnl_total": -41.64,
     "fees_paid_total": 51.8994,
     "open_positions": 3,
-    "samples": 550909
+    "samples": 551146
   },
   "activity": {
     "signal_rows_total": 38718,
@@ -177,13 +178,13 @@
     "chain_seams": 70,
     "chain_torn_tail": false,
     "chain_error": null,
-    "records_all_lines": 97464,
+    "records_all_lines": 97476,
     "main_chain_records": 95113,
-    "off_chain_records": 2351,
+    "off_chain_records": 2363,
     "off_chain_codes": {
-      "LB-010": 314,
+      "LB-010": 318,
       "FW-050": 312,
-      "LB-050": 288,
+      "LB-050": 290,
       "CX-030": 284,
       "OM-040": 251,
       "CV-010": 244,
@@ -191,28 +192,28 @@
       "FT-020": 170,
       "CG-000": 154,
       "OM-000": 28,
-      "CV-000": 24,
+      "CV-000": 26,
       "ML-030": 19,
       "RT-010": 18,
       "FT-010": 16,
       "ML-050": 6,
       "SZ-053": 6,
-      "EN-000": 5,
-      "DE-010": 5,
+      "EN-000": 6,
+      "DE-010": 6,
       "SZ-051": 4,
       "ML-032": 4,
       "ML-031": 3,
       "ML-076": 3,
       "PT-061": 3,
       "CV-030": 2,
+      "ML-016": 2,
+      "ML-041": 2,
       "OM-080": 1,
       "OM-013": 1,
       "LB-000": 1,
       "RP-070": 1,
       "RP-071": 1,
-      "ML-016": 1,
       "ML-042": 1,
-      "ML-041": 1,
       "SZ-048": 1,
       "ML-070": 1
     },
@@ -317,21 +318,21 @@
     ]
   },
   "events": {
-    "records": 25586,
+    "records": 25884,
     "by_level": {
-      "INFO": 24944,
-      "WARNING": 368,
-      "ERROR": 248,
+      "INFO": 25221,
+      "WARNING": 370,
+      "ERROR": 267,
       "CRITICAL": 26
     },
     "top_warnings": [
       [
         "Kraken request failed for https://api.kraken.com/0/public/Ticker: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded",
-        99
+        108
       ],
       [
         "Kraken request failed for https://api.kraken.com/0/public/Depth: HTTPSConnectionPool(host='api.kraken.com', port=443): Max retries exceeded ",
-        79
+        85
       ],
       [
         "control: pause {'reason': 'checkin[4h]: session_digest verdict: SD-007 audit chain broken; audit hash chain broken at 97362'} -> ok (runner=",
@@ -367,13 +368,13 @@
       ]
     ],
     "liquidity_tally": {
-      "thin": 2515,
+      "thin": 2539,
       "spoofy": 7
     },
     "spoofy_frac": 0.003,
     "liq_lens": "non_liquid_cycles_only",
-    "cycles_estimate": 1164,
-    "feed_error_events": 275
+    "cycles_estimate": 1182,
+    "feed_error_events": 295
   },
   "model": {
     "monitor_level": 1,
